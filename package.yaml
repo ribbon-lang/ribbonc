@@ -1,0 +1,44 @@
+name: ribbonc
+version: 0.1.0.0
+
+default-extensions:
+    - LambdaCase
+    - BlockArguments
+
+    - ScopedTypeVariables
+
+    - ImportQualifiedPost
+
+    - FlexibleInstances
+    - FlexibleContexts
+    - UndecidableInstances
+    - MultiParamTypeClasses
+    - FunctionalDependencies
+
+    - PatternSynonyms
+    - ViewPatterns
+
+    - TupleSections
+
+    - GeneralizedNewtypeDeriving
+    - DerivingStrategies
+    - DeriveFunctor
+    - DeriveFoldable
+    - DeriveTraversable
+
+
+ghc-options:
+    - -Wall
+
+dependencies:
+    - base
+    - containers
+    - bimap
+    - mtl
+    - hashable
+    - array
+
+executables:
+    ribbonc:
+        main: Main.hs
+        source-dirs: src

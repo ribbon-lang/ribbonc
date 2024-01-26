@@ -1,0 +1,6 @@
+.depr
+.local
+.vscode
+.stack-work
+stack.yaml.lock
+ribbonc.cabal
