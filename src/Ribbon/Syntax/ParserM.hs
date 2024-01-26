@@ -3,10 +3,10 @@ module Ribbon.Syntax.ParserM where
 import Data.Sequence (Seq)
 import Data.Sequence qualified as Seq
 
-import Data.Functor ((<&>))
-
 import Data.Set (Set)
 import Data.Set qualified as Set
+
+import Data.Functor
 
 import Control.Monad
 import Control.Monad.State
@@ -35,11 +35,24 @@ instance Unexpected TokenKind where
     formatUnexpected = display
 
 -- | Input type for ParserM
-type ParseStream i = Seq (Syn i)
+data ParseStream i
+    -- | Create a new ParseStream
+    = ParseStream
+    -- | The input sequence of syntax objects to parse
+    { psInput :: Seq (Syn i)
+    -- | The file associated with the input sequence
+    , psFile :: File
+    }
+    deriving Show
 
 -- | ParserM error type
 data ParseExcept
+    -- | Indicates an unrecoverable error during parsing,
+    --   with a message ascribed an Attr that describes the error
     = ParseError (Syn String)
+    -- | Indicates a recoverable error during parsing
+    --   with an offset in the ParseStream,
+    --   and a set of expectations that were not met
     | ParseFail Int (Set String)
     deriving Show
 
@@ -93,7 +106,8 @@ instance Alternative (ParserM i) where
     ParserM a <|> ParserM b = ParserM \s i ->
         case a s i of
             Left (ParseFail ia mas) -> case b s i of
-                Left (ParseFail ib mbs) -> Left (ParseFail (min ia ib) (mas <> mbs))
+                Left (ParseFail ib mbs) ->
+                    Left (ParseFail (min ia ib) (mas <> mbs))
                 x -> x
             x -> x
 
@@ -118,17 +132,17 @@ instance MonadState Int (ParserM i) where
 
 -- | Get the Attr for a particular offset in a ParseStream
 psAttr :: ParseStream i -> Int -> Attr
-psAttr ps i = case Seq.lookup i ps of
+psAttr ps i = case Seq.lookup i (psInput ps) of
     Just (_ :@: x) -> x
-    _ -> error "invalid attribute index for psAttr"
+    _ -> Attr maxBound maxBound (psFile ps)
 
 -- | Get the syntax object for a particular offset in a ParseStream
 psValue :: ParseStream i -> Int -> Maybe i
-psValue ps i = synData <$> Seq.lookup i ps
+psValue ps i = synData <$> Seq.lookup i (psInput ps)
 
 -- | Get the length of a ParseStream
 psLength :: ParseStream i -> Int
-psLength = Seq.length
+psLength = Seq.length . psInput
 
 -- | Throw a custom parser error in the current monad.
 --   Note that you would normally use
@@ -214,7 +228,7 @@ format :: (Unexpected i, Display i) => ParseStream i -> Int -> Set String -> Str
 format s i msgs =
     if Set.null msgs
         then formatInput s i
-        else formatExpected msgs
+        else formatInput s i <> "\n\t" <> formatExpected msgs
 
 -- | Run a parser, and if it fails, convert the failure to a parse error
 noFail :: (Unexpected i, Display i, ParserMonad i m) => m a -> m a
@@ -417,3 +431,38 @@ listSome sep p = do
 --   The list may be empty
 listMany :: ParserMonad i m => m sep -> m a -> m [a]
 listMany sep p = recoverWith (pure []) (listSome sep p)
+
+-- | Use a predicate to grab a sequence of elements from the stream,
+--   then run the provided action to parse the sequence
+grabbing :: ParserMonad i m => (Syn i -> Bool) -> m a -> m a
+grabbing f p = do
+    i <- getOffset
+    file <- asks psFile
+    sq <- Seq.fromList <$> many (nextIfAttr f)
+    (a, j) <- local (const (ParseStream sq file)) do
+        liftA2 (,) p getOffset
+    a <$ setOffset (i + j)
+
+-- | Grab a sequence of elements from the stream,
+--   delimited by their indentation level,
+--   then run the provided action to parse the sequence
+grabbingWhitespaceDomain :: ParserMonad i m => m a -> m a
+grabbingWhitespaceDomain p = do
+    l <- attr
+    grabbing (wsDominated l) p
+    where
+        wsDominated l (_ :@: l') =
+            case (attrStartLc l, attrStartLc l') of
+                (Lc l1 c1, Lc l2 c2)
+                    -> (l1 <= l2 && c1 < c2)
+                    || (l1 == l2 && c1 <= c2)
+                _ -> True
+
+-- | Grab a sequence of elements from the stream,
+--   delimited by their indentation level
+grabBlock :: ParserMonad i m => m [Syn i]
+grabBlock = grabbingWhitespaceDomain (some nextAttr)
+
+-- | @some grabBlock@
+grabBlocks :: ParserMonad i m => m [[Syn i]]
+grabBlocks = some grabBlock

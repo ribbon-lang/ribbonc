@@ -33,7 +33,7 @@ evalLexer :: Lexer a -> File -> Either String a
 evalLexer lx file =
     let input = Seq.fromList $ uncurry (:@:) <$>
             zip (fileText file) ((`unitAttr` file) <$> [0..])
-    in case runParser (noFail $ consumesAll lx) input 0 of
+    in case runParser (noFail $ consumesAll lx) (ParseStream input file) 0 of
         Left (ParseError (msg :@: x)) ->
             Left $ "lexical error " <> show x <> ": " <> msg
         Left _ -> undefined
@@ -234,6 +234,7 @@ dotSequence = expecting "dot sequence" do
 symbol :: Lexer String
 symbol = asum
     [ identifier
+    , operator
     , punctuation
     , dotSequence
     ]

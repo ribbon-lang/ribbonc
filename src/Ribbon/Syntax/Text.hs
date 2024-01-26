@@ -8,7 +8,7 @@ import Data.Char qualified as Char
 -- | Predicate checking if a character is part of a whitespace segment,
 --   but not a newline
 isWhitespace :: Char -> Bool
-isWhitespace = Char.isSpace
+isWhitespace = (`elem` " \t\r\n")
 
 
 -- | Predicate checking if a character is a valid
