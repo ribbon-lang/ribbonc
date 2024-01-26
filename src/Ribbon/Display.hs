@@ -47,6 +47,10 @@ instance {-# OVERLAPPING #-} (Display k, Display a) => Display (Map k a) where
 instance {-# OVERLAPPING #-} Display a => Display (Maybe a) where
     display = maybe "Nothing" (parens . ("Just " <>) . display)
 
+instance {-# OVERLAPPING #-} (Display a, Display b)
+    => Display (Either a b) where
+    display = parens . either (("Left " <>) . display) (("Right " <>) . display)
+
 instance {-# OVERLAPPING #-} (Display a, Display b) => Display (a, b) where
     display (a, b) = parens $
         display a <> ", " <> display b
