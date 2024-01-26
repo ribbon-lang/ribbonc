@@ -2,5 +2,6 @@
 .local
 .vscode
 .stack-work
+dist-newstyle
 stack.yaml.lock
 ribbonc.cabal
