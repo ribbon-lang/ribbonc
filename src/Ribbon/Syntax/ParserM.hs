@@ -206,9 +206,21 @@ expecting :: ParserMonad i m => String -> m a -> m a
 expecting msg p = catchParseFail p \_ _ -> fail msg
 
 -- | If the given parser fails,
+--   extend its expectation set with the given message
+expecting' :: ParserMonad i m => String -> m a -> m a
+expecting' msg p = catchParseFail p \_ msgs ->
+    failMulti (msg : Set.toList msgs)
+
+-- | If the given parser fails,
 --   replace its expectation set with the given one
 expectingMulti :: ParserMonad i m => [String] -> m a -> m a
 expectingMulti msgs m = m `catchParseFail` \_ _ -> failMulti msgs
+
+-- | If the given parser fails,
+--   extend its expectation set with the given one
+expectingMulti' :: ParserMonad i m => [String] -> m a -> m a
+expectingMulti' msgs m = m `catchParseFail` \_ msgs' ->
+    failMulti (msgs <> Set.toList msgs')
 
 -- | Formatting function for unexpected input, or expected input at EOF
 formatInput :: Unexpected i => ParseStream i -> Int -> String
@@ -228,7 +240,7 @@ format :: (Unexpected i, Display i) => ParseStream i -> Int -> Set String -> Str
 format s i msgs =
     if Set.null msgs
         then formatInput s i
-        else formatInput s i <> "\n\t" <> formatExpected msgs
+        else formatExpected msgs
 
 -- | Run a parser, and if it fails, convert the failure to a parse error
 noFail :: (Unexpected i, Display i, ParserMonad i m) => m a -> m a
@@ -309,10 +321,15 @@ attrNext = attr << optional advance
 -- | Wraps the output of a parser in a Syn with an Attr for the range consumed
 syn :: (ParserMonad i m) => m a -> m (Syn a)
 syn p = do
-    x1 <- attr
+    i1 <- getOffset
     a <- p
-    x2 <- attr
-    pure (a :@: (x1 <> x2))
+    i2 <- getOffset
+    (a :@:) <$> buildAttr i1 i2
+
+buildAttr :: ParserMonad i m => Int -> Int -> m Attr
+buildAttr i1 i2 = do
+    s <- parseStream
+    pure (psAttr s i1 <> psAttr s (i2 - 1))
 
 -- | Execute @syn@ and discard the result, keeping only the Attr generated
 attrOf :: ParserMonad i m => m a -> m Attr

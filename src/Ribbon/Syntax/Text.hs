@@ -40,12 +40,17 @@ isOperatorSubsequent c
      = not (Char.isSpace c)
     && not (Char.isControl c)
     && not (Char.isAlphaNum c)
-    && c `notElem` "()[]{}\"\',;."
+    && c `notElem` "()[]{}\"\'`,;."
 
 
 -- | Predicate checking if a character is syntactic punctuation
 isPunctuation :: Char -> Bool
 isPunctuation c = c `elem` "()[]{},;"
+
+-- | Predicate checking if a character is a syntactic sentinel,
+--  such as closing parens or commas
+isSentinel :: Char -> Bool
+isSentinel c = c `elem` ")]},;"
 
 -- | Predicate checking if a character is a dot operator
 isDot :: Char -> Bool
@@ -62,9 +67,9 @@ reserved =
     , "=", ":"
     ]
 
--- | Predicate checking if a string is a reserved identifier
-isReservedIdentifier :: String -> Bool
-isReservedIdentifier = (`elem` reserved)
+-- | Predicate checking if a string is a reserved identifier or operator
+isReserved :: String -> Bool
+isReserved = (`elem` reserved)
 
 
 -- | Attempt to convert a String to an Int, using base 2

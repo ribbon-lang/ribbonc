@@ -11,14 +11,18 @@ import qualified Data.Maybe as Maybe
 -- | Wrapper for syntax objects, with source attribution
 data Syn a
     -- | Attaches source attribution to a syntax object
-    = (:@:)
-    -- | Syntax object inside Syn
-    { synData :: a
-    -- | Source attribution of a Syn object
-    , synAttr :: Attr
-    }
-    deriving (Functor, Foldable, Traversable)
+    = a :@: Attr
+    deriving (Show, Functor, Foldable, Traversable)
 infixl 9 :@:
+
+
+-- | Get the syntax object inside Syn
+synData :: Syn a -> a
+synData (a :@: _) = a
+
+-- | Get the source attribution of a Syn object
+synAttr :: Syn a -> Attr
+synAttr (_ :@: x) = x
 
 -- | Pattern alias for Syn without source attribution
 pattern Sn :: a -> Syn a
@@ -73,9 +77,6 @@ instance Eq a => Eq (Syn a) where
 instance Ord a => Ord (Syn a) where
     compare a b = compare (synData a) (synData b)
 
-instance Show a => Show (Syn a) where
-    show = show . synData
-
 instance Display a => Display (Syn a) where
     display = display . synData
 
@@ -95,9 +96,9 @@ instance Show Attr where
             (Lc ls cs, Lc le ce)
                 -> ":" <> show ls <> ":" <> show cs
                 <> "-" <> show le <> ":" <> show ce
-            (EOF, EOF) -> ""
-            (Lc ls cs, EOF) -> ":" <> show ls <> ":" <> show cs
-            (EOF, Lc le ce) -> "-" <> show le <> ":" <> show ce
+            (EOF, EOF) -> ":EOF-EOF"
+            (Lc ls cs, EOF) -> ":" <> show ls <> ":" <> show cs <> "-EOF"
+            (EOF, Lc le ce) -> ":EOF-" <> show le <> ":" <> show ce
 
 
 instance Eq File where
@@ -108,10 +109,6 @@ instance Ord File where
 
 instance Show File where
     show = fileName
-
--- | Convert a Syn to a pair
-synSplit :: Syn a -> (a, Attr)
-synSplit (a :@: attr) = (a, attr)
 
 -- | Create an Attr with a unit range
 unitAttr :: Pos -> File -> Attr
@@ -152,3 +149,48 @@ computeLineAndColumnDb text = go 1 1 text Seq.empty where
 -- | Get a line and column for a given file and position.
 getLc :: File -> Pos -> Lc
 getLc file pos = Maybe.fromMaybe EOF (lineAndColumnDb file Seq.!? pos)
+
+
+
+
+-- | Convert a Syn to a pair
+synSplit :: Syn a -> (a, Attr)
+synSplit (a :@: attr) = (a, attr)
+
+synExtWithA :: Attr -> (Syn a -> b) -> (Syn a -> Syn b)
+synExtWithA t f x = f x :@: (t <> synAttr x)
+
+synExtWithB :: Attr -> (Syn a -> b) -> (Syn a -> Syn b)
+synExtWithB t f x =  f x :@: (synAttr x <> t)
+
+synExt :: (Syn a -> b) -> (Syn a -> Syn b)
+synExt f x = f x :@: synAttr x
+
+synApp :: (Syn a -> Syn b -> c) -> Syn a -> Syn b -> Syn c
+synApp f x y = f x y :@: (synAttr x <> synAttr y)
+
+synAppWithA :: Attr -> (Syn a -> Syn b -> c) -> Syn a -> Syn b -> Syn c
+synAppWithA t f x y = f x y :@: (t <> synAttr x <> synAttr y)
+
+synAppWithB :: Attr -> (Syn a -> Syn b -> c) -> Syn a -> Syn b -> Syn c
+synAppWithB t f x y = f x y :@: (synAttr x <> t <> synAttr y)
+
+synAppWithC :: Attr -> (Syn a -> Syn b -> c) -> Syn a -> Syn b -> Syn c
+synAppWithC t f x y = f x y :@: (synAttr x <> synAttr y <> t)
+
+
+reSyn :: Attr -> Syn a -> Syn a
+reSyn x (a :@: _) = a :@: x
+
+reSynFrom :: Syn a -> Syn b -> Syn b
+reSynFrom (_ :@: x) = (:@: x) . synData
+
+takeSyn :: Syn a -> b -> Syn b
+takeSyn (_ :@: x) = (:@: x)
+
+mapSyn :: (Attr -> Attr) -> Syn a -> Syn a
+mapSyn f (a :@: x) = a :@: f x
+
+
+synCon2 :: Attr -> (Syn a -> Syn b -> c) -> a -> b -> Syn c
+synCon2 t f a b = f (a :@: t) (b :@: t) :@: t

@@ -100,9 +100,13 @@ brackets s = "[" <> s <> "]"
 braces :: String -> String
 braces s = "{" <> s <> "}"
 
--- Place hashes around a string
+-- | Place hashes around a string
 hashes :: String -> String
 hashes s = "#" <> s <> "#"
+
+-- | Place backticks around a string
+backticks :: String -> String
+backticks s = "`" <> s <> "`"
 
 
 -- | Place parens around a string if the given condition is true

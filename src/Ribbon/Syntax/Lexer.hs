@@ -244,9 +244,11 @@ symbol = asum
 tokenData :: Lexer TokenData
 tokenData = asum
     [ TLiteral <$> literal
-    , asum [identifier, operator] <&> \i ->
-        TSymbol (select (isReservedIdentifier i) TsKeyword TsIdentifier) i
-    , TSymbol TsKeyword <$> dotSequence
+    , identifier <&> \i ->
+        TSymbol (select (isReserved i) TsReserved TsIdentifier) i
+    , operator <&> \o ->
+        TSymbol (select (isReserved o) TsReserved TsOperator) o
+    , TSymbol TsReserved <$> dotSequence
     , TSymbol TsPunctuation <$> punctuation
     ]
 
