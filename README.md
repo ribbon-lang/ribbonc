@@ -141,6 +141,7 @@ play with features implemented thus far, the best way to do that is via
 Currently you can:
 - Read files as source-tracking File objects, using `loadFile`
 - Play with the lexer, using `lexFile`/`lexString`
+- Play with the parsers, using `parseFileWith`/`parseStringWith` (very wip)
 
 
 ## Discussion

@@ -366,6 +366,8 @@ expTbl = OpTable
         , binExpr (TkSymbol (Just TsOperator)) "/" lAssoc 30
         , binExpr (TkSymbol (Just TsOperator)) "^" rAssoc 40
 
+        , binExpr (TkSymbol (Just TsOperator)) "==" nAssoc 50
+
         , postExpr (TkSymbol (Just TsOperator)) "!" 80
 
         , (TkSymbol (Just TsOperator) ":", nAssoc 10 \left -> do
