@@ -110,6 +110,7 @@ instance Ord File where
 instance Show File where
     show = fileName
 
+
 -- | Create an Attr with a unit range
 unitAttr :: Pos -> File -> Attr
 unitAttr pos = Attr pos (pos + 1)
@@ -157,40 +158,84 @@ getLc file pos = Maybe.fromMaybe EOF (lineAndColumnDb file Seq.!? pos)
 synSplit :: Syn a -> (a, Attr)
 synSplit (a :@: attr) = (a, attr)
 
+-- | Syn mapping with left-concatenation of Attr
+--
+--   i.e. @_ t f x = f x :\@: (t <> synAttr x)@
 synExtWithA :: Attr -> (Syn a -> b) -> (Syn a -> Syn b)
 synExtWithA t f x = f x :@: (t <> synAttr x)
 
+-- | Syn mapping with right-concatenation of Attr
+--
+--   i.e. @_ t f x = f x :\@: (synAttr x <> t)@
 synExtWithB :: Attr -> (Syn a -> b) -> (Syn a -> Syn b)
 synExtWithB t f x =  f x :@: (synAttr x <> t)
 
+-- | Syn mapping with Attr pass-through
+--
+--   i.e. @_ f x = f x :\@: (synAttr x)@
 synExt :: (Syn a -> b) -> (Syn a -> Syn b)
 synExt f x = f x :@: synAttr x
 
+
+-- | Syn application with Attr concatenation
+--
+--   i.e. @_ f x y = f x y :\@: (synAttr x <> synAttr y)@
 synApp :: (Syn a -> Syn b -> c) -> Syn a -> Syn b -> Syn c
 synApp f x y = f x y :@: (synAttr x <> synAttr y)
 
+
+-- | Syn application with left-concatenation of Attr
+--
+--   i.e. @_ t f x y = f x y :\@: (t <> synAttr x <> synAttr y)@
 synAppWithA :: Attr -> (Syn a -> Syn b -> c) -> Syn a -> Syn b -> Syn c
 synAppWithA t f x y = f x y :@: (t <> synAttr x <> synAttr y)
 
+-- | Syn application with middle-concatenation of Attr
+--
+--   i.e. @_ t f x y = f x y :\@: (synAttr x <> t <> synAttr y)@
 synAppWithB :: Attr -> (Syn a -> Syn b -> c) -> Syn a -> Syn b -> Syn c
 synAppWithB t f x y = f x y :@: (synAttr x <> t <> synAttr y)
 
+-- | Syn application with right-concatenation of Attr
+--
+--   i.e. @_ t f x y = f x y :\@: (synAttr x <> synAttr y <> t)@
 synAppWithC :: Attr -> (Syn a -> Syn b -> c) -> Syn a -> Syn b -> Syn c
 synAppWithC t f x y = f x y :@: (synAttr x <> synAttr y <> t)
 
 
+-- | Apply a new Attr to a Syn
 reSyn :: Attr -> Syn a -> Syn a
 reSyn x (a :@: _) = a :@: x
 
+-- | Apply a new Attr to a Syn, using the Attr of another Syn
+--
+--   i.e. @_ a b = synData b :\@: synAttr a@
 reSynFrom :: Syn a -> Syn b -> Syn b
-reSynFrom (_ :@: x) = (:@: x) . synData
+reSynFrom a b = synData b :@: synAttr a
 
+-- | Create a new Syn using a fresh syntax object
+--   and the Attr of an existing Syn
+--
+-- i.e. @_ a b = a :\@: synAttr b@
 takeSyn :: Syn a -> b -> Syn b
-takeSyn (_ :@: x) = (:@: x)
+takeSyn a b = b :@: synAttr a
 
+
+-- | Map the Attr of a Syn
 mapSyn :: (Attr -> Attr) -> Syn a -> Syn a
 mapSyn f (a :@: x) = a :@: f x
 
 
+-- | Construct a recursive Syn from a syntax object,
+--   assigning both new Syn objects the same Attr
+--
+--  i.e. @_ t f a = f (a :\@: t) :\@: t@
+synCon1 :: Attr -> (Syn a -> b) -> a -> Syn b
+synCon1 t f a = f (a :@: t) :@: t
+
+-- | Construct a recursive Syn from two syntax objects,
+--   assigning all new Syn objects the same Attr
+--
+--  i.e. @_ t f a b = f (a :\@: t) (b :\@: t) :\@: t@
 synCon2 :: Attr -> (Syn a -> Syn b -> c) -> a -> b -> Syn c
 synCon2 t f a b = f (a :@: t) (b :@: t) :@: t

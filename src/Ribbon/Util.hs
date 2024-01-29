@@ -46,6 +46,7 @@ compose f g a = g (f a)
 (<<) :: Monad m => m b -> m a -> m b
 (<<) ma mb = do a <- ma; a <$ mb
 
+
 -- | An extension class for monoids allowing the Nil pattern to function
 class Monoid m => Nil m where
     isNil :: m -> Bool

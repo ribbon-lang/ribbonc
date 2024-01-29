@@ -28,7 +28,7 @@ lexString name text = lexFile (newFile name text)
 -- | Type alias for ParserM Char
 type Lexer = ParserM Char
 
--- Evaluate a Lexer on a given File, converting ParseErrors to Strings
+-- | Evaluate a Lexer on a given File, converting ParseErrors to Strings
 evalLexer :: Lexer a -> File -> Either String a
 evalLexer lx file =
     let input = Seq.fromList $ uncurry (:@:) <$>

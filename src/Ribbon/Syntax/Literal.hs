@@ -18,9 +18,13 @@ data Literal
 
 -- | Kind of a Literal
 data LiteralKind
+    -- | The kind of a 32-bit signed integer
     = LkInt
+    -- | The kind of a 32-bit floating point number
     | LkFloat
+    -- | The kind of a UTF-32 codepoint
     | LkChar
+    -- | The kind of a UTF-32 encoded string
     | LkString
     deriving (Eq, Ord, Show)
 

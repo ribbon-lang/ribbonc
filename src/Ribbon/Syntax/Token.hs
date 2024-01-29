@@ -1,9 +1,13 @@
 module Ribbon.Syntax.Token where
 
+import Data.List qualified as List
+import Data.Maybe qualified as Maybe
+
 import Ribbon.Display (Display(..))
 import Ribbon.Display qualified as Display
 
 import Ribbon.Source
+import Ribbon.Syntax.Text
 import Ribbon.Syntax.Literal
 
 
@@ -42,7 +46,7 @@ data TokenSymbolKind
     = TsIdentifier
     -- | An unreserved operator token symbol such as @+@ or @->@
     | TsOperator
-    -- | A reserved identifier token symbol such as @let@ or @=@
+    -- | A reserved identifier or operator token symbol such as @let@ or @=@
     | TsReserved
     -- | A punctuation token symbol such as @,@ or @[@
     | TsPunctuation
@@ -93,3 +97,31 @@ tokenKindName = \case
     TkSymbol Nothing _ -> "symbol"
     TkLiteral Nothing -> "literal"
     TkLiteral (Just k) -> display k
+
+
+-- | Match a TokenKind to a TokenData
+tkSelect :: TokenKind -> TokenData -> Bool
+tkSelect = curry \case
+    (TkAny, _) -> True
+    (TkNonSentinel, TSymbol _ s) | not (isSentinel (head s)) -> True
+    (TkNonSentinel, TLiteral _) -> True
+    (TkSymbol ka a, TSymbol kb b) | Maybe.isNothing ka || ka == Just kb, a == b || a == "" -> True
+    (TkLiteral (Just a), TLiteral b) | a == literalKind b -> True
+    (TkLiteral Nothing, TLiteral _) -> True
+    _ -> False
+
+-- | Find an entry in a TokeKind associative array matching the given TokenData
+tkFind :: [(TokenKind, a)] -> TokenData -> Maybe a
+tkFind [] _ = Nothing
+tkFind ((k, a):rest) t
+    | tkSelect k t = Just a
+    | otherwise = tkFind rest t
+
+tblExpects :: String -> [(TokenKind, a)] -> [String]
+tblExpects opKind es =
+    let xs = (tokenKindName . fst <$> es) List.\\ ["{anything}", "{non-sentinel}"]
+        (ops, ws) = List.partition (any isOperatorSubsequent) xs
+        (ps, ops') = List.partition (any isPunctuation) ops
+    in finalizeOps ops' : ws <> ps
+    where
+        finalizeOps ops = opKind <> " operator of " <> display ops

@@ -4,9 +4,6 @@ import Prelude hiding (exp)
 
 import Data.Sequence qualified as Seq
 
-import Data.Maybe qualified as Maybe
-import Data.List qualified as List
-import Data.Function
 import Data.Functor
 
 import Control.Applicative
@@ -31,19 +28,25 @@ import Ribbon.Syntax.Ast
 -- parseFile :: File -> Either String Doc
 -- parseFile = parseFileWith doc
 
+-- | Perform syntactic analysis on a File, using the given Parser
 parseFileWith :: Parser a -> File -> Either String a
 parseFileWith p file = L.lexFile file >>= evalParser p file
 
+-- | Perform syntactic analysis on a string, using the given Parser,
+--   with errors reported to be in a file with the given name
 parseStringWith :: Parser a -> String -> String -> Either String a
 parseStringWith p name text =
     let file = newFile name text
     in L.lexFile file >>= evalParser p file
 
 
+-- | Type alias for ParseStream TokenData
 type ParseStream = M.ParseStream TokenData
 
+-- | Type alias for ParserM TokenData
 type Parser = ParserM TokenData
 
+-- | Evaluate a Parser on a given File, converting ParseErrors to Strings
 evalParser :: Parser a -> File -> [Token] -> Either String a
 evalParser px file toks =
     case runParser (noFail $ consumesAll px)
@@ -52,161 +55,176 @@ evalParser px file toks =
         Left _ -> undefined
         Right (a, _) -> Right a
 
-
+-- | Expect a Literal
 literal :: ParserMonad TokenData m => m Literal
 literal = expecting "literal" $ nextMap \case
     TLiteral lit -> Just lit
     _ -> Nothing
 
+-- | Expect a Literal of Char
 char :: ParserMonad TokenData m => m Char
 char = expecting "character literal" $ nextMap \case
     TLiteral (LChar c) -> Just c
     _ -> Nothing
 
+-- | Expect a Literal of Int
 int :: ParserMonad TokenData m => m Int
 int = expecting "integer literal" $ nextMap \case
     TLiteral (LInt i) -> Just i
     _ -> Nothing
 
+-- | Expect a Literal of Float
 float :: ParserMonad TokenData m => m Float
 float = expecting "float literal" $ nextMap \case
     TLiteral (LFloat f) -> Just f
     _ -> Nothing
 
+-- | Expect a Literal of String
 string :: ParserMonad TokenData m => m String
 string = expecting "string literal" $ nextMap \case
     TLiteral (LString s) -> Just s
     _ -> Nothing
 
-var :: ParserMonad TokenData m => TokenSymbolKind -> m String
-var k = expecting (display k) $ nextMap \case
-    TSymbol k' sym | k == k' -> Just sym
+-- | Expect a particular kind of symbol token
+symbolK :: ParserMonad TokenData m => TokenSymbolKind -> m String
+symbolK k = expecting (display k) $ nextMap \case
+    TSymbol k' s | k == k' -> Just s
     _ -> Nothing
 
-symbol :: ParserMonad TokenData m => String -> m ()
-symbol sym = expecting sym $ nextMap \case
-    TSymbol _ s | sym == s -> Just ()
+-- | Expect a symbol token with a specific value
+sym :: ParserMonad TokenData m => String -> m ()
+sym s = expecting s $ nextMap \case
+    TSymbol _ s' | s == s' -> Just ()
     _ -> Nothing
 
-
+-- | Expect a given Parser to be surrounded with parentheses
 parens :: ParserMonad TokenData m => m a -> m a
-parens px = symbol "(" >> px << symbol ")"
+parens px = sym "(" >> px << sym ")"
 
+-- | Expect a given Parser to be surrounded with braces
 braces :: ParserMonad TokenData m => m a -> m a
-braces px = symbol "{" >> px << symbol "}"
+braces px = sym "{" >> px << sym "}"
 
+-- | Expect a given Parser to be surrounded with brackets
 brackets :: ParserMonad TokenData m => m a -> m a
-brackets px = symbol "[" >> px << symbol "]"
+brackets px = sym "[" >> px << sym "]"
 
 
 
-
+-- | Expect a Type
 typ :: ParserMonad TokenData m => m Type
 typ = syn $ asum
-    [ var TsIdentifier <&> \case
+    [ symbolK TsIdentifier <&> \case
         "_" -> TFree Nothing
         s -> TFree (Just s)
     , synData <$> parens typ
     ]
 
+-- | Expect an Expr
 exp :: ParserMonad TokenData m => m Expr
 exp = liftP $ runPratt prattLoopStart expTbl 0
 
+-- | Expect a Patt
 pat :: ParserMonad TokenData m => m Patt
 pat = asum
-    [ syn $ var TsIdentifier <&> \case
+    [ syn $ symbolK TsIdentifier <&> \case
         "_" -> PWildcard
         s -> PVar s
     ]
 
 
+-- | Encodes parser precedence levels
 type Prec = Int
 
+-- | Pratt parser operator table
 data OpTable a
     = OpTable
     { nuds :: [(TokenKind, Nud a)]
     , leds :: [(TokenKind, Led a)]
     }
 
--- NOTE: the following descriptions are from
--- https://www.engr.mun.ca/~theo/Misc/pratt_parsing.htm
-data Led a = Led
-    -- left binding power "L tokens will have a nonnegative LBP,
-    -- while all others have an LBP of -1"
+-- | Pratt parser operator table entry for an infix or postfix operator
+--
+--   NOTE: the projection descriptions are from
+--   https://www.engr.mun.ca/~theo/Misc/pratt_parsing.htm
+data Led a =
+    -- | Construct a new infix or postfix operator
+    Led
+    -- | Left binding power "L tokens will have a nonnegative LBP,
+    --   while all others have an LBP of -1"
     { ledLbp :: Prec
-    -- right binding power "the RBP indicates the 'right binding power'
-    -- and determines the left binding power of the lowest precedence operator
-    -- that can be in a right operand"
-    -- controls associativity, left/non associative operations rbp == lbp + 1,
-    -- right associative operations rbp == lbp
+
+    -- | Right binding power "the RBP indicates the 'right binding power'
+    --   and determines the left binding power of the lowest precedence operator
+    --   that can be in a right operand"
+    --
+    --   Controls associativity, left/non associative operations rbp == lbp + 1,
+    --   right associative operations rbp == lbp
     , ledRbp :: Prec
-    -- next binding power "the NBP value for a binary or postfix operator
-    -- gives the highest precedence of an operator that this operator
-    -- can be a left operand of"
-    -- for associative operations nbp == lbp, non associative lbp - 1
+
+    -- | Next binding power "the NBP value for a binary or postfix operator
+    --   gives the highest precedence of an operator that this operator
+    --   can be a left operand of"
+    --
+    --   For associative operations nbp == lbp, non associative lbp - 1
     , ledNbp :: Prec
+
+    -- | The parser action to run when the associated operator is encountered
     , ledAction :: a -> Pratt a a
     }
 
-data Nud a = Nud
+-- | Pratt parser operator table entry for a prefix operator or leaf node
+data Nud a =
+    -- | Construct a new prefix operator or leaf node
+    Nud
+    -- | Right binding power, see @ledRbp@
     { nudRbp :: Prec
+
+    -- | The parser action to run when the associated operator is encountered
     , nudAction :: Pratt a a
     }
 
-tkSelect :: TokenKind -> TokenData -> Bool
-tkSelect = curry \case
-    (TkAny, _) -> True
-    (TkNonSentinel, TSymbol _ s) | not (isSentinel (head s)) -> True
-    (TkNonSentinel, TLiteral _) -> True
-    (TkSymbol ka a, TSymbol kb b) | Maybe.isNothing ka || ka == Just kb, a == b || a == "" -> True
-    (TkLiteral (Just a), TLiteral b) | a == literalKind b -> True
-    (TkLiteral Nothing, TLiteral _) -> True
-    _ -> False
 
-tkFind :: [(TokenKind, a)] -> TokenData -> Maybe a
-tkFind [] _ = Nothing
-tkFind ((k, a):rest) t
-    | tkSelect k t = Just a
-    | otherwise = tkFind rest t
-
-
-tblExpects :: String -> [(TokenKind, a)] -> [String]
-tblExpects opKind es =
-    let xs = (tokenKindName . fst <$> es) List.\\ ["{anything}", "{non-sentinel}"]
-        (ops, ws) = xs & List.partition (any isOperatorSubsequent)
-        (ps, ops') = ops & List.partition (any isPunctuation)
-    in finalizeOps ops' : ws <> ps
-    where
-        finalizeOps ops = opKind <> " operator of " <> display ops
-
-
+-- | Get a Pratt parser nud entry and bind the max binding power to its rbp
 runNud :: Nud a -> Pratt a a
 runNud (Nud rbp action) = withMbp rbp action
 
+-- | Get a Pratt parser led entry and bind the max binding power to its rbp,
+--   passing it the given left operand
 runLed :: Led a -> a -> Pratt a a
 runLed (Led _ rbp _ action) left = withMbp rbp $ action left
 
+-- | Construct a left-associative led pratt parser with the given precedence
 lAssoc :: Prec -> (a -> Pratt a a) -> Led a
 lAssoc prec = Led prec (prec + 1) prec
 
+-- | Construct a right-associative led pratt parser with the given precedence
 rAssoc :: Prec -> (a -> Pratt a a) -> Led a
 rAssoc prec = Led prec prec prec
 
+-- | Construct a non-associative led pratt parser with the given precedence
 nAssoc :: Prec -> (a -> Pratt a a) -> Led a
 nAssoc prec = Led prec (prec + 1) (prec - 1)
 
+-- | Construct a postfix led pratt parser with the given precedence
 post :: Prec -> (a -> Pratt a a) -> Led a
 post prec = Led prec prec maxBound
 
+-- | Construct a prefix nud pratt parser
 pre :: Prec -> Pratt a a -> Nud a
 pre = Nud
 
+-- | Construct a leaf nud pratt parser
 leaf :: Pratt a a -> Nud a
 leaf = Nud (error "recursive leaf")
 
 
+-- | Pratt parser monad
 newtype Pratt o a
-    = Pratt { runPratt :: OpTable o -> Prec -> Parser a }
+    -- | Wrap a function into the Pratt parser monad
+    = Pratt
+    -- | Unwrap a Pratt monad into a function
+    { runPratt :: OpTable o -> Prec -> Parser a }
 
 instance Functor (Pratt o) where
     fmap f (Pratt a) = Pratt \tbl mbp -> f <$> a tbl mbp
@@ -246,20 +264,20 @@ instance MonadReader ParseStream (Pratt o) where
     local f (Pratt a) = Pratt \tbl mbp -> local f (a tbl mbp)
 
 
+-- | Get the current operator table of a pratt parser
 opTable :: Pratt o (OpTable o)
 opTable = Pratt \tbl _ -> pure tbl
 
+-- | Get the current maximum binding power of a pratt parser
 curMbp :: Pratt o Prec
 curMbp = Pratt \_ mbp -> pure mbp
 
-
+-- | Set the maximum binding power of a given pratt parser
 withMbp :: Prec -> Pratt o a -> Pratt o a
 withMbp mbp (Pratt f) = Pratt \tbl _ -> f tbl mbp
 
 
-pratt :: Prec -> Pratt a a
-pratt bp = withMbp bp prattLoopStart
-
+-- | Execute the nud step of a pratt parser
 prattNud :: Pratt a a
 prattNud = do
     tbl <- opTable
@@ -267,15 +285,22 @@ prattNud = do
         td <- peek
         maybe empty runNud (tkFind (nuds tbl) td)
 
+-- | Execute the nud step of a pratt parser, then enter the led loop.
+--   This is the action to call when re-entering the pratt parser from
+--   a Nud or Led action.
 prattRecurse :: Pratt a a
 prattRecurse = do
     tbl <- opTable
     expectingMulti' (tblExpects "infix/postfix" (leds tbl))
         prattLoopStart
 
+-- | Execute the nud step of a pratt parser, then enter the led loop.
+--   This is the action to call when entering the pratt parser from
+--   outside of a Nud or Led action, i.e. within typ, exp, pat, etc
 prattLoopStart :: Pratt a a
 prattLoopStart = prattNud >>= prattLoop maxBound
 
+-- | Execute the pratt led loop
 prattLoop :: Prec -> a -> Pratt a a
 prattLoop rbp left = do
     lbp <- curMbp
@@ -296,7 +321,7 @@ prattLoop rbp left = do
 
         _ -> pure left
 
-
+-- | Construct a binary led operator
 binExpr
     :: (String -> TokenKind)
     -> String
@@ -305,27 +330,30 @@ binExpr
           -> b)
     -> Prec
     -> (TokenKind, b)
-binExpr kind sym ass prec =
-    (kind sym, ass prec \left -> do
+binExpr kind symbol ass prec =
+    (kind symbol, ass prec \left -> do
         s <- attrNext
         prattRecurse <&> \right ->
-            synAppWithB s (EInfix (prec, sym)) left right
+            synAppWithB s (EInfix (prec, symbol)) left right
     )
 
+-- | Construct a prefix operator
 preExpr :: (String -> TokenKind) -> String -> Prec -> (TokenKind, Nud Expr)
-preExpr kind sym prec =
-    (kind sym, pre prec do
+preExpr kind symbol prec =
+    (kind symbol, pre prec do
         s <- attrNext
-        synExtWithA s (EPrefix (prec, sym)) <$> prattRecurse
+        synExtWithA s (EPrefix (prec, symbol)) <$> prattRecurse
     )
 
+-- | Construct a postfix operator
 postExpr :: (String -> TokenKind) -> String -> Prec -> (TokenKind, Led Expr)
-postExpr kind sym prec =
-    (kind sym, post prec \left -> do
+postExpr kind symbol prec =
+    (kind symbol, post prec \left -> do
         s <- attrNext
-        pure (synExtWithB s (EPostfix (prec, sym)) left)
+        pure (synExtWithB s (EPostfix (prec, symbol)) left)
     )
 
+-- | The default OpTable for Expr
 expTbl :: OpTable Expr
 expTbl = OpTable
     { nuds =
@@ -336,7 +364,7 @@ expTbl = OpTable
         , preExpr (TkSymbol (Just TsOperator)) "-" 90
 
         , (TkSymbol (Just TsIdentifier) "", leaf do
-              fmap EVar <$> syn (var TsIdentifier)
+              fmap EVar <$> syn (symbolK TsIdentifier)
           )
 
         , (TkSymbol (Just TsPunctuation) "(", leaf do
@@ -344,7 +372,7 @@ expTbl = OpTable
               e <- exp
               asum
                   [ do
-                      s2 <- attrOf (symbol ")")
+                      s2 <- attrOf (sym ")")
                       pure (reSyn (s1 <> s2) e)
 
                     -- TODO : tuples
@@ -354,7 +382,7 @@ expTbl = OpTable
         , (TkSymbol (Just TsReserved) "fun", leaf $ noFail do
               s1 <- attrNext
               p <- pat
-              symbol "=>"
+              sym "=>"
               synExtWithA s1 (EFunction . (p, )) <$> exp
           )
         ]
