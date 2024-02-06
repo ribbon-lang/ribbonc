@@ -103,11 +103,24 @@ tokenKindName = \case
 tkSelect :: TokenKind -> TokenData -> Bool
 tkSelect = curry \case
     (TkAny, _) -> True
-    (TkNonSentinel, TSymbol _ s) | not (isSentinel (head s)) -> True
+
+    (TkNonSentinel, TSymbol _ s)
+        | not (isSentinel s)
+        -> True
+
     (TkNonSentinel, TLiteral _) -> True
-    (TkSymbol ka a, TSymbol kb b) | Maybe.isNothing ka || ka == Just kb, a == b || a == "" -> True
-    (TkLiteral (Just a), TLiteral b) | a == literalKind b -> True
+
+    (TkSymbol ka a, TSymbol kb b)
+        | Maybe.isNothing ka || ka == Just kb
+        , a == b || a == ""
+        -> True
+
+    (TkLiteral (Just a), TLiteral b)
+        | a == literalKind b
+        -> True
+
     (TkLiteral Nothing, TLiteral _) -> True
+
     _ -> False
 
 -- | Find an entry in a TokeKind associative array matching the given TokenData

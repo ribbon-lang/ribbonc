@@ -47,10 +47,10 @@ isOperatorSubsequent c
 isPunctuation :: Char -> Bool
 isPunctuation c = c `elem` "()[]{},;"
 
--- | Predicate checking if a character is a syntactic sentinel,
+-- | Predicate checking if a string is a syntactic sentinel,
 --  such as closing parens or commas
-isSentinel :: Char -> Bool
-isSentinel c = c `elem` ")]},;"
+isSentinel :: String -> Bool
+isSentinel c = c `elem` [")", "]", "}", ",", "=", "with", "in"]
 
 -- | Predicate checking if a character is a dot operator
 isDot :: Char -> Bool
@@ -64,7 +64,7 @@ reserved =
     , "let", "in"
     , "match", "with"
     , "if", "then", "else"
-    , "=", ":"
+    , "=", ":", "=>", ";"
     ]
 
 -- | Predicate checking if a string is a reserved identifier or operator

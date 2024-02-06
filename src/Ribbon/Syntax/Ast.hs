@@ -5,11 +5,35 @@ import Data.Map (Map)
 
 import Ribbon.Source
 import Ribbon.Syntax.Literal
+import Ribbon.Syntax.Token
 
 
--- | Name is just a string, for now
+-- | Just a string, for now
 --   Later this may be interned, include namespacing, etc
 type Name = String
+
+-- | Prototypical definitions, such as types, values and effects
+type ProtoDef = Syn ProtoDefData
+
+-- | Prototypical definitions, such as types, values and effects
+data ProtoDefData
+    -- | Create a new ProtoDefData
+    = ProtoDefData
+    { prKind :: ProtoDefKind
+    , prName :: Name
+    , prBody :: [Token]
+    }
+    deriving (Eq, Ord, Show)
+
+-- | The kind of a prototypical definition, such as a type or value
+data ProtoDefKind
+    -- | A definition of a type
+    = PrType
+    -- | A definition of an effect
+    | PrEffect
+    -- | A definition of a value
+    | PrValue
+    deriving (Eq, Ord, Show)
 
 -- | The type of a type
 type Kind = Syn KindData
@@ -134,7 +158,7 @@ data ExprData
     -- | A constant, literal value
     | ELit Literal
     -- | Functional abstraction ie lambda
-    | EFunction Case
+    | EFunction Patt Expr
     -- | Applies a function to an argument
     | EApp Expr Expr
     -- | Prefix notation for function application
@@ -143,8 +167,12 @@ data ExprData
     | EInfix (Int, Name) Expr Expr
     -- | Postfix notation for function application
     | EPostfix (Int, Name) Expr
+    -- | Let bindings
+    | ELet Patt Expr Expr
     -- | Performs pattern matching on a scrutinee
     | EMatch Expr [Case]
+    -- | Sequencing of effectful expressions
+    | ESeq Expr Expr
 
     -- | Constructs a new product
     | EProductConstructor [(Name, Expr)]
@@ -191,7 +219,7 @@ data PattData
     | PSumConstructor Name Patt
     deriving (Eq, Ord, Show)
 
-
+-- | Pattern for matching the rest of a product not mentioned in the constructor
 type ProductRestPattern = Syn ProductRestPatternData
 
 -- | Pattern for matching the rest of a product not mentioned in the constructor

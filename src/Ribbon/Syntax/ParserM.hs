@@ -7,8 +7,8 @@ import Data.Set (Set)
 import Data.Set qualified as Set
 
 import Data.Functor
+import Data.Foldable
 
-import Control.Monad
 import Control.Monad.State
 import Control.Monad.Reader
 import Control.Monad.Except
@@ -408,12 +408,11 @@ expectAny' es = nextIf (`elem` es)
 
 -- | Consume an expected sequence of inputs
 expectSeq' :: (Eq i, ParserMonad i m) => [i] -> m ()
-expectSeq' es = do
-    forM_ es \e -> do
-        a <- peek
-        if a == e
-            then advance
-            else empty
+expectSeq' = traverse_ \e -> do
+    a <- peek
+    if a == e
+        then advance
+        else empty
 
 -- | Consume one of any expected sequences of inputs
 expectAnySeq' :: (Eq i, ParserMonad i m) => [[i]] -> m [i]
@@ -461,19 +460,29 @@ grabbing f p = do
     a <$ setOffset (i + j)
 
 -- | Grab a sequence of elements from the stream,
---   delimited by their indentation level,
+--   delimited by their indentation level relative to a given Attr,
+--   then run the provided action to parse the sequence
+grabbingWhitespaceDomainFrom :: ParserMonad i m => Attr -> m a -> m a
+grabbingWhitespaceDomainFrom l = grabbing wsDominated where
+    wsDominated (_ :@: l') =
+        case (attrStartLc l, attrStartLc l') of
+            (Lc l1 c1, Lc l2 c2)
+                -> (l1 <= l2 && c1 < c2)
+                || (l1 == l2 && c1 <= c2)
+            _ -> True
+
+-- | Grab a sequence of elements from the stream,
+--   delimited by their indentation level relative to the start,
 --   then run the provided action to parse the sequence
 grabbingWhitespaceDomain :: ParserMonad i m => m a -> m a
 grabbingWhitespaceDomain p = do
     l <- attr
-    grabbing (wsDominated l) p
-    where
-        wsDominated l (_ :@: l') =
-            case (attrStartLc l, attrStartLc l') of
-                (Lc l1 c1, Lc l2 c2)
-                    -> (l1 <= l2 && c1 < c2)
-                    || (l1 == l2 && c1 <= c2)
-                _ -> True
+    grabbingWhitespaceDomainFrom l p
+
+-- | Grab a sequence of elements from the stream,
+--   delimited by their indentation level relative to a given Attr
+grabBlockFrom :: ParserMonad i m => Attr -> m [Syn i]
+grabBlockFrom l = grabbingWhitespaceDomainFrom l (some nextAttr)
 
 -- | Grab a sequence of elements from the stream,
 --   delimited by their indentation level

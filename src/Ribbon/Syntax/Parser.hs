@@ -24,6 +24,8 @@ import Ribbon.Syntax.Token
 import Ribbon.Syntax.Literal
 import Ribbon.Syntax.Ast
 
+import Debug.Trace (traceM)
+
 
 -- parseFile :: File -> Either String Doc
 -- parseFile = parseFileWith doc
@@ -35,9 +37,11 @@ parseFileWith p file = L.lexFile file >>= evalParser p file
 -- | Perform syntactic analysis on a string, using the given Parser,
 --   with errors reported to be in a file with the given name
 parseStringWith :: Parser a -> String -> String -> Either String a
-parseStringWith p name text =
+parseStringWith p name text = do
     let file = newFile name text
-    in L.lexFile file >>= evalParser p file
+    toks <- L.lexFile file
+    traceM (show toks)
+    evalParser p file toks
 
 
 -- | Type alias for ParseStream TokenData
@@ -108,6 +112,22 @@ braces px = sym "{" >> px << sym "}"
 -- | Expect a given Parser to be surrounded with brackets
 brackets :: ParserMonad TokenData m => m a -> m a
 brackets px = sym "[" >> px << sym "]"
+
+
+-- | Parse a file into a list of ProtoDefs
+protoDefs :: ParserMonad TokenData m => m [ProtoDef]
+protoDefs = many protoDef
+
+-- | Parse a top-level definition, getting its head
+--   but leaving the body as a token list
+protoDef :: ParserMonad TokenData m => m ProtoDef
+protoDef = do
+    a <- attr
+    syn $ liftA3 ProtoDefData
+        do asum [sym "type" $> PrType, sym "effect" $> PrEffect, pure PrValue]
+        do symbolK TsIdentifier
+        do grabBlockFrom a
+
 
 
 
@@ -309,7 +329,7 @@ prattLoop rbp left = do
     tryPeek >>= \case
         Just td
             | TSymbol TsPunctuation s <- td
-            , any isSentinel s ->
+            , isSentinel s ->
                 pure left
 
         Just td
@@ -333,8 +353,7 @@ binExpr
 binExpr kind symbol ass prec =
     (kind symbol, ass prec \left -> do
         s <- attrNext
-        prattRecurse <&> \right ->
-            synAppWithB s (EInfix (prec, symbol)) left right
+        synApp2With s (EInfix (prec, symbol)) left <$> prattRecurse
     )
 
 -- | Construct a prefix operator
@@ -342,7 +361,7 @@ preExpr :: (String -> TokenKind) -> String -> Prec -> (TokenKind, Nud Expr)
 preExpr kind symbol prec =
     (kind symbol, pre prec do
         s <- attrNext
-        synExtWithA s (EPrefix (prec, symbol)) <$> prattRecurse
+        synApp1With s (EPrefix (prec, symbol)) <$> prattRecurse
     )
 
 -- | Construct a postfix operator
@@ -350,7 +369,7 @@ postExpr :: (String -> TokenKind) -> String -> Prec -> (TokenKind, Led Expr)
 postExpr kind symbol prec =
     (kind symbol, post prec \left -> do
         s <- attrNext
-        pure (synExtWithB s (EPostfix (prec, symbol)) left)
+        pure (synApp1With s (EPostfix (prec, symbol)) left)
     )
 
 -- | The default OpTable for Expr
@@ -358,32 +377,51 @@ expTbl :: OpTable Expr
 expTbl = OpTable
     { nuds =
         [ (TkLiteral Nothing, leaf do
-              fmap ELit <$> syn literal
+            fmap ELit <$> syn literal
+          )
+
+        , (TkSymbol (Just TsIdentifier) "", leaf do
+            fmap EVar <$> syn (symbolK TsIdentifier)
           )
 
         , preExpr (TkSymbol (Just TsOperator)) "-" 90
 
-        , (TkSymbol (Just TsIdentifier) "", leaf do
-              fmap EVar <$> syn (symbolK TsIdentifier)
-          )
-
         , (TkSymbol (Just TsPunctuation) "(", leaf do
-              s1 <- attrNext
-              e <- exp
-              asum
-                  [ do
-                      s2 <- attrOf (sym ")")
-                      pure (reSyn (s1 <> s2) e)
+            s1 <- attrNext
+            asum
+                [ do -- unit
+                    s2 <- attrOf (sym ")")
+                    pure (EVar "()" :@: (s1 <> s2))
 
-                    -- TODO : tuples
-                  ]
+                , do
+                    e <- exp
+                    asum
+                        [ do -- semantic grouping
+                            s2 <- attrOf (sym ")")
+                            pure (reSyn (s1 <> s2) e)
+
+                        , do -- tuple constructor
+                            sym ","
+                            es <- listMany (sym ",") exp
+                            s2 <- attrOf (sym ")")
+                            let fs = zip (show <$> [0 :: Int ..]) (e : es)
+                            pure (EProductConstructor fs :@: (s1 <> s2))
+                        ]
+                ]
           )
 
-        , (TkSymbol (Just TsReserved) "fun", leaf $ noFail do
-              s1 <- attrNext
-              p <- pat
-              sym "=>"
-              synExtWithA s1 (EFunction . (p, )) <$> exp
+        , (TkSymbol (Just TsReserved) "fun", pre 0 $ noFail do
+            s1 <- attrNext
+            p <- pat
+            sym "=>"
+            synApp2With s1 EFunction p <$> prattRecurse
+          )
+
+        , (TkSymbol (Just TsReserved) "let", pre 0 $ noFail do
+            s1 <- attrNext
+            p <- pat
+            sym "="
+            synApp3With s1 ELet p <$> exp <*> (sym "in" >> prattRecurse)
           )
         ]
 
@@ -392,17 +430,30 @@ expTbl = OpTable
         , binExpr (TkSymbol (Just TsOperator)) "-" lAssoc 20
         , binExpr (TkSymbol (Just TsOperator)) "*" lAssoc 30
         , binExpr (TkSymbol (Just TsOperator)) "/" lAssoc 30
+        , binExpr (TkSymbol (Just TsOperator)) "%" lAssoc 30
         , binExpr (TkSymbol (Just TsOperator)) "^" rAssoc 40
 
         , binExpr (TkSymbol (Just TsOperator)) "==" nAssoc 50
+        , binExpr (TkSymbol (Just TsOperator)) "!=" nAssoc 50
+        , binExpr (TkSymbol (Just TsOperator)) "<=" nAssoc 50
+        , binExpr (TkSymbol (Just TsOperator)) ">=" nAssoc 50
+        , binExpr (TkSymbol (Just TsOperator)) "<" nAssoc 50
+        , binExpr (TkSymbol (Just TsOperator)) ">" nAssoc 50
 
         , postExpr (TkSymbol (Just TsOperator)) "!" 80
 
-        , (TkSymbol (Just TsOperator) ":", nAssoc 10 \left -> do
-              advance
-              synApp EAnn left <$> typ
+        , (TkSymbol Nothing ":", nAssoc 10 \left -> do
+            advance
+            synApp2 EAnn left <$> typ
           )
 
-        , (TkNonSentinel, lAssoc 70 \f -> synApp EApp f <$> prattRecurse)
+        , (TkSymbol Nothing ";", rAssoc 0 \left -> do
+            advance
+            synApp2 ESeq left <$> exp
+          )
+
+        -- This must remain at the end of the list,
+        -- as it will override anything more specific
+        , (TkNonSentinel, lAssoc 70 \f -> synApp2 EApp f <$> prattRecurse)
         ]
     }

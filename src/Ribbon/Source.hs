@@ -158,54 +158,72 @@ getLc file pos = Maybe.fromMaybe EOF (lineAndColumnDb file Seq.!? pos)
 synSplit :: Syn a -> (a, Attr)
 synSplit (a :@: attr) = (a, attr)
 
--- | Syn mapping with left-concatenation of Attr
---
---   i.e. @_ t f x = f x :\@: (t <> synAttr x)@
-synExtWithA :: Attr -> (Syn a -> b) -> (Syn a -> Syn b)
-synExtWithA t f x = f x :@: (t <> synAttr x)
-
--- | Syn mapping with right-concatenation of Attr
---
---   i.e. @_ t f x = f x :\@: (synAttr x <> t)@
-synExtWithB :: Attr -> (Syn a -> b) -> (Syn a -> Syn b)
-synExtWithB t f x =  f x :@: (synAttr x <> t)
 
 -- | Syn mapping with Attr pass-through
 --
 --   i.e. @_ f x = f x :\@: (synAttr x)@
-synExt :: (Syn a -> b) -> (Syn a -> Syn b)
-synExt f x = f x :@: synAttr x
+synApp1 :: (Syn a -> b) -> (Syn a -> Syn b)
+synApp1 f x = f x :@: synAttr x
+
+-- | Syn mapping with concatenation of Attr
+--
+--   i.e. @_ t f x = f x :\@: (t <> synAttr x)@
+synApp1With :: Attr -> (Syn a -> b) -> (Syn a -> Syn b)
+synApp1With t f x = f x :@: (t <> synAttr x)
 
 
 -- | Syn application with Attr concatenation
 --
 --   i.e. @_ f x y = f x y :\@: (synAttr x <> synAttr y)@
-synApp :: (Syn a -> Syn b -> c) -> Syn a -> Syn b -> Syn c
-synApp f x y = f x y :@: (synAttr x <> synAttr y)
+synApp2 :: (Syn a -> Syn b -> c) -> Syn a -> Syn b -> Syn c
+synApp2 f x y = f x y :@: (synAttr x <> synAttr y)
 
-
--- | Syn application with left-concatenation of Attr
+-- | Syn application with concatenation of Attr
 --
 --   i.e. @_ t f x y = f x y :\@: (t <> synAttr x <> synAttr y)@
-synAppWithA :: Attr -> (Syn a -> Syn b -> c) -> Syn a -> Syn b -> Syn c
-synAppWithA t f x y = f x y :@: (t <> synAttr x <> synAttr y)
+synApp2With :: Attr -> (Syn a -> Syn b -> c) -> Syn a -> Syn b -> Syn c
+synApp2With t f x y = f x y :@: (t <> synAttr x <> synAttr y)
 
--- | Syn application with middle-concatenation of Attr
---
---   i.e. @_ t f x y = f x y :\@: (synAttr x <> t <> synAttr y)@
-synAppWithB :: Attr -> (Syn a -> Syn b -> c) -> Syn a -> Syn b -> Syn c
-synAppWithB t f x y = f x y :@: (synAttr x <> t <> synAttr y)
 
--- | Syn application with right-concatenation of Attr
+-- | Syn application with Attr concatenation
 --
---   i.e. @_ t f x y = f x y :\@: (synAttr x <> synAttr y <> t)@
-synAppWithC :: Attr -> (Syn a -> Syn b -> c) -> Syn a -> Syn b -> Syn c
-synAppWithC t f x y = f x y :@: (synAttr x <> synAttr y <> t)
+--   i.e. @_ f x y z = f x y z :\@: (synAttr x <> synAttr y <> synAttr z)@
+synApp3 :: (Syn a -> Syn b -> Syn c -> d) -> Syn a -> Syn b -> Syn c -> Syn d
+synApp3 f x y z = f x y z :@: (synAttr x <> synAttr y <> synAttr z)
+
+-- | Syn application with concatenation of Attr
+--
+--   i.e. @_ t f x y z = f x y z :\@:
+--   (t <> synAttr x <> synAttr y <> synAttr z)@
+synApp3With
+    :: Attr
+    -> (Syn a -> Syn b -> Syn c -> d)
+    -> Syn a -> Syn b -> Syn c -> Syn d
+synApp3With t f x y z = f x y z :@: (t <> synAttr x <> synAttr y <> synAttr z)
+
+
+-- | Syn application with Attr concatenation
+--
+--   i.e. @_ f x y z = f x y z :\@: (synAttr x <> synAttr y <> synAttr z)@
+synApp4 :: (Syn a -> Syn b -> Syn c -> d) -> Syn a -> Syn b -> Syn c -> Syn d
+synApp4 f x y z = f x y z :@: (synAttr x <> synAttr y <> synAttr z)
+
+-- | Syn application with concatenation of Attr
+--
+--   i.e. @_ t f x y z w = f x y z w :\@:
+--   (t <> synAttr x <> synAttr y <> synAttr z <> synAttr w)@
+synApp4With
+    :: Attr
+    -> (Syn a -> Syn b -> Syn c -> Syn d -> e)
+    -> Syn a -> Syn b -> Syn c -> Syn d -> Syn e
+synApp4With t f x y z w = f x y z w :@:
+    (t <> synAttr x <> synAttr y <> synAttr z <> synAttr w)
+
 
 
 -- | Apply a new Attr to a Syn
 reSyn :: Attr -> Syn a -> Syn a
-reSyn x (a :@: _) = a :@: x
+reSyn x a = synData a :@: x
 
 -- | Apply a new Attr to a Syn, using the Attr of another Syn
 --
@@ -216,7 +234,7 @@ reSynFrom a b = synData b :@: synAttr a
 -- | Create a new Syn using a fresh syntax object
 --   and the Attr of an existing Syn
 --
--- i.e. @_ a b = a :\@: synAttr b@
+-- i.e. @_ a b = b :\@: synAttr a@
 takeSyn :: Syn a -> b -> Syn b
 takeSyn a b = b :@: synAttr a
 
