@@ -12,15 +12,17 @@ import Ribbon.Syntax.Literal
 
 
 -- | An atom of syntax
-type Token = Syn TokenData
+type Token = Tag Attr TokenData
 
 -- | An atom of syntax
 data TokenData
     -- | A symbolic identifier token,
     --   either punctuation, reserved or user defined
-    = TSymbol TokenSymbolKind String
+    = TSymbol !TokenSymbolKind !String
     -- | A token indicating a literal value, such as an int or string
-    | TLiteral Literal
+    | TLiteral !Literal
+    -- | End of file token
+    | TEof
     deriving (Eq, Ord, Show)
 
 -- | Kind of a Token
@@ -33,11 +35,13 @@ data TokenKind
     -- | Designates a symbolic token,
     --   with an optional kind of symbol when
     --   given as part of a parsing predicate
-    | TkSymbol (Maybe TokenSymbolKind) String
+    | TkSymbol !(Maybe TokenSymbolKind) !String
     -- | Designates a literal token,
     --   with an optional kind of literal when
     --   given as part of a parsing predicate
-    | TkLiteral (Maybe LiteralKind)
+    | TkLiteral !(Maybe LiteralKind)
+    -- | Designates the end of file
+    | TkEof
     deriving (Eq, Ord, Show)
 
 -- | Kind of a TokenSymbol
@@ -57,6 +61,7 @@ instance Display TokenData where
     display = \case
         TSymbol _ s -> s
         TLiteral l -> display l
+        TEof -> "{EOF}"
 
 instance Display TokenKind where
     display = \case
@@ -67,6 +72,7 @@ instance Display TokenKind where
         TkSymbol{} -> "any symbol"
         TkLiteral (Just k) -> display k <> " literal"
         TkLiteral _ -> "any literal"
+        TkEof -> "end of file"
 
 
 instance Display TokenSymbolKind where
@@ -82,6 +88,7 @@ tokenKind :: TokenData -> TokenKind
 tokenKind = \case
     TSymbol k s -> TkSymbol (Just k) s
     TLiteral l -> TkLiteral (Just (literalKind l))
+    TEof -> TkEof
 
 
 -- | Get a minimal string representing a token kind.
@@ -97,6 +104,7 @@ tokenKindName = \case
     TkSymbol Nothing _ -> "symbol"
     TkLiteral Nothing -> "literal"
     TkLiteral (Just k) -> display k
+    TkEof -> "{EOF}"
 
 
 -- | Match a TokenKind to a TokenData

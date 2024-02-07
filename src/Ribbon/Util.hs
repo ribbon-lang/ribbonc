@@ -1,6 +1,7 @@
 module Ribbon.Util where
 
 import Control.Applicative
+import Control.Monad.Except
 import Data.Maybe qualified as Maybe
 
 import Data.Set (Set)
@@ -16,6 +17,11 @@ import Data.Sequence qualified as Seq
 -- | Marks something not yet implemented
 todo :: a
 todo = error "TODO"
+
+
+-- | Drop elements from the end of a list
+dropTail :: Int -> [a] -> [a]
+dropTail n = reverse . drop n . reverse
 
 
 -- | Branch on a boolean, selecting a or b for true or false, respectively
@@ -46,10 +52,25 @@ compose f g a = g (f a)
 (<<) :: Monad m => m b -> m a -> m b
 (<<) ma mb = do a <- ma; a <$ mb
 
+-- | Maybe -> Monad with monadic failure case
+liftMaybe :: Monad m => m a -> Maybe a -> m a
+liftMaybe failed = Maybe.maybe failed pure
+
+-- | Maybe -> Monad with MonadFail string case
+maybeFail :: MonadFail m => String -> Maybe a -> m a
+maybeFail msg = liftMaybe (fail msg)
+
+-- | Maybe -> Monad with MonadError error case
+maybeError :: MonadError e m => e -> Maybe a -> m a
+maybeError e = liftMaybe (throwError e)
 
 -- | An extension class for monoids allowing the Nil pattern to function
-class Monoid m => Nil m where
+class Nil m where
     isNil :: m -> Bool
+    nil :: m
+
+    default nil :: Monoid m => m
+    nil = mempty
 
 instance Nil () where
     isNil = const True
@@ -73,4 +94,4 @@ instance Semigroup a => Nil (Maybe a) where
 -- | Pattern alias for types with a Nil instance
 pattern Nil :: Nil m => m
 pattern Nil <- (isNil -> True) where
-    Nil = mempty
+    Nil = nil

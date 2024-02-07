@@ -7,13 +7,13 @@ import Ribbon.Display (Display(..))
 -- | Source-literal values such as numbers, strings
 data Literal
     -- | 32-bit signed integer
-    = LInt Int
+    = LInt !Int
     -- | 32-bit floating point number
-    | LFloat Float
+    | LFloat !Float
     -- | UTF-32 codepoint
-    | LChar Char
+    | LChar !Char
     -- | UTF-32 encoded string
-    | LString String
+    | LString !String
     deriving (Eq, Ord, Show)
 
 -- | Kind of a Literal

@@ -15,12 +15,12 @@
 
 This is a minimal implementation of Ribbon, an embeddable algebraic effects
 language with a focus on data polymorphism and allocator strategies, motivated
-by deep extensibility in the style of Lua/LISP.
+by deep extensibility in the style of Lua/LISP
 
 This project is still in the very early development stages. The compiler created
 here will target bytecode for
 [Ribbon<sup>I</sup>](https://github.com/ribbon-lang/ribboni), an effect-aware low level
-stack machine interpreter (which is also in a very early stage of development).
+stack machine interpreter (which is also in a very early stage of development)
 
 For now, issues are turned off and pull requests without prior
 [discussion](#discussion) are discouraged. See [Methodology](#methodology) for
@@ -65,6 +65,7 @@ Some things I do not plan to do, which again apply to the bootstrap only
 - First-class closures
 - High performance / optimization
 - Great errors à la rustc
+- Unicode support
 - The vast majority of quality of life concerns
 
 
@@ -72,28 +73,28 @@ Some things I do not plan to do, which again apply to the bootstrap only
 
 At some point I will revise the issue/pr policy. The reason for the current
 situation is that I have not really defined a specification, and things are
-moving fast right now.
+moving fast right now
 
 The basic plan is to immediately bootstrap the language, and create a
 self-hosted compiler that runs within the bytecode interpreter itself. I may
 wait until the bootstrapping phase to open up to other contributors, but in the
 unlikely event someone expresses interest in helping out meantime, I might take
-the time to nail down a small spec and provide some issues for pr guidance.
+the time to nail down a small spec and provide some issues for pr guidance
 
 In terms of code, this is just a basic Haskell library and driver application,
 attempting to implement the language with as little cognitive overhead as
 possible. There are relatively few dependencies, and I try to keep the
-implementation reader-friendly.
+implementation reader-friendly
 
 To this end I try to maintain some good practices such as providing informative
 commit messages, instituting good modularity, keeping files to 80 columns,
 consistently indenting and styling blocks, avoiding obfuscating programming
-patterns like super-dense point free notation inside monads, etc.
+patterns like super-dense point free notation inside monads, etc
 
 I am documenting everything as well. This is mostly to help maintain my own
 sanity as the project grows, so it may be a bit minimal in terms of
 instructional quality for the uninitiated. If you have any questions about the
-implementation, feel free to [ask](#discussion).
+implementation, feel free to [ask](#discussion)
 
 I have included `mtl` in the dependencies, but mostly for its typeclasses rather
 than its transformer data types. Instead I prefer to write monad definitions out
@@ -101,15 +102,15 @@ as newtypes, as it helps me to reason about them while things are still
 evolving. Some folks may find this annoying, but I hope they will at least agree
 it is fairly inconsequential in broader the scale of the project
 
-In addition to `mtl`, I rely on `containers` for basic things like Map, but
-beyond that I intend to implement most support libraries myself. These support
-libraries include things like pretty printing (`Ribbon.Display`) and a parser
-monad (`Ribbon.Syntax.ParserM`). There are great libraries on stackage for both
-of these, but I have opted to include implementations to provide a good
-reference to the reader (ie, my future self during bootstrap)
+`alex` and `happy` are used for parsing. Initially, I had implemented these by
+hand to serve as a reference during the bootstrap process; however, upon further
+reflection these facilities will probably look quite different under an alg eff
+construction anyways, so I have decided to prioritize speed & ease of
+implementation
+
 
 I am using a few GHC extensions, mostly involving typeclass behaviors and basic
-syntax quality of life enhancements such as block arguments.
+syntax quality of life enhancements such as block arguments
 
 Where ever possible, I am pulling code (or at least inspiration) from my prior
 work. Some of this is available on GitHub already, if you would like a
@@ -126,10 +127,14 @@ under [Apache 2.0](LICENSE)
 
 ## Dependencies
 
-For a full list see [package.yaml](package.yaml), but in short, just the basic
-boilerplate dependencies such as `containers`, `mtl`, etc
+For a full list see [package.yaml](package.yaml), but in short, as far as
+libraries included via source, just the basic boilerplate dependencies such as
+`containers`, `mtl`, `bytestring`, `text` etc
+
+Build dependencies are `alex` and `happy`
 
 The Stack configuration is locked to `lts-21.25`, using GHC `9.4.8`
+
 
 
 ## Usage

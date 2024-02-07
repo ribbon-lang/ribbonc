@@ -13,7 +13,7 @@ import Ribbon.Syntax.Token
 type Name = String
 
 -- | Prototypical definitions, such as types, values and effects
-type ProtoDef = Syn ProtoDefData
+type ProtoDef = Tag Attr ProtoDefData
 
 -- | Prototypical definitions, such as types, values and effects
 data ProtoDefData
@@ -36,7 +36,7 @@ data ProtoDefKind
     deriving (Eq, Ord, Show)
 
 -- | The type of a type
-type Kind = Syn KindData
+type Kind = Tag Attr KindData
 
 -- | The type of a type
 data KindData
@@ -48,7 +48,7 @@ data KindData
 
 
 -- | Binds information about terms, effects, and rows
-type Type = Syn TypeData
+type Type = Tag Attr TypeData
 
 -- | Binds information about terms, effects, and rows
 data TypeData
@@ -69,7 +69,7 @@ data TypeData
 
 -- | Type binders with their kind
 --   Bound variables are named, inference-created "meta variables" are integers
-type TypeVar = Syn TypeVarData
+type TypeVar = Tag Attr TypeVarData
 
 -- | Type binders with their kind
 --   Bound variables are named, inference-created "meta variables" are integers
@@ -82,7 +82,7 @@ data TypeVarData
 
 
 -- | A type binder from a type scheme
-type TypeBinder = Syn TypeBinderData
+type TypeBinder = Tag Attr TypeBinderData
 
 -- | A type binder from a type scheme
 type TypeBinderData = (Name, Kind)
@@ -94,7 +94,7 @@ data TypeConstructor = Tc Name Kind
 
 
 -- | Monoidal unordered map of Type-kinded types
-type DataRow = Map (Syn Name) Type
+type DataRow = Map (Tag Attr Name) Type
 
 -- | Monoidal unordered set of Effect-kinded types
 type EffectRow = [Type]
@@ -103,7 +103,7 @@ type EffectRow = [Type]
 
 -- | Rank-1 polymorphic value with a set
 --   of bound type variables and a qualifier
-type Scheme a = Syn (SchemeData a)
+type Scheme a = Tag Attr (SchemeData a)
 
 -- | Rank-1 polymorphic value with a set
 --   of bound type variables and a qualifier
@@ -117,7 +117,7 @@ data Qualified a = Qualified [Constraint] a
 
 
 -- | Type-relational equations
-type Constraint = Syn ConstraintData
+type Constraint = Tag Attr ConstraintData
 
 -- | Type-relational equations
 data ConstraintData
@@ -147,7 +147,7 @@ type ConcatRowConstraint = (Type, Type, Type)
 
 
 -- | Terms / values
-type Expr = Syn ExprData
+type Expr = Tag Attr ExprData
 
 -- | Terms / values
 data ExprData
@@ -201,7 +201,7 @@ type Case = (Patt, Expr)
 
 
 -- | Patterns for matching values
-type Patt = Syn PattData
+type Patt = Tag Attr PattData
 
 -- | Patterns for matching values
 data PattData
@@ -220,7 +220,7 @@ data PattData
     deriving (Eq, Ord, Show)
 
 -- | Pattern for matching the rest of a product not mentioned in the constructor
-type ProductRestPattern = Syn ProductRestPatternData
+type ProductRestPattern = Tag Attr ProductRestPatternData
 
 -- | Pattern for matching the rest of a product not mentioned in the constructor
 data ProductRestPatternData

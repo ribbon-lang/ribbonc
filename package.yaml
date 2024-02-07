@@ -14,11 +14,14 @@ default-extensions:
     - UndecidableInstances
     - MultiParamTypeClasses
     - FunctionalDependencies
+    - DefaultSignatures
 
     - PatternSynonyms
     - ViewPatterns
 
     - TupleSections
+
+    - RecordWildCards
 
     - GeneralizedNewtypeDeriving
     - DerivingStrategies
@@ -37,6 +40,12 @@ dependencies:
     - mtl
     - hashable
     - array
+    - text
+    - bytestring
+
+build-tools:
+    - alex
+    - happy
 
 executables:
     ribbonc:

@@ -1,105 +1,151 @@
 module Ribbon.Source where
 
-import Data.Sequence (Seq)
-import Data.Sequence qualified as Seq
+import Data.Int (Int64)
 
-import Ribbon.Display (Display(..))
+import Data.ByteString.Lazy (ByteString)
+import Data.ByteString.Lazy qualified as ByteString
+
+import Data.Bifunctor
 import Control.Exception
-import qualified Data.Maybe as Maybe
--- import Ribbon.Display qualified as Display
 
--- | Wrapper for syntax objects, with source attribution
-data Syn a
-    -- | Attaches source attribution to a syntax object
-    = a :@: Attr
+import Ribbon.Util
+import Ribbon.Display (Display(..))
+import Ribbon.Display qualified as Display
+
+
+-- | Wrapper for objects, with attribute
+data Tag t a
+    -- | Attaches an attribute to an object
+    = Tag t a
     deriving (Show, Functor, Foldable, Traversable)
+
+-- | Infix pattern alias for Tag
+pattern (:@:) :: a -> t -> Tag t a
+pattern a :@: t = Tag t a
 infixl 9 :@:
+{-# COMPLETE (:@:) #-}
+
+-- | Pattern alias for Tag without attribute
+pattern T' :: a -> Tag t a
+pattern T' a <- a :@: _
+{-# COMPLETE T' #-}
 
 
--- | Get the syntax object inside Syn
-synData :: Syn a -> a
-synData (a :@: _) = a
+-- | Codepoint-indexed position in a source file,
+--   as well as its line and column numbers
+data Pos
+    = Pos
+    { posOffset :: !Int64
+    , posLine :: !Int64
+    , posColumn :: !Int64
+    }
 
--- | Get the source attribution of a Syn object
-synAttr :: Syn a -> Attr
-synAttr (_ :@: x) = x
 
--- | Pattern alias for Syn without source attribution
-pattern Sn :: a -> Syn a
-pattern Sn a <- a :@: _
-{-# COMPLETE Sn #-}
+-- | Range indicating the origin of a span of characters
+data Range
+    = Range
+    { rangeStart :: !Pos
+    , rangeEnd :: !Pos
+    }
+    deriving (Eq, Ord)
+
 
 -- | Source attribution
 data Attr
     -- | Source attribution for a range of characters in a file
     = Attr
-    -- | Start of the codepoint-indexed range of an Attr
-    { attrStart :: Pos
-    -- | End of the codepoint-indexed range of an Attr
-    , attrEnd :: Pos
     -- | File containing the range of an Attr
-    , attrFile :: File
+    { attrFile :: !File
+    -- | Offset, Line and Column Range for an Attr
+    , attrRange :: !Range
     }
     deriving (Eq, Ord)
-
--- | Codepoint-indexed position in a source file
-type Pos = Int
-
--- | Line and column in a source file
-data Lc
-    = Lc Int Int
-    | EOF
-    deriving (Eq)
-
-instance Ord Lc where
-    compare EOF EOF = EQ
-    compare EOF _ = GT
-    compare _ EOF = LT
-    compare (Lc l1 c1) (Lc l2 c2) = compare (l1, c1) (l2, c2)
 
 
 -- | Source file
 data File
     -- | Source file with name, text, and line and column database
     = File
-    -- | Name of a File
-    { fileName :: String
-    -- | Content of a File
-    , fileText :: String
-    -- | Line and column database of a File
-    , lineAndColumnDb :: Seq Lc
+    -- | Name or path of a File
+    { fileName :: !String
+    -- | Lazy ByteString of a File's textual content
+    , fileContent :: !ByteString
     }
+    deriving Show
 
 
-instance Eq a => Eq (Syn a) where
-    a == b = synData a == synData b
 
-instance Ord a => Ord (Syn a) where
-    compare a b = compare (synData a) (synData b)
+instance Bifunctor Tag where
+    bimap f g (a :@: t) = g a :@: f t
 
-instance Display a => Display (Syn a) where
-    display = display . synData
+instance Eq a => Eq (Tag t a) where
+    a == b = untag a == untag b
+
+instance Ord a => Ord (Tag t a) where
+    compare a b = compare (untag a) (untag b)
+
+instance Display a => Display (Tag t a) where
+    display = display . untag
 
 
-instance Semigroup Attr where
-    a <> b =
-        assert (attrFile a == attrFile b) $
-        Attr
-            (min (attrStart a) (attrStart b))
-            (max (attrEnd a) (attrEnd b))
-            (attrFile a)
+
+instance Show Pos where
+    show (Pos o l c)
+         = show l <> ":" <> show c
+        <> Display.parens ("@" <> show o)
+
+instance Display Pos where
+    display (Pos _ l c) = show l <> ":" <> show c
+
+instance Eq Pos where
+    a == b = posOffset a == posOffset b
+
+instance Ord Pos where
+    compare a b = compare (posOffset a) (posOffset b)
+
+instance Nil Pos where
+    isNil = (== Nil)
+    nil = Pos 0 1 1
+
+
+instance Show Range where
+    show (Range s e) = show s <> " to " <> show e
+
+instance Display Range where
+    display (Range s e) = display s <> " to " <> display e
+
+instance Semigroup Range where
+    a <> b = Range
+        (min (rangeStart a) (rangeStart b))
+        (max (rangeEnd a) (rangeEnd b))
+
+instance Monoid Range where
+    mempty = Range Nil Nil
+
+instance Nil Range where
+    isNil = (== mempty)
+
+
 
 instance Show Attr where
-    show attr =
-        fileName (attrFile attr)
-        <> case attrRangeLc attr of
-            (Lc ls cs, Lc le ce)
-                -> ":" <> show ls <> ":" <> show cs
-                <> "-" <> show le <> ":" <> show ce
-            (EOF, EOF) -> ":EOF-EOF"
-            (Lc ls cs, EOF) -> ":" <> show ls <> ":" <> show cs <> "-EOF"
-            (EOF, Lc le ce) -> ":EOF-" <> show le <> ":" <> show ce
+    show (Attr r f) = display f <> ":" <> show r
 
+instance Display Attr where
+    display (Attr r f) = display f <> ":" <> display r
+
+instance Semigroup Attr where
+    a <> b = assert (attrFile a == attrFile b) $
+        Attr (attrFile a) (attrRange a <> attrRange b)
+
+instance Monoid Attr where
+    mempty = Attr (File "" ByteString.empty) mempty
+
+instance Nil Attr where
+    isNil = (== mempty)
+
+
+instance Display File where
+    display = fileName
 
 instance Eq File where
     a == b = fileName a == fileName b
@@ -107,153 +153,146 @@ instance Eq File where
 instance Ord File where
     compare a b = compare (fileName a) (fileName b)
 
-instance Show File where
-    show = fileName
 
 
--- | Create an Attr with a unit range
-unitAttr :: Pos -> File -> Attr
-unitAttr pos = Attr pos (pos + 1)
-
--- | Get a line and column for the start of a source attribution.
-attrStartLc :: Attr -> Lc
-attrStartLc attr = getLc (attrFile attr) (attrStart attr)
-
--- | Get a line and column for the end of a source attribution.
-attrEndLc :: Attr -> Lc
-attrEndLc attr = getLc (attrFile attr) (attrEnd attr)
-
--- | Get a pair of lines and columns for the range of a source attribution.
-attrRangeLc :: Attr -> (Lc, Lc)
-attrRangeLc attr = (attrStartLc attr, attrEndLc attr)
-
-
--- | Create a new File given its name and text.
---   Calls computeLineAndColumnDb
-newFile :: String -> String -> File
-newFile name text = File name text (computeLineAndColumnDb text)
-
--- | Read the contents of a file from disk, given its name,
---   and call newFile with the name and contents.
---   Throws an exception if the file does not exist
 loadFile :: String -> IO File
-loadFile name = newFile name <$> readFile name
-
--- | Compute the lineAndColumnDb for a given text
-computeLineAndColumnDb :: String -> Seq Lc
-computeLineAndColumnDb text = go 1 1 text Seq.empty where
-    go _ _ [] acc = acc
-    go line col (c:cs) acc
-        | c == '\n' = go (line + 1) 1 cs (acc Seq.:|> Lc line col)
-        | otherwise = go line (col + 1) cs (acc Seq.:|> Lc line col)
-
--- | Get a line and column for a given file and position.
-getLc :: File -> Pos -> Lc
-getLc file pos = Maybe.fromMaybe EOF (lineAndColumnDb file Seq.!? pos)
+loadFile name = File name <$> ByteString.readFile name
 
 
 
+-- | @(a :\@:) <$> t@
+(<@>) :: Functor f => a -> f t -> f (Tag t a)
+a <@> t = (a :@:) <$> t
+infixl 4 <@>
 
--- | Convert a Syn to a pair
-synSplit :: Syn a -> (a, Attr)
-synSplit (a :@: attr) = (a, attr)
+-- | Get the object inside Tag
+untag :: Tag t a -> a
+untag (a :@: _) = a
+
+-- | Get the attribute of a Tag
+tagOf :: Tag t a -> t
+tagOf (_ :@: t) = t
 
 
--- | Syn mapping with Attr pass-through
+-- | Convert a Tag to a pair
+tagSplit :: Tag t a -> (a, t)
+tagSplit (a :@: t) = (a, t)
+
+
+-- | Tag mapping with attribute pass-through
 --
---   i.e. @_ f x = f x :\@: (synAttr x)@
-synApp1 :: (Syn a -> b) -> (Syn a -> Syn b)
-synApp1 f x = f x :@: synAttr x
+--   i.e. @_ f x = f x :\@: (tagOf x)@
+tagApp1 :: (Tag t a -> b) -> (Tag t a -> Tag t b)
+tagApp1 f x = f x :@: tagOf x
 
--- | Syn mapping with concatenation of Attr
+-- | Tag mapping with concatenation of attribute
 --
---   i.e. @_ t f x = f x :\@: (t <> synAttr x)@
-synApp1With :: Attr -> (Syn a -> b) -> (Syn a -> Syn b)
-synApp1With t f x = f x :@: (t <> synAttr x)
+--   i.e. @_ t f x = f x :\@: (t <> tagOf x)@
+tagApp1With
+    :: Semigroup t
+    => t
+    -> (Tag t a -> b)
+    -> Tag t a -> Tag t b
+tagApp1With t f x = f x :@: (t <> tagOf x)
 
 
--- | Syn application with Attr concatenation
+-- | Tag t application with attribute concatenation
 --
---   i.e. @_ f x y = f x y :\@: (synAttr x <> synAttr y)@
-synApp2 :: (Syn a -> Syn b -> c) -> Syn a -> Syn b -> Syn c
-synApp2 f x y = f x y :@: (synAttr x <> synAttr y)
+--   i.e. @_ f x y = f x y :\@: (tagOf x <> tagOf y)@
+tagApp2
+    :: Semigroup t
+    => (Tag t a -> Tag t b -> c)
+    -> Tag t a -> Tag t b -> Tag t c
+tagApp2 f x y = f x y :@: (tagOf x <> tagOf y)
 
--- | Syn application with concatenation of Attr
+-- | Tag t application with concatenation of attribute
 --
---   i.e. @_ t f x y = f x y :\@: (t <> synAttr x <> synAttr y)@
-synApp2With :: Attr -> (Syn a -> Syn b -> c) -> Syn a -> Syn b -> Syn c
-synApp2With t f x y = f x y :@: (t <> synAttr x <> synAttr y)
+--   i.e. @_ t f x y = f x y :\@: (t <> tagOf x <> tagOf y)@
+tagApp2With
+    :: Semigroup t
+    => t
+    -> (Tag t a -> Tag t b -> c)
+    -> Tag t a -> Tag t b -> Tag t c
+tagApp2With t f x y = f x y :@: (t <> tagOf x <> tagOf y)
 
 
--- | Syn application with Attr concatenation
+-- | Tag t application with attribute concatenation
 --
---   i.e. @_ f x y z = f x y z :\@: (synAttr x <> synAttr y <> synAttr z)@
-synApp3 :: (Syn a -> Syn b -> Syn c -> d) -> Syn a -> Syn b -> Syn c -> Syn d
-synApp3 f x y z = f x y z :@: (synAttr x <> synAttr y <> synAttr z)
+--   i.e. @_ f x y z = f x y z :\@: (tagOf x <> tagOf y <> tagOf z)@
+tagApp3
+    :: Semigroup t
+    => (Tag t a -> Tag t b -> Tag t c -> d)
+    -> Tag t a -> Tag t b -> Tag t c -> Tag t d
+tagApp3 f x y z = f x y z :@: (tagOf x <> tagOf y <> tagOf z)
 
--- | Syn application with concatenation of Attr
+-- | Tag t application with concatenation of attribute
 --
 --   i.e. @_ t f x y z = f x y z :\@:
---   (t <> synAttr x <> synAttr y <> synAttr z)@
-synApp3With
-    :: Attr
-    -> (Syn a -> Syn b -> Syn c -> d)
-    -> Syn a -> Syn b -> Syn c -> Syn d
-synApp3With t f x y z = f x y z :@: (t <> synAttr x <> synAttr y <> synAttr z)
+--   (t <> tagOf x <> tagOf y <> tagOf z)@
+tagApp3With
+    :: Semigroup t
+    => t
+    -> (Tag t a -> Tag t b -> Tag t c -> d)
+    -> Tag t a -> Tag t b -> Tag t c -> Tag t d
+tagApp3With t f x y z = f x y z :@: (t <> tagOf x <> tagOf y <> tagOf z)
 
 
--- | Syn application with Attr concatenation
+-- | Tag t application with attribute concatenation
 --
---   i.e. @_ f x y z = f x y z :\@: (synAttr x <> synAttr y <> synAttr z)@
-synApp4 :: (Syn a -> Syn b -> Syn c -> d) -> Syn a -> Syn b -> Syn c -> Syn d
-synApp4 f x y z = f x y z :@: (synAttr x <> synAttr y <> synAttr z)
+--   i.e. @_ f x y z = f x y z :\@: (tagOf x <> tagOf y <> tagOf z)@
+tagApp4
+    :: Semigroup t
+    => (Tag t a -> Tag t b -> Tag t c -> d)
+    -> Tag t a -> Tag t b -> Tag t c -> Tag t d
+tagApp4 f x y z = f x y z :@: (tagOf x <> tagOf y <> tagOf z)
 
--- | Syn application with concatenation of Attr
+-- | Tag t application with concatenation of attribute
 --
 --   i.e. @_ t f x y z w = f x y z w :\@:
---   (t <> synAttr x <> synAttr y <> synAttr z <> synAttr w)@
-synApp4With
-    :: Attr
-    -> (Syn a -> Syn b -> Syn c -> Syn d -> e)
-    -> Syn a -> Syn b -> Syn c -> Syn d -> Syn e
-synApp4With t f x y z w = f x y z w :@:
-    (t <> synAttr x <> synAttr y <> synAttr z <> synAttr w)
+--   (t <> tagOf x <> tagOf y <> tagOf z <> tagOf w)@
+tagApp4With
+    :: Semigroup t
+    => t
+    -> (Tag t a -> Tag t b -> Tag t c -> Tag t d -> e)
+    -> Tag t a -> Tag t b -> Tag t c -> Tag t d -> Tag t e
+tagApp4With t f x y z w = f x y z w :@:
+    (t <> tagOf x <> tagOf y <> tagOf z <> tagOf w)
 
 
 
--- | Apply a new Attr to a Syn
-reSyn :: Attr -> Syn a -> Syn a
-reSyn x a = synData a :@: x
+-- | Apply a new attribute to a Tag
+reTag :: t -> Tag t a -> Tag t a
+reTag x a = untag a :@: x
 
--- | Apply a new Attr to a Syn, using the Attr of another Syn
+-- | Apply a new attribute to a Tag, using the attribute of another Tag
 --
---   i.e. @_ a b = synData b :\@: synAttr a@
-reSynFrom :: Syn a -> Syn b -> Syn b
-reSynFrom a b = synData b :@: synAttr a
+--   i.e. @_ a b = untag b :\@: tagOf a@
+reTagFrom :: Tag t a -> Tag t b -> Tag t b
+reTagFrom a b = untag b :@: tagOf a
 
--- | Create a new Syn using a fresh syntax object
---   and the Attr of an existing Syn
+-- | Create a new Tag using a fresh object
+--   and the attribute of an existing Tag
 --
--- i.e. @_ a b = b :\@: synAttr a@
-takeSyn :: Syn a -> b -> Syn b
-takeSyn a b = b :@: synAttr a
+-- i.e. @_ a b = b :\@: tagOf a@
+takeTag :: Tag t a -> b -> Tag t b
+takeTag a b = b :@: tagOf a
 
 
--- | Map the Attr of a Syn
-mapSyn :: (Attr -> Attr) -> Syn a -> Syn a
-mapSyn f (a :@: x) = a :@: f x
+-- | Map the attribute of a Tag
+mapTag :: (t -> t') -> Tag t a -> Tag t' a
+mapTag f (a :@: x) = a :@: f x
 
 
--- | Construct a recursive Syn from a syntax object,
---   assigning both new Syn objects the same Attr
+-- | Construct a recursive Tag from an object,
+--   assigning both new Tag objects the same attribute
 --
 --  i.e. @_ t f a = f (a :\@: t) :\@: t@
-synCon1 :: Attr -> (Syn a -> b) -> a -> Syn b
-synCon1 t f a = f (a :@: t) :@: t
+tagCon1 :: t -> (Tag t a -> b) -> a -> Tag t b
+tagCon1 t f a = f (a :@: t) :@: t
 
--- | Construct a recursive Syn from two syntax objects,
---   assigning all new Syn objects the same Attr
+-- | Construct a recursive Tag from two objects,
+--   assigning all new Tag objects the same attribute
 --
 --  i.e. @_ t f a b = f (a :\@: t) (b :\@: t) :\@: t@
-synCon2 :: Attr -> (Syn a -> Syn b -> c) -> a -> b -> Syn c
-synCon2 t f a b = f (a :@: t) (b :@: t) :@: t
+tagCon2 :: t -> (Tag t a -> Tag t b -> c) -> a -> b -> Tag t c
+tagCon2 t f a b = f (a :@: t) (b :@: t) :@: t

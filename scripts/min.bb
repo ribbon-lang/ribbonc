@@ -1,3 +1,5 @@
+;; comment
+
 type Foo = Int
 
 infix + = whatever

@@ -3,6 +3,7 @@ module Ribbon.Syntax.Text where
 import Numeric
 
 import Data.Char qualified as Char
+import Ribbon.Util
 
 
 -- | Predicate checking if a character is part of a whitespace segment,
@@ -58,8 +59,8 @@ isDot = (== '.')
 
 
 -- | Reserved identifiers
-reserved :: [String]
-reserved =
+reservedSymbols :: [String]
+reservedSymbols =
     [ "type", "effect", "forall", "fun"
     , "let", "in"
     , "match", "with"
@@ -69,8 +70,23 @@ reserved =
 
 -- | Predicate checking if a string is a reserved identifier or operator
 isReserved :: String -> Bool
-isReserved = (`elem` reserved)
+isReserved = (`elem` reservedSymbols)
 
+-- | Parse a character literal from a String
+parseChar :: String -> Maybe Char
+parseChar s =
+    case s of
+        [c] -> Just c
+        "\\\\" -> Just '\\'
+        "\\\'" -> Just '\''
+        "\\\"" -> Just '\"'
+        "\\n" -> Just '\n'
+        "\\r" -> Just '\r'
+        "\\t" -> Just '\t'
+        "\\0" -> Just '\0'
+        ['\\', 'x', a, b] -> Char.chr <$> parseHexInt [a, b]
+        '\\':'u':'{':cs -> Char.chr <$> parseHexInt (dropTail 1 cs)
+        _ -> Nothing
 
 -- | Attempt to convert a String to an Int, using base 2
 parseBinInt :: String -> Maybe Int
