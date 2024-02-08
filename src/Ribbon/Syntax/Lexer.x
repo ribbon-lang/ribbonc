@@ -21,7 +21,11 @@ $alpha = [A-Za-z_]
 $alphanum = [A-Za-z0-9_]
 $punc = [\,\{\}\(\)\[\]]
 
-@reserved = let | in | match | with | do | fun | "=>" | ";" | ("."+)
+@reserved = let | in | as | match | with | do | fun | handler
+          | module | import | use | pub | namespace
+          | type | effect | class | instance
+          | infix | infixl | infixr | prefix | postfix
+          | "=>" | ";" | ("."+)
 @operator = $printable # $alphanum # $punc # [\'\"]
 @escape = \\ ([\\\'\"0nrt] | x $hex{2} | u \{ $hex+ \})
 
@@ -48,22 +52,22 @@ tokens :-
 reserved :: AlexAction Token
 reserved input@AlexInput{..} len = do
     let excerpt = alexExcerpt input 0 len
-    TSymbol TsReserved excerpt <@> getAttr aiPos
+    TSymbol excerpt <@> getAttr aiPos
 
 operator :: AlexAction Token
 operator input@AlexInput{..} len = do
     let excerpt = alexExcerpt input 0 len
-    TSymbol TsOperator excerpt <@> getAttr aiPos
+    TSymbol excerpt <@> getAttr aiPos
 
 ident :: AlexAction Token
 ident input@AlexInput{..} len = do
     let excerpt = alexExcerpt input 0 len
-    TSymbol TsIdentifier excerpt <@> getAttr aiPos
+    TSymbol excerpt <@> getAttr aiPos
 
 punc :: AlexAction Token
 punc input@AlexInput{..} len = do
     let excerpt = alexExcerpt input 0 len
-    TSymbol TsPunctuation excerpt <@> getAttr aiPos
+    TSymbol excerpt <@> getAttr aiPos
 
 char :: AlexAction Token
 char input@AlexInput{..} len = do

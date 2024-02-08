@@ -17,7 +17,7 @@ import Ribbon.Display qualified as Display
 data Tag t a
     -- | Attaches an attribute to an object
     = Tag t a
-    deriving (Show, Functor, Foldable, Traversable)
+    deriving (Functor, Foldable, Traversable)
 
 -- | Infix pattern alias for Tag
 pattern (:@:) :: a -> t -> Tag t a
@@ -75,6 +75,12 @@ data File
 
 
 
+instance (Display t, Show a) => Show (Tag t a) where
+    show (a :@: t) = Display.parens (show a) <> "@" <> display t
+
+instance Display a => Display (Tag t a) where
+    displayPrec p = displayPrec p . untag
+
 instance Bifunctor Tag where
     bimap f g (a :@: t) = g a :@: f t
 
@@ -83,9 +89,6 @@ instance Eq a => Eq (Tag t a) where
 
 instance Ord a => Ord (Tag t a) where
     compare a b = compare (untag a) (untag b)
-
-instance Display a => Display (Tag t a) where
-    display = display . untag
 
 
 
@@ -109,10 +112,10 @@ instance Nil Pos where
 
 
 instance Show Range where
-    show (Range s e) = show s <> " to " <> show e
+    show (Range s e) = show s <> "-" <> show e
 
 instance Display Range where
-    display (Range s e) = display s <> " to " <> display e
+    display (Range s e) = display s <> "-" <> display e
 
 instance Semigroup Range where
     a <> b = Range
@@ -128,10 +131,10 @@ instance Nil Range where
 
 
 instance Show Attr where
-    show (Attr r f) = display f <> ":" <> show r
+    show (Attr f r) = display f <> ":" <> show r
 
 instance Display Attr where
-    display (Attr r f) = display f <> ":" <> display r
+    display (Attr f r) = display f <> ":" <> display r
 
 instance Semigroup Attr where
     a <> b = assert (attrFile a == attrFile b) $
@@ -261,13 +264,13 @@ tagApp4With t f x y z w = f x y z w :@:
 
 
 -- | Apply a new attribute to a Tag
-reTag :: t -> Tag t a -> Tag t a
+reTag :: t' -> Tag t a -> Tag t' a
 reTag x a = untag a :@: x
 
 -- | Apply a new attribute to a Tag, using the attribute of another Tag
 --
 --   i.e. @_ a b = untag b :\@: tagOf a@
-reTagFrom :: Tag t a -> Tag t b -> Tag t b
+reTagFrom :: Tag t a -> Tag t' b -> Tag t b
 reTagFrom a b = untag b :@: tagOf a
 
 -- | Create a new Tag using a fresh object

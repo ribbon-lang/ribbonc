@@ -3,6 +3,7 @@ module Ribbon.Syntax.Ast where
 import Data.Map (Map)
 -- import Data.Map qualified as Map
 
+
 import Ribbon.Source
 import Ribbon.Syntax.Literal
 import Ribbon.Syntax.Token
@@ -168,11 +169,13 @@ data ExprData
     -- | Postfix notation for function application
     | EPostfix (Int, Name) Expr
     -- | Let bindings
-    | ELet Patt Expr Expr
+    | ELet Patt Expr
     -- | Performs pattern matching on a scrutinee
     | EMatch Expr [Case]
     -- | Sequencing of effectful expressions
-    | ESeq Expr Expr
+    | ESequence Expr Expr
+    -- | A compound expression that has not been completely parsed
+    | ECompound [Expr]
 
     -- | Constructs a new product
     | EProductConstructor [(Name, Expr)]
