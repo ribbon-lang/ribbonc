@@ -106,7 +106,9 @@ it is fairly inconsequential in broader the scale of the project
 hand to serve as a reference during the bootstrap process; however, upon further
 reflection these facilities will probably look quite different under an alg eff
 construction anyways, so I have decided to prioritize speed & ease of
-implementation
+implementation. However, after exploring `happy`, I'm uncertain if it is very
+beneficial here given the dynamic nature of the grammar I want to create. It may
+be removed in the coming days
 
 
 I am using a few GHC extensions, mostly involving typeclass behaviors and basic
@@ -145,8 +147,10 @@ play with features implemented thus far, the best way to do that is via
 
 Currently you can:
 - Read files as source-tracking File objects, using `loadFile`
-- Play with the lexer, using `lexFile`/`lexString`
-- Play with the parsers, using `parseFileWith`/`parseStringWith` (very wip)
+- Play with the lexical analysis of the parser,
+using `next`/`loop` (wrapped with a fn from below)
+- Play with the parsers,
+using `parseFileWith`/`parseStringWith`/`parseByteStringWith`
 
 
 ## Discussion
