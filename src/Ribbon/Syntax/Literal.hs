@@ -1,7 +1,6 @@
 module Ribbon.Syntax.Literal where
 
-import Ribbon.Display (Display(..))
--- import Ribbon.Display qualified as Display
+import Ribbon.Display
 
 
 -- | Source-literal values such as numbers, strings
@@ -29,19 +28,19 @@ data LiteralKind
     deriving (Eq, Ord, Show)
 
 
-instance Display Literal where
-    display = \case
-        LInt i -> display i
-        LFloat f -> display f
-        LChar c -> display c
-        LString s -> display s
+instance Pretty ann Literal where
+    pPrint = \case
+        LInt i -> pPrint i
+        LFloat f -> pPrint f
+        LChar c -> pPrint c
+        LString s -> pPrint s
 
-instance Display LiteralKind where
-    display = \case
-        LkInt -> "int"
-        LkFloat -> "float"
-        LkChar -> "char"
-        LkString -> "string"
+instance Pretty ann LiteralKind where
+    pPrint = \case
+        LkInt -> text "int"
+        LkFloat -> text "float"
+        LkChar -> text "char"
+        LkString -> text "string"
 
 
 -- | Get the LiteralKind of a Literal

@@ -5,18 +5,20 @@ import Data.Int (Int64)
 import Data.ByteString.Lazy (ByteString)
 import Data.ByteString.Lazy qualified as ByteString
 
+import Ribbon.Display
+
+
 import Data.Bifunctor
+
 import Control.Exception
 
 import Ribbon.Util
-import Ribbon.Display (Display(..))
-import Ribbon.Display qualified as Display
 
 
 -- | Wrapper for objects, with attribute
 data Tag t a
     -- | Attaches an attribute to an object
-    = Tag t a
+    = Tag !t !a
     deriving (Functor, Foldable, Traversable)
 
 -- | Infix pattern alias for Tag
@@ -29,6 +31,9 @@ infixl 9 :@:
 pattern T' :: a -> Tag t a
 pattern T' a <- a :@: _
 {-# COMPLETE T' #-}
+
+-- | Type alias for @Tag Attr@
+type ATag = Tag Attr
 
 
 -- | Codepoint-indexed position in a source file,
@@ -75,11 +80,15 @@ data File
 
 
 
-instance (Display t, Show a) => Show (Tag t a) where
-    show (a :@: t) = Display.parens (show a) <> "@" <> display t
+instance (Show t, Show a) => Show (Tag t a) where
+    show (a :@: t) = render $
+        parens (shown a) <> text "@" <> shown t
 
-instance Display a => Display (Tag t a) where
-    displayPrec p = displayPrec p . untag
+instance (Pretty ann t, Pretty ann a) => Pretty ann (Tag t a) where
+    pPrintPrec l p (a :@: t) =
+        if l >= PrettyRich
+            then parens (pPrintPrec l 0 a) <> text "@" <> brackets (pPrintPrec l 0 t)
+            else pPrintPrec l p a
 
 instance Bifunctor Tag where
     bimap f g (a :@: t) = g a :@: f t
@@ -93,12 +102,14 @@ instance Ord a => Ord (Tag t a) where
 
 
 instance Show Pos where
-    show (Pos o l c)
-         = show l <> ":" <> show c
-        <> Display.parens ("@" <> show o)
+    show = prettyShow
 
-instance Display Pos where
-    display (Pos _ l c) = show l <> ":" <> show c
+instance Pretty ann Pos where
+    pPrintPrec lvl _ (Pos o l c) =
+        let s = text ":" <> pPrint l <> text ":" <> pPrint c
+        in if lvl > PrettyNormal
+            then s <> parens (pPrint o)
+            else s
 
 instance Eq Pos where
     a == b = posOffset a == posOffset b
@@ -112,10 +123,15 @@ instance Nil Pos where
 
 
 instance Show Range where
-    show (Range s e) = show s <> "-" <> show e
+    show = prettyShow
 
-instance Display Range where
-    display (Range s e) = display s <> "-" <> display e
+instance Pretty ann Range where
+    pPrintPrec lvl _ (Range s e) =
+        let a = pPrintPrec lvl 0 s
+            b = pPrintPrec lvl 0 e
+        in if s == e
+            then a
+            else a <+> text "to" <+> b
 
 instance Semigroup Range where
     a <> b = Range
@@ -131,24 +147,23 @@ instance Nil Range where
 
 
 instance Show Attr where
-    show (Attr f r) = display f <> ":" <> show r
+    show (Attr f r) = show f <> show r
 
-instance Display Attr where
-    display (Attr f r) = display f <> ":" <> display r
+instance Pretty ann Attr where
+    pPrintPrec lvl prec (Attr f r) = pPrintPrec lvl prec f <> pPrintPrec lvl prec r
 
 instance Semigroup Attr where
     a <> b = assert (attrFile a == attrFile b) $
         Attr (attrFile a) (attrRange a <> attrRange b)
 
-instance Monoid Attr where
-    mempty = Attr (File "" ByteString.empty) mempty
 
-instance Nil Attr where
-    isNil = (== mempty)
-
-
-instance Display File where
-    display = fileName
+instance Pretty ann File where
+    pPrintPrec lvl _ = if lvl == PrettyVerbose
+        then \(File name content) -> text "{" <> do
+            shown name <> text ":" $+$ do
+                vcat' . fmap (indent . text) . lines . bytesToString $ content
+        $+$ text "}"
+        else text . fileName
 
 instance Eq File where
     a == b = fileName a == fileName b
@@ -157,7 +172,12 @@ instance Ord File where
     compare a b = compare (fileName a) (fileName b)
 
 
+-- | Create a @Range@ from a single @Pos@
+unitRange :: Pos -> Range
+unitRange p = Range p p
 
+
+-- | Load a text file into a File object
 loadFile :: String -> IO File
 loadFile name = File name <$> ByteString.readFile name
 
@@ -167,6 +187,10 @@ loadFile name = File name <$> ByteString.readFile name
 (<@>) :: Functor f => a -> f t -> f (Tag t a)
 a <@> t = (a :@:) <$> t
 infixl 4 <@>
+
+-- | Compositional @untag@
+untagged :: (a -> b) -> (Tag t a -> b)
+untagged f (a :@: _) = f a
 
 -- | Get the object inside Tag
 untag :: Tag t a -> a

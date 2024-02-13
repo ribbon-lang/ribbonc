@@ -6,6 +6,8 @@ default-extensions:
     - BlockArguments
 
     - ScopedTypeVariables
+    - TypeApplications
+    - AllowAmbiguousTypes
 
     - ImportQualifiedPost
 
@@ -42,10 +44,10 @@ dependencies:
     - array
     - text
     - bytestring
+    - pretty
 
 build-tools:
     - alex
-    - happy
 
 executables:
     ribbonc:

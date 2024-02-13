@@ -96,21 +96,6 @@ sanity as the project grows, so it may be a bit minimal in terms of
 instructional quality for the uninitiated. If you have any questions about the
 implementation, feel free to [ask](#discussion)
 
-I have included `mtl` in the dependencies, but mostly for its typeclasses rather
-than its transformer data types. Instead I prefer to write monad definitions out
-as newtypes, as it helps me to reason about them while things are still
-evolving. Some folks may find this annoying, but I hope they will at least agree
-it is fairly inconsequential in broader the scale of the project
-
-`alex` and `happy` are used for parsing. Initially, I had implemented these by
-hand to serve as a reference during the bootstrap process; however, upon further
-reflection these facilities will probably look quite different under an alg eff
-construction anyways, so I have decided to prioritize speed & ease of
-implementation. However, after exploring `happy`, I'm uncertain if it is very
-beneficial here given the dynamic nature of the grammar I want to create. It may
-be removed in the coming days
-
-
 I am using a few GHC extensions, mostly involving typeclass behaviors and basic
 syntax quality of life enhancements such as block arguments
 
@@ -131,9 +116,9 @@ under [Apache 2.0](LICENSE)
 
 For a full list see [package.yaml](package.yaml), but in short, as far as
 libraries included via source, just the basic boilerplate dependencies such as
-`containers`, `mtl`, `bytestring`, `text` etc
+`containers`, `mtl`, `bytestring`, `text`, `pretty` etc
 
-Build dependencies are `alex` and `happy`
+`alex` is a build dependency
 
 The Stack configuration is locked to `lts-21.25`, using GHC `9.4.8`
 
@@ -148,7 +133,7 @@ play with features implemented thus far, the best way to do that is via
 Currently you can:
 - Read files as source-tracking File objects, using `loadFile`
 - Play with the lexical analysis of the parser,
-using `next`/`loop` (wrapped with a fn from below)
+using `lexFileWith`/`lexStringWith`/`lexByteStringWith`
 - Play with the parsers,
 using `parseFileWith`/`parseStringWith`/`parseByteStringWith`
 

@@ -61,11 +61,13 @@ isDot = (== '.')
 -- | Reserved identifiers
 reservedSymbols :: [String]
 reservedSymbols =
-    [ "type", "effect", "forall", "fun"
+    [ "type", "effect", "value", "namespace", "forall", "fun"
+    , "infix", "infixl", "infixr", "prefix", "postfix", "atom"
     , "let", "in"
     , "match", "with"
     , "if", "then", "else"
-    , "=", ":", "=>", ";"
+    , "=", ":", "=>", ";", ".", ".."
+    , "{", "}", "(", ")", "[", "]"
     ]
 
 -- | Predicate checking if a string is a reserved identifier or operator

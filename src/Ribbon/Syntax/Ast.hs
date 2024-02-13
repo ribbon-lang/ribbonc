@@ -1,129 +1,302 @@
 module Ribbon.Syntax.Ast where
 
-import Data.Map (Map)
+import Data.Sequence (Seq)
 -- import Data.Map qualified as Map
 
 
+import Ribbon.Util
 import Ribbon.Source
+import Ribbon.Display
 import Ribbon.Syntax.Literal
 import Ribbon.Syntax.Token
 
 
--- | Just a string, for now
---   Later this may be interned, include namespacing, etc
-type Name = String
+-- | An unqualified name
+newtype Name
+    -- | Construct a Name from a String
+    = Name String
+    deriving (Eq, Ord, Show)
 
--- | Prototypical definitions, such as types, values and effects
-type ProtoDef = Tag Attr ProtoDefData
+instance Pretty ann Name where
+    pPrint (Name s) = text s
 
--- | Prototypical definitions, such as types, values and effects
-data ProtoDefData
-    -- | Create a new ProtoDefData
-    = ProtoDefData
-    { prKind :: ProtoDefKind
-    , prName :: Name
-    , prBody :: [Token]
+
+-- | A binding with kind, fixity and precedence
+data KindSpec p
+    -- | A type binding
+    = TypeSpec !(Spec p)
+    -- | An effect binding
+    | EffectSpec !(Spec p)
+    -- | A value binding
+    | ValueSpec !(Spec p)
+    -- | A namespace binding
+    | NamespaceSpec !p
+    deriving (Eq, Ord, Show)
+
+instance Pretty ann p => Pretty ann (KindSpec p) where
+    pPrint = \case
+        TypeSpec s -> text "type" <+> pPrint s
+        EffectSpec s -> text "effect" <+> pPrint s
+        ValueSpec s -> text "value" <+> pPrint s
+        NamespaceSpec p -> text "namespace" <+> pPrint p
+
+-- | A binding with fixity and precedence
+data Spec p
+    -- | Construct a Spec from a fixity, optional precedence, and the value
+    = Spec
+    -- | The fixity associated with the binding
+    { specFixity :: !Fixity
+    -- | The precedence associated with the binding, if one was specified
+    , specPrec :: !(Maybe Prec)
+    -- | The binding itself
+    , specValue :: !p
     }
     deriving (Eq, Ord, Show)
 
--- | The kind of a prototypical definition, such as a type or value
-data ProtoDefKind
-    -- | A definition of a type
-    = PrType
-    -- | A definition of an effect
-    | PrEffect
-    -- | A definition of a value
-    | PrValue
+instance Pretty ann p => Pretty ann (Spec p) where
+    pPrint (Spec f p v)
+        = pPrint f <+> maybeMEmpty (shown <$> p) <+> pPrint v
+
+-- | A name with a local path prefix
+data LocalPath
+    -- | Construct a LocalPath from a LocalPathBase and a list of Name
+    = LocalPath
+    -- | The starting point of the local path
+    { lpBase :: !LocalPathBase
+    -- | The subsequent components of the local path
+    , lpComponents :: ![Name]
+    }
     deriving (Eq, Ord, Show)
 
--- | The type of a type
-type Kind = Tag Attr KindData
+instance Pretty ann LocalPath where
+    pPrint (LocalPath b ns)
+        = pPrint b <> text "." <> hcat (punctuate (text ".") (pPrint <$> ns))
+
+-- | The base of a local path
+data LocalPathBase
+    -- | Start at the root of the active module
+    = LpRoot
+    -- | Start at the namespace @n@ above the current namespace
+    | LpUp !Int
+    -- | Start at the given module
+    | LpModule !Name
+    -- | Start in the given file
+    | LpFile !String
+    deriving (Eq, Ord, Show)
+
+instance Pretty ann LocalPathBase where
+    pPrint = \case
+        LpRoot -> text "/"
+        LpUp i -> hcat $ replicate i (text "../")
+        LpModule n -> text "module" <+> pPrint n
+        LpFile s -> text "file" <+> doubleQuotes (text s)
+
+-- | A name with an absolute path prefix
+newtype AbsPath
+    -- | Construct an AbsPath from a list of Name
+    = AbsPath [Name]
+    deriving (Eq, Ord, Show)
+
+instance Pretty ann AbsPath where
+    pPrint (AbsPath ns) = hcat $ punctuate (text ".") (pPrint <$> ns)
+
+-- | A fixity specifier
+data Fixity
+    -- | Left associative infix operator
+    = InfixL
+    -- | Right associative infix operator
+    | InfixR
+    -- | Non-associative infix operator
+    | Infix
+    -- | Prefix operator
+    | Prefix
+    -- | Postfix operator
+    | Postfix
+    -- | Atomic symbol
+    | Atomic
+    deriving (Eq, Ord, Show)
+
+instance Pretty ann Fixity where
+    pPrint = \case
+        InfixL -> text "infixl"
+        InfixR -> text "infixr"
+        Infix -> text "infix"
+        Prefix -> text "prefix"
+        Postfix -> text "postfix"
+        Atomic -> text "atom"
+
+
+-- | Prototypical definitions, such as types, values and effects,
+--   before they are fully parsed
+data ProtoDef
+    -- | A type definition that has not been fully parsed
+    = ProtoType
+        -- | The name of the type
+        { ptName :: !(ATag (Spec Name))
+        -- | The body of the type definition
+        , ptBody :: !(Seq (ATag Token))
+        }
+    -- | An effect definition that has not been fully parsed
+    | ProtoEffect
+        -- | The name of the effect
+        { peName :: !(ATag (Spec Name))
+        -- | The body of the effect definition
+        , peBody :: ![ATag ProtoEffectCase]
+        }
+    -- | A value definition that has not been fully parsed
+    | ProtoValue
+        -- | The name of the value
+        { pvName :: !(ATag (Spec Name))
+        -- | The type designating head of the value definition
+        , pvHead :: !(Seq (ATag Token))
+        -- | The body of the value definition
+        , pvBody :: !(Seq (ATag Token))
+        }
+    -- | A namespace definition who's members have not been fully parsed
+    | ProtoNamespace
+        -- | The name of the namespace
+        { pnName :: !(ATag Name)
+        -- | The members of the namespace
+        , pnDefs :: ![ATag ProtoDef]
+        }
+    deriving (Eq, Ord, Show)
+
+instance Pretty ann ProtoDef where
+    pPrint = \case
+        ProtoType n b ->
+            hang (text "type" <+> pPrint n <+> text "=")
+                (pPrint b)
+        ProtoEffect n b ->
+            hang (text "effect" <+> pPrint n <+> text "=")
+                (pPrint b)
+        ProtoValue n h b ->
+            hang (hang (pPrint n <> text ":")
+                    (pPrint h))
+                (text "=" <+> pPrint b)
+        ProtoNamespace n ds ->
+            hang (text "namespace" <+> pPrint n <+> text "=")
+                (vcat' (pPrint <$> ds))
+
+-- | A specific case in a prototypical effect definition
+data ProtoEffectCase
+    -- | Construct a prototypical effect case from a name and tokens
+    = ProtoEffectCase
+    -- | The name of the case
+    { pcName :: !(ATag (Spec Name))
+    -- | The body of the case
+    , pcBody :: !(Seq (ATag Token))
+    }
+    deriving (Eq, Ord, Show)
+
+instance Pretty ann ProtoEffectCase where
+    pPrint (ProtoEffectCase n b)
+        = hang (pPrint n <+> text ":")
+            (pPrint b)
+
+-- | Kind of a definition
+data DefKind
+    -- | A type definition
+    = DkType
+    -- | An effect definition
+    | DkEffect
+    -- | A value definition
+    | DkValue
+    -- | A namespace definition
+    | DkNamespace
+    deriving (Eq, Ord, Show)
+
+instance Pretty ann DefKind where
+    pPrint = \case
+        DkType -> text "type"
+        DkEffect -> text "effect"
+        DkValue -> text "value"
+        DkNamespace -> text "namespace"
 
 -- | The type of a type
-data KindData
+data Kind
     -- | A constant kind, like 'Type' or 'Effect'
-    = KConstant Name
+    = KConstant !Name
     -- | A type constructor kind, like @Type :--> Type@ or @Effect :--> Type@
-    | KArrow Kind Kind
+    | KArrow !(ATag Kind) !(ATag Kind)
     deriving (Eq, Ord, Show)
 
 
 -- | Binds information about terms, effects, and rows
-type Type = Tag Attr TypeData
-
--- | Binds information about terms, effects, and rows
-data TypeData
+data Type
     -- | Type variable, either bound or created by inference
-    = TVar TypeVar
-    -- | A free type variable, not bound by a scheme or substitution.
+    = TVar !TypeVar
+    -- | A free type variable, not bound by a scheme, substitution, or env.
     --   These are replaced during kind inference
-    | TFree (Maybe Name)
+    | TFree !(Maybe Name)
     -- | Type constructor, such as @:->@ or @Int@
-    | TConstructor TypeConstructor
+    | TConstructor !(Spec AbsPath)
+    -- | Type-level constants, such as @Int@, @String@
+    | TConstant !TypeConstant
     -- | Type application, such as @Int :-> Int@ or @Maybe Int@
-    | TApp Type Type
+    | TApp !(ATag Type) !(ATag Type)
     -- | Monoidal unordered map of Type-kinded types
-    | TDataRow DataRow
+    | TDataRow !DataRow
     -- | Monoidal unordered set of Effect-kinded types
-    | TEffectRow EffectRow
+    | TEffectRow !EffectRow
     deriving (Eq, Ord, Show)
 
--- | Type binders with their kind
---   Bound variables are named, inference-created "meta variables" are integers
-type TypeVar = Tag Attr TypeVarData
+-- | Type-level constants, such as @Int@, @String@
+data TypeConstant
+    = TcInt !Int
+    | TcString !String
+    deriving (Eq, Ord, Show)
+
 
 -- | Type binders with their kind
 --   Bound variables are named, inference-created "meta variables" are integers
-data TypeVarData
+data TypeVar
     -- | A named type variable, bound by a scheme
-    = TvBound TypeBinder
+    = TvBound !TypeBinder
     -- | An inference-created type variable, bound by a substitution
-    | TvMeta Int Kind
+    | TvMeta !Int !(ATag Kind)
     deriving (Eq, Ord, Show)
 
 
 -- | A type binder from a type scheme
-type TypeBinder = Tag Attr TypeBinderData
-
--- | A type binder from a type scheme
-type TypeBinderData = (Name, Kind)
+type TypeBinder = (ATag Name, ATag Kind)
 
 
--- | A unique name associated with a Kind
-data TypeConstructor = Tc Name Kind
-    deriving (Eq, Ord, Show)
+-- | Monoidal set of Fields
+type DataRow = [Field (ATag Type)]
 
+-- | Field in a DataRow
+type Field = (,) Label
 
--- | Monoidal unordered map of Type-kinded types
-type DataRow = Map (Tag Attr Name) Type
+-- | Label for a field in a DataRow
+type Label = (ATag Type, ATag Type)
 
 -- | Monoidal unordered set of Effect-kinded types
-type EffectRow = [Type]
+type EffectRow = [ATag Type]
 
 
 
 -- | Rank-1 polymorphic value with a set
 --   of bound type variables and a qualifier
-type Scheme a = Tag Attr (SchemeData a)
+type Scheme a = ATag (SchemeData a)
 
 -- | Rank-1 polymorphic value with a set
 --   of bound type variables and a qualifier
-data SchemeData a = Forall [TypeBinder] (Qualified a)
+data SchemeData a = Forall ![TypeBinder] !(Qualified a)
     deriving (Eq, Ord, Show, Functor, Foldable, Traversable)
 
 
 -- | A set of Constraints and a value
-data Qualified a = Qualified [Constraint] a
+data Qualified a = Qualified ![Constraint] !a
     deriving (Eq, Ord, Show, Functor, Foldable, Traversable)
 
 
 -- | Type-relational equations
-type Constraint = Tag Attr ConstraintData
+type Constraint = ATag ConstraintData
 
 -- | Type-relational equations
 data ConstraintData
-    = CEqual EqualityConstraint
-    | CRow RowConstraint
+    = CEqual !EqualityConstraint
+    | CRow !RowConstraint
     deriving (Eq, Ord, Show)
 
 -- | Constrains two types to be equivalent during constraint solving
@@ -133,10 +306,10 @@ type EqualityConstraint = (Type, Type)
 --   row-kinded types during constraint solving
 data RowConstraint
     -- | The first row is a subset of the second row
-    = CrSubRow SubRowConstraint
+    = CrSubRow !SubRowConstraint
     -- | The first row when concatenated with the second row,
     --   yields the third row; sub rows are not necessarily disjoint
-    | CrConcatRow ConcatRowConstraint
+    | CrConcatRow !ConcatRowConstraint
     deriving (Eq, Ord, Show)
 
 -- | Constrains the first row to be a subset of the second row
@@ -148,51 +321,42 @@ type ConcatRowConstraint = (Type, Type, Type)
 
 
 -- | Terms / values
-type Expr = Tag Attr ExprData
-
--- | Terms / values
-data ExprData
-    -- | Binds terms from the environment.
-    --   This includes user-defined values and functions,
-    --   but also ephemeral built-ins such as Unit
-    = EVar Name
+data Expr
+    -- | Binds terms from the local environment
+    = EVar !Name
+    -- | Binds terms from the global environment
+    | EGlobal !(Spec AbsPath)
     -- | A constant, literal value
-    | ELit Literal
+    | ELit !Literal
     -- | Functional abstraction ie lambda
-    | EFunction Patt Expr
+    | EFunction !(ATag Patt) !(ATag Expr)
     -- | Applies a function to an argument
-    | EApp Expr Expr
-    -- | Prefix notation for function application
-    | EPrefix (Int, Name) Expr
-    -- | Infix notation for function application
-    | EInfix (Int, Name) Expr Expr
-    -- | Postfix notation for function application
-    | EPostfix (Int, Name) Expr
+    | EApp !(ATag Expr) !(ATag Expr)
     -- | Let bindings
-    | ELet Patt Expr
+    | ELet !(ATag Patt) !(ATag Expr) !(ATag Expr)
     -- | Performs pattern matching on a scrutinee
-    | EMatch Expr [Case]
+    | EMatch !(ATag Expr) ![Case]
     -- | Sequencing of effectful expressions
-    | ESequence Expr Expr
+    | ESequence !(ATag Expr) !(ATag Expr)
     -- | A compound expression that has not been completely parsed
-    | ECompound [Expr]
+    | ECompound ![ATag Expr]
 
     -- | Constructs a new product
-    | EProductConstructor [(Name, Expr)]
+    | EProductConstructor ![Field (ATag Expr)]
     -- | Concatenates two products
-    | EProductConcat Expr Expr
+    | EProductConcat !(ATag Expr) !(ATag Expr)
     -- | Narrows a product to a smaller product type
-    | EProductRestrict Expr Expr
+    | EProductRestrict !(ATag Expr) !(ATag Expr)
     -- | Projects a field from a product
-    | EProductProject Expr Name
+    | EProductProject !(ATag Expr) !(ATag Name)
 
     -- | Constructs a new sum
-    | ESumConstructor Name Expr
+    | ESumConstructor !(ATag (Spec AbsPath)) !(ATag Expr)
     -- | Inserts a sum value into a larger sum type
-    | ESumExtend Name Expr Expr
+    | ESumExtend !(ATag Name) !(ATag Expr) !(ATag Expr)
 
     -- | Annotates a term with a type
-    | EAnn Expr Type
+    | EAnn !(ATag Expr) !(ATag Type)
     deriving (Eq, Ord, Show)
 
 
@@ -200,38 +364,33 @@ data ExprData
 
 -- | A scrutinizer, match expression pair in a
 --   function definition or pattern match
-type Case = (Patt, Expr)
+type Case = (ATag Patt, ATag Expr)
 
 
 -- | Patterns for matching values
-type Patt = Tag Attr PattData
-
--- | Patterns for matching values
-data PattData
-    -- | Binds an incoming value to a name
-    = PVar Name
-    -- | Matches a particular value, not all expressions are allowed
-    | PValue Expr
+data Patt
     -- | Matches any value
-    | PWildcard
+    = PWildcard
+    -- | Binds an incoming value to a name
+    | PVar !Name
+    -- | Matches a particular value, not all expressions are allowed
+    | PValue !(ATag Expr)
     -- | Matches a value with a sub-pattern, and binds the value to a name
-    | PAs Patt Name
+    | PAs !(ATag Patt) !(ATag Name)
     -- | Matches a product value
-    | PProductConstructor [(Name, Patt)] ProductRestPattern
+    | PProductConstructor ![Field (ATag Patt)] !(ATag ProductRestPattern)
     -- | Matches a sum value
-    | PSumConstructor Name Patt
+    | PSumConstructor !(ATag Name) !(ATag Patt)
     deriving (Eq, Ord, Show)
 
--- | Pattern for matching the rest of a product not mentioned in the constructor
-type ProductRestPattern = Tag Attr ProductRestPatternData
 
 -- | Pattern for matching the rest of a product not mentioned in the constructor
-data ProductRestPatternData
+data ProductRestPattern
+    -- | Disallows matching any unnamed fields
+    = PrNone
     -- | Matches the unnamed fields of any product
-    = PrWildcard
+    | PrWildcard
     -- | Matches the unnamed fields of any product,
     --   and binds the narrowed product to a name
-    | PrAs Name
-    -- | Disallows matching any unnamed fields
-    | PrNone
+    | PrAs !Name
     deriving (Eq, Ord, Show)
