@@ -5,14 +5,14 @@ import Data.Int (Int64)
 import Data.ByteString.Lazy (ByteString)
 import Data.ByteString.Lazy qualified as ByteString
 
-import Ribbon.Display
-
-
 import Data.Bifunctor
 
 import Control.Exception
 
+import Ribbon.Display
 import Ribbon.Util
+
+
 
 
 -- | Wrapper for objects, with attribute
@@ -35,51 +35,6 @@ pattern T' a <- a :@: _
 -- | Type alias for @Tag Attr@
 type ATag = Tag Attr
 
-
--- | Codepoint-indexed position in a source file,
---   as well as its line and column numbers
-data Pos
-    = Pos
-    { posOffset :: !Int64
-    , posLine :: !Int64
-    , posColumn :: !Int64
-    }
-
-
--- | Range indicating the origin of a span of characters
-data Range
-    = Range
-    { rangeStart :: !Pos
-    , rangeEnd :: !Pos
-    }
-    deriving (Eq, Ord)
-
-
--- | Source attribution
-data Attr
-    -- | Source attribution for a range of characters in a file
-    = Attr
-    -- | File containing the range of an Attr
-    { attrFile :: !File
-    -- | Offset, Line and Column Range for an Attr
-    , attrRange :: !Range
-    }
-    deriving (Eq, Ord)
-
-
--- | Source file
-data File
-    -- | Source file with name, text, and line and column database
-    = File
-    -- | Name or path of a File
-    { fileName :: !String
-    -- | Lazy ByteString of a File's textual content
-    , fileContent :: !ByteString
-    }
-    deriving Show
-
-
-
 instance (Show t, Show a) => Show (Tag t a) where
     show (a :@: t) = render $
         parens (shown a) <> text "@" <> shown t
@@ -97,103 +52,7 @@ instance Eq a => Eq (Tag t a) where
     a == b = untag a == untag b
 
 instance Ord a => Ord (Tag t a) where
-    compare a b = compare (untag a) (untag b)
-
-
-
-instance Show Pos where
-    show = prettyShow
-
-instance Pretty ann Pos where
-    pPrintPrec lvl _ (Pos o l c) =
-        let s = text ":" <> pPrint l <> text ":" <> pPrint c
-        in if lvl > PrettyNormal
-            then s <> parens (pPrint o)
-            else s
-
-instance Eq Pos where
-    a == b = posOffset a == posOffset b
-
-instance Ord Pos where
-    compare a b = compare (posOffset a) (posOffset b)
-
-instance Nil Pos where
-    isNil = (== Nil)
-    nil = Pos 0 1 1
-
-
-instance Show Range where
-    show = prettyShow
-
-instance Pretty ann Range where
-    pPrintPrec lvl _ (Range s e) =
-        let a = pPrintPrec lvl 0 s
-            b = pPrintPrec lvl 0 e
-        in if s == e
-            then a
-            else a <+> text "to" <+> b
-
-instance Semigroup Range where
-    a <> b = Range
-        (min (rangeStart a) (rangeStart b))
-        (max (rangeEnd a) (rangeEnd b))
-
-instance Monoid Range where
-    mempty = Range Nil Nil
-
-instance Nil Range where
-    isNil = (== mempty)
-
-
-
-instance Show Attr where
-    show (Attr f r) = show f <> show r
-
-instance Pretty ann Attr where
-    pPrintPrec lvl prec (Attr f r) = pPrintPrec lvl prec f <> pPrintPrec lvl prec r
-
-instance Semigroup Attr where
-    a <> b = assert (attrFile a == attrFile b) $
-        Attr (attrFile a) (attrRange a <> attrRange b)
-
-instance Monoid Attr where
-    mempty = Attr Nil mempty
-
-instance Nil Attr where
-    isNil = (== mempty)
-
-
-instance Pretty ann File where
-    pPrintPrec lvl _ = if lvl == PrettyVerbose
-        then \(File name content) -> text "{" <> do
-            shown name <> text ":" $+$ do
-                vcat' . fmap (indent . text) . lines . bytesToString $ content
-        $+$ text "}"
-        else text . fileName
-
-instance Eq File where
-    a == b = fileName a == fileName b
-
-instance Ord File where
-    compare a b = compare (fileName a) (fileName b)
-
-instance Nil File where
-    isNil = (== Nil)
-    nil = File "" mempty
-
-
--- | Create a @Range@ from a single @Pos@
-unitRange :: Pos -> Range
-unitRange p = Range p p
-
-
--- | Load a text file into a File object
-loadFile :: String -> IO File
-loadFile name = File name <$> ByteString.readFile name
-
-
-
--- | @(a :\@:) <$> t@
+    compare a b = compare (untag a) (untag b)-- | @(a :\@:) <$> t@
 (<@>) :: Functor f => a -> f t -> f (Tag t a)
 a <@> t = (a :@:) <$> t
 infixl 4 <@>
@@ -210,11 +69,9 @@ untag (a :@: _) = a
 tagOf :: Tag t a -> t
 tagOf (_ :@: t) = t
 
-
 -- | Convert a Tag to a pair
 tagSplit :: Tag t a -> (a, t)
 tagSplit (a :@: t) = (a, t)
-
 
 -- | Tag mapping with attribute pass-through
 --
@@ -295,8 +152,6 @@ tagApp4With
 tagApp4With t f x y z w = f x y z w :@:
     (t <> tagOf x <> tagOf y <> tagOf z <> tagOf w)
 
-
-
 -- | Apply a new attribute to a Tag
 reTag :: t' -> Tag t a -> Tag t' a
 reTag x a = untag a :@: x
@@ -314,11 +169,9 @@ reTagFrom a b = untag b :@: tagOf a
 takeTag :: Tag t a -> b -> Tag t b
 takeTag a b = b :@: tagOf a
 
-
 -- | Map the attribute of a Tag
 mapTag :: (t -> t') -> Tag t a -> Tag t' a
 mapTag f (a :@: x) = a :@: f x
-
 
 -- | Construct a recursive Tag from an object,
 --   assigning both new Tag objects the same attribute
@@ -333,3 +186,136 @@ tagCon1 t f a = f (a :@: t) :@: t
 --  i.e. @_ t f a b = f (a :\@: t) (b :\@: t) :\@: t@
 tagCon2 :: t -> (Tag t a -> Tag t b -> c) -> a -> b -> Tag t c
 tagCon2 t f a b = f (a :@: t) (b :@: t) :@: t
+
+
+
+
+-- | Codepoint-indexed position in a source file,
+--   as well as its line and column numbers
+data Pos
+    = Pos
+    { posOffset :: !Int64
+    , posLine :: !Int64
+    , posColumn :: !Int64
+    }
+
+instance Show Pos where
+    show = prettyShow
+
+instance Pretty ann Pos where
+    pPrintPrec lvl _ (Pos o l c) =
+        let s = text ":" <> pPrint l <> text ":" <> pPrint c
+        in if lvl > PrettyNormal
+            then s <> parens (pPrint o)
+            else s
+
+instance Eq Pos where
+    a == b = posOffset a == posOffset b
+
+instance Ord Pos where
+    compare a b = compare (posOffset a) (posOffset b)
+
+instance Nil Pos where
+    isNil = (== Nil)
+    nil = Pos 0 1 1
+
+
+
+-- | Range indicating the origin of a span of characters
+data Range
+    = Range
+    { rangeStart :: !Pos
+    , rangeEnd :: !Pos
+    }
+    deriving (Eq, Ord)
+
+instance Show Range where
+    show = prettyShow
+
+instance Pretty ann Range where
+    pPrintPrec lvl _ (Range s e) =
+        let a = pPrintPrec lvl 0 s
+            b = pPrintPrec lvl 0 e
+        in if s == e
+            then a
+            else a <+> text "to" <+> b
+
+instance Semigroup Range where
+    a <> b = Range
+        (min (rangeStart a) (rangeStart b))
+        (max (rangeEnd a) (rangeEnd b))
+
+instance Monoid Range where
+    mempty = Range Nil Nil
+
+instance Nil Range where
+    isNil = (== mempty)
+
+-- | Create a @Range@ from a single @Pos@
+unitRange :: Pos -> Range
+unitRange p = Range p p
+
+
+
+
+-- | Source attribution
+data Attr
+    -- | Source attribution for a range of characters in a file
+    = Attr
+    -- | File containing the range of an Attr
+    { attrFile :: !File
+    -- | Offset, Line and Column Range for an Attr
+    , attrRange :: !Range
+    }
+    deriving (Eq, Ord)
+
+instance Show Attr where
+    show (Attr f r) = show f <> show r
+
+instance Pretty ann Attr where
+    pPrintPrec lvl prec (Attr f r) = pPrintPrec lvl prec f <> pPrintPrec lvl prec r
+
+instance Semigroup Attr where
+    a <> b = assert (attrFile a == attrFile b) $
+        Attr (attrFile a) (attrRange a <> attrRange b)
+
+instance Monoid Attr where
+    mempty = Attr Nil mempty
+
+instance Nil Attr where
+    isNil = (== mempty)
+
+
+
+-- | Source file
+data File
+    -- | Source file with name, text, and line and column database
+    = File
+    -- | Name or path of a File
+    { fileName :: !String
+    -- | Lazy ByteString of a File's textual content
+    , fileContent :: !ByteString
+    }
+    deriving Show
+
+instance Pretty ann File where
+    pPrintPrec lvl _ = if lvl == PrettyVerbose
+        then \(File name content) -> text "{" <> do
+            shown name <> text ":" $+$ do
+                vcat' . fmap (indent . text) . lines . bytesToString $ content
+        $+$ text "}"
+        else text . fileName
+
+instance Eq File where
+    a == b = fileName a == fileName b
+
+instance Ord File where
+    compare a b = compare (fileName a) (fileName b)
+
+instance Nil File where
+    isNil = (== Nil)
+    nil = File "" mempty
+
+-- | Load a text file into a File object
+loadFile :: String -> IO File
+loadFile name = File name <$> ByteString.readFile name

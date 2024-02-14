@@ -22,15 +22,15 @@ import Data.Text.Encoding qualified as Text
 import Ribbon.Display
 
 
+
+
 -- | Marks something not yet implemented
 todo :: a
 todo = error "TODO"
 
-
 -- | Drop elements from the end of a list
 dropTail :: Int -> [a] -> [a]
 dropTail n = reverse . drop n . reverse
-
 
 -- | ByteString -> String
 bytesToString :: ByteString -> String
@@ -38,7 +38,6 @@ bytesToString
     = Text.unpack
     . Text.decodeUtf8
     . ByteString.toStrict
-
 
 -- | Branch on a boolean, selecting a or b for true or false, respectively
 select :: Bool -> a -> a -> a
@@ -48,7 +47,6 @@ select False _ b = b
 -- | Branch on a boolean, selecting a or b for true or false, respectively
 selecting :: a -> a -> Bool -> a
 selecting a b p = select p a b
-
 
 -- | equivalent of Applicative.some (one or more) with unit return value
 some_ :: Alternative f => f a -> f ()
@@ -61,7 +59,6 @@ many_ :: Alternative f => f a -> f ()
 many_ a = many_v where
     many_v = option () some_v
     some_v = a *> many_v
-
 
 -- | equivalent of Applicative.some (one or more) with base value
 someWith :: Alternative f => [a] -> f a -> f [a]
@@ -78,7 +75,6 @@ manyWith base a = many_v where
 -- | @optional@, with a default
 option :: Alternative f => a -> f a -> f a
 option a fa = fa <|> pure a
-
 
 -- | The reverse of (.)
 compose :: (a -> b) -> (b -> c) -> (a -> c)
@@ -140,6 +136,8 @@ maybeMEmpty = Maybe.fromMaybe mempty
 liftA4 :: Applicative m => (a -> b -> c -> d -> e) -> m a -> m b -> m c -> m d -> m e
 liftA4 f ma mb mc md = liftA3 f ma mb mc <*> md
 
+
+
 -- | An extension class for monoids allowing the Nil pattern to function
 class Nil m where
     -- | Check if a value is nil
@@ -169,12 +167,10 @@ instance Ord a => Nil (Map a b) where
 instance Semigroup a => Nil (Maybe a) where
     isNil = Maybe.isNothing
 
-
 -- | Pattern alias for types with a Nil instance
 pattern Nil :: Nil m => m
 pattern Nil <- (isNil -> True) where
     Nil = nil
-
 
 
 

@@ -38,12 +38,12 @@ some exposition on this situation
 ## Roadmap
 
 #### Implementation progress
-- [X] Lexical analysis
-- [ ] Syntactic analysis (parsing)
-- [ ] Semantic analysis (graph of module, etc)
-- [ ] Type inference
-- [ ] Code generation
-- [ ] Driver CLI
+- 🟩 Lexical analysis
+- 🟨 Syntactic analysis (parsing)
+- 🟨 Semantic analysis (graph of module, etc)
+- 🟥 Type inference
+- 🟥 Code generation
+- 🟥 Driver CLI
 
 #### Planned features
 Note this is not a full list for the final language, only the bootstrap
@@ -51,7 +51,8 @@ Note this is not a full list for the final language, only the bootstrap
 - Pattern matching
 - Full, reliable type inference for all features
 - User-defined effect types
-- Lexically scoped effect handlers
+- Effect handlers
+- Typeclasses
 - Row-polymorphic structural data types (product and sum)
 - Row-polymorphic effect annotations for functions
 - Monoidal concatenation constraints for row types

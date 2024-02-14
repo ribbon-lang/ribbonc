@@ -546,6 +546,8 @@ evalParser px file toks =
         Left _ -> undefined
         Right (a, _) -> Right a
 
+-- | Evaluate a Parser on a sub-stream of Tokens.
+--   The parser must consume all tokens (except eof)
 recurseParser :: ParserMonad m => Parser a -> Seq (ATag Token) -> m a
 recurseParser px toks = do
     f <- getFile

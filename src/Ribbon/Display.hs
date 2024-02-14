@@ -31,10 +31,12 @@ import Data.Map qualified as Map
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Sequence (Seq)
+import Data.Word (Word8)
 
 import Data.Functor
 import Data.Foldable
-import Data.Word (Word8)
+
+
 
 
 -- | Designates a level of verbosity for pretty printing
@@ -116,6 +118,8 @@ instance {-# OVERLAPPING #-} (Pretty ann a) => Pretty ann (Seq a) where
         = hashes . brackets . lsep
         $ toList s <&> pPrintPrec lvl 0
 
+
+
 -- | Pretty print a value with the default level of verbosity and precedence,
 --   and convert the resulting @Doc@ to a @String@
 prettyShow :: forall ann a. Pretty ann a => a -> String
@@ -136,9 +140,12 @@ prettyPrint = prettyPrintLevel @ann PrettyNormal
 prettyPrintLevel :: forall ann a. Pretty ann a => PrettyLevel -> a -> IO ()
 prettyPrintLevel lvl = putStrLn . prettyShowLevel @ann lvl
 
+-- | Pretty print the value if it exists, otherwise print nothing
 maybePPrint :: Pretty ann a => Maybe a -> Doc ann
 maybePPrint = maybe mempty pPrint
 
+-- | Pretty print the value with a given level of verbosity and precedence,
+--   if it exists, otherwise print nothing
 maybePPrintPrec :: Pretty ann a => PrettyLevel -> Word8 -> Maybe a -> Doc ann
 maybePPrintPrec lvl prec = maybe mempty (pPrintPrec lvl prec)
 

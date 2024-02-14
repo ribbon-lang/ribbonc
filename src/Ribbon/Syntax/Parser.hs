@@ -14,7 +14,6 @@ import Ribbon.Syntax.Ast
 import Ribbon.Syntax.ParserM
 import Debug.Trace (traceM)
 import Control.Monad
-import Data.Sequence (Seq)
 import qualified Data.List as List
 import qualified Data.Maybe as Maybe
 import Ribbon.Syntax.Text (parseVersion)
@@ -25,6 +24,7 @@ import Ribbon.Syntax.Text (parseVersion)
 -- parseFile = parseFileWith doc
 
 
+-- | Parse a module head like `module "foo" = ...`
 moduleHead :: forall m. ParserMonad m => m ModuleProtoHead
 moduleHead = do
     a <- attr
@@ -36,13 +36,12 @@ moduleHead = do
     pairs <- recurseParser keyPairs body
     processPairs a (emptyModuleProtoHead n) pairs
     where
-    keyPairs = some labeled
-    labeled = do
+    keyPairs = some do
         a <- attr
         liftA2 (,)
             do tag unreserved
             do sym "="; grabWhitespaceDomain a
-    processPairs :: Attr -> ModuleProtoHead -> [(ATag String, Seq (ATag Token))] -> m ModuleProtoHead
+
     processPairs a m [] = m <$ validateMod a m
     processPairs a m ((k, vs) : ps) = do
         case untag k of
@@ -244,6 +243,7 @@ defName = expecting "a definition head" do
         DefAtomic -> DefName fx Nothing <$> noFailBeforeEof name
         _ -> liftA2 (DefName fx) (optional int) (noFail name)
 
+-- | Parse a visibility specification, ie "pub"
 vis :: ParserMonad m => m Visibility
 vis = sym "pub" $> Public
 

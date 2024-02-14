@@ -1,4 +1,4 @@
-
+;; comment
 
 pub type Foo = Int
 

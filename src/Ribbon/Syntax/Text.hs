@@ -1,10 +1,14 @@
 module Ribbon.Syntax.Text where
 
+import Data.Char qualified as Char
+
 import Numeric
 
-import Data.Char qualified as Char
-import Ribbon.Util
 import Data.Foldable
+
+import Ribbon.Util
+
+
 
 
 -- | Predicate checking if a character is part of a whitespace segment,

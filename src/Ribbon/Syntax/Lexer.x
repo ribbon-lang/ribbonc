@@ -18,6 +18,7 @@ import Ribbon.Syntax.Token
 import Ribbon.Syntax.LexerM
 }
 
+
 %encoding "utf8"
 
 $bin = [01]
@@ -53,6 +54,7 @@ tokens :-
     <0> @operator         { operator }
     <0> $alpha $alphanum* { ident }
     <0> $punc             { punc }
+
 
 {
 reserved :: AlexAction (ATag Token)
