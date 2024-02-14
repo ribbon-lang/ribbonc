@@ -156,6 +156,12 @@ instance Semigroup Attr where
     a <> b = assert (attrFile a == attrFile b) $
         Attr (attrFile a) (attrRange a <> attrRange b)
 
+instance Monoid Attr where
+    mempty = Attr Nil mempty
+
+instance Nil Attr where
+    isNil = (== mempty)
+
 
 instance Pretty ann File where
     pPrintPrec lvl _ = if lvl == PrettyVerbose
@@ -170,6 +176,10 @@ instance Eq File where
 
 instance Ord File where
     compare a b = compare (fileName a) (fileName b)
+
+instance Nil File where
+    isNil = (== Nil)
+    nil = File "" mempty
 
 
 -- | Create a @Range@ from a single @Pos@

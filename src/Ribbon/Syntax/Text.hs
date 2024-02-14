@@ -4,6 +4,7 @@ import Numeric
 
 import Data.Char qualified as Char
 import Ribbon.Util
+import Data.Foldable
 
 
 -- | Predicate checking if a character is part of a whitespace segment,
@@ -61,12 +62,13 @@ isDot = (== '.')
 -- | Reserved identifiers
 reservedSymbols :: [String]
 reservedSymbols =
-    [ "type", "effect", "value", "namespace", "forall", "fun"
+    [ "type", "effect", "value", "forall", "fun"
     , "infix", "infixl", "infixr", "prefix", "postfix", "atom"
-    , "let", "in"
+    , "module", "import", "use", "file", "pub", "namespace"
+    , "let", "in", "as"
     , "match", "with"
     , "if", "then", "else"
-    , "=", ":", "=>", ";", ".", ".."
+    , "=", ":", "=>", ";", ",", ".", "..", "./", "../", ".*"
     , "{", "}", "(", ")", "[", "]"
     ]
 
@@ -97,9 +99,16 @@ parseBinInt s =
         [(n, "")] -> Just n
         _ -> Nothing
 
--- | Attempt to convert a String to an Int, using base 8
+-- | Attempt to convert a String to an Int, using base 10
 parseDecInt :: String -> Maybe Int
 parseDecInt s =
+    case readDec s of
+        [(n, "")] -> Just n
+        _ -> Nothing
+
+-- | Attempt to convert a String to a Word, using base 10
+parseWord :: String -> Maybe Word
+parseWord s =
     case readDec s of
         [(n, "")] -> Just n
         _ -> Nothing
@@ -116,4 +125,15 @@ parseFloat :: String -> Maybe Float
 parseFloat s =
     case readFloat s of
         [(n, "")] -> Just n
+        _ -> Nothing
+
+-- | Attempt to convert a String to a Version
+parseVersion :: String -> Maybe Version
+parseVersion s =
+    case splitOn '.' s of
+        [major, minor, patch] -> do
+            major' <- parseWord major
+            minor' <- parseWord minor
+            patch' <- parseWord patch
+            find (/= Nil) (Just $ Version major' minor' patch')
         _ -> Nothing

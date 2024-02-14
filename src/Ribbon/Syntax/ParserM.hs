@@ -29,6 +29,7 @@ import Ribbon.Syntax.Literal
 
 import Ribbon.Syntax.Lexer qualified as L
 import Ribbon.Syntax.Text
+import Debug.Trace (traceM)
 
 
 -- | Input type for Parser
@@ -181,16 +182,24 @@ modOffset f = liftP $ Parser \_ i -> let i' = f i in Right (i, i')
 recoverWith :: ParserMonad m => m a -> m a -> m a
 recoverWith m1 m2 = m2 `catchParseFail` \_ _ -> m1
 
+-- | Trigger a parser failure with a set of expected values
+parseFail :: ParserMonad m => Set String -> m a
+parseFail msgs = liftP $ Parser \_ i -> Left (ParseFail i msgs)
+
+-- | Trigger a parser error with a message
+parseError :: ParserMonad m => Doc () -> m a
+parseError msg = liftP $ Parser \s i -> Left (ParseError (msg :@: psAttr s i))
+
 -- | Trigger a parser failure at a given offset with a set of expected values.
 --   Note that you would normally use `fail`, `empty`,
 --   in combination with `expecting`, etc
-parseFail :: ParserMonad m => Int -> Set String -> m a
-parseFail i msgs = liftP $ Parser \_ _ -> Left (ParseFail i msgs)
+parseFail' :: ParserMonad m => Int -> Set String -> m a
+parseFail' i msgs = liftP $ Parser \_ _ -> Left (ParseFail i msgs)
 
 -- | Trigger a parser error at a given Attr with a message.
 --   Note that you would normally use `throwError`
-parseError :: ParserMonad m => Attr -> Doc () -> m a
-parseError a msg = liftP $ Parser \_ _ -> Left (ParseError (msg :@: a))
+parseError' :: ParserMonad m => Attr -> Doc () -> m a
+parseError' a msg = liftP $ Parser \_ _ -> Left (ParseError (msg :@: a))
 
 -- | Trigger a parser failure at the current offset
 --   with a set of expected values.
@@ -215,6 +224,11 @@ throwErrorAt a m = liftP $ Parser \_ _ -> Left (ParseError (m :@: a))
 --   replace its expectation set with the given message
 expecting :: ParserMonad m => String -> m a -> m a
 expecting msg p = catchParseFail p \_ _ -> fail msg
+
+-- | If the given parser fails,
+--   replace its expectation set and error location with those provided
+expectingAt :: ParserMonad m => Int -> String -> m a -> m a
+expectingAt msgLoc msg p = catchParseFail p \_ _ -> failAt msgLoc msg
 
 -- | If the given parser fails, as does not provide expectations,
 --   replace its expectation set with the given message
@@ -264,7 +278,7 @@ format s i msgs =
 noFail :: ParserMonad m => m a -> m a
 noFail m = m `catchParseFail` \i msgs -> do
     s <- getStream
-    parseError (psAttr s i) (format s i msgs)
+    parseError' (psAttr s i) (format s i msgs)
 
 -- | Run a parser, and if it fails, convert the failure to a parse error;
 --   unless the stream is at its end, in which case the failure is kept
@@ -282,7 +296,7 @@ consumesAll m = do
     i <- getOffset
     if i >= psLength s
         then pure a
-        else parseError (psAttr s i) (formatInput s i)
+        else parseError' (psAttr s i) (formatInput s i)
 
 -- | Fail with an expectation message if the condition is false
 guard :: ParserMonad m => Bool -> String -> m ()
@@ -294,7 +308,7 @@ guardMulti p expStrs = if p then pure () else failMulti expStrs
 
 -- | Fail at the given offset with an expectation set if the condition is false
 guardMultiAt :: ParserMonad m => Bool -> Int -> Set String -> m ()
-guardMultiAt p i expStrs = if p then pure () else parseFail i expStrs
+guardMultiAt p i expStrs = if p then pure () else parseFail' i expStrs
 
 -- | Error with a message if the condition is false
 assert :: ParserMonad m => Bool -> Doc () -> m ()
@@ -357,6 +371,16 @@ buildAttr i1 i2 = do
 -- | Execute @tag@ and discard the result, keeping only the Attr generated
 attrOf :: ParserMonad m => m a -> m Attr
 attrOf = fmap tagOf . tag
+
+-- | Execute @tag@ and discard the result,
+--   keeping only the first Pos of the Attr generated
+posOf :: ParserMonad m => m a -> m Pos
+posOf = fmap (rangeStart . attrRange) . attrOf
+
+-- | Get the offset of the currently selected element in the parse stream
+--   then execute the given parser, returning only the offset
+offsetOf :: ParserMonad m => m a -> m Int
+offsetOf = (getOffset <<)
 
 -- | Get the currently selected element in the parse stream,
 --   and advance the stream offset
@@ -500,6 +524,7 @@ wsDominated l (_ :@: l') =
 parseFileWith :: Parser a -> File -> Either (Doc ()) a
 parseFileWith p file = do
     toks <- L.lexFile file
+    traceM (prettyShow toks)
     evalParser p file toks
 
 -- | Perform syntactic analysis on a string, using the given Parser,
@@ -521,11 +546,11 @@ evalParser px file toks =
         Left _ -> undefined
         Right (a, _) -> Right a
 
-recurseParser :: Parser a -> Seq (ATag Token) -> Parser a
+recurseParser :: ParserMonad m => Parser a -> Seq (ATag Token) -> m a
 recurseParser px toks = do
     f <- getFile
     case runParser (noFail $ consumesAll (px << eof)) (ParseStream toks f) 0 of
-        Left e -> Parser \_ _ -> Left e
+        Left e -> liftP $ Parser \_ _ -> Left e
         Right (a, _) -> pure a
 
 
@@ -583,24 +608,41 @@ sym s = expecting s $ nextMap \case
     TSymbol s' | s == s' -> Just ()
     _ -> Nothing
 
-
 -- | Expect a symbol token with a specific value from a given set
 symOf :: ParserMonad m => [String] -> m String
 symOf ss = expectingMulti ss $ nextMap \case
     TSymbol s | s `elem` ss -> Just s
     _ -> Nothing
 
+-- | Try and parse a symbol, returning a boolean indicating success
+trySym :: ParserMonad m => String -> m Bool
+trySym s = peek >>= \case
+    TSymbol s' | s == s' -> True <$ advance
+    _ -> pure False
+
 -- | Expect a given Parser to be surrounded with parentheses
 parens :: ParserMonad m => m a -> m a
-parens px = sym "(" >> px << sym ")"
+parens px = do
+    a <- posOf (sym "(")
+    noFail do
+        px << expecting (") to close ( at " <> prettyShow a) do
+            sym ")"
 
 -- | Expect a given Parser to be surrounded with braces
 braces :: ParserMonad m => m a -> m a
-braces px = sym "{" >> px << sym "}"
+braces px = do
+    a <- posOf (sym "{")
+    noFail do
+        px << expecting ("} to close { at " <> prettyShow a) do
+            sym "}"
 
 -- | Expect a given Parser to be surrounded with brackets
 brackets :: ParserMonad m => m a -> m a
-brackets px = sym "[" >> px << sym "]"
+brackets px = do
+    a <- posOf (sym "[")
+    noFail do
+        px << expecting ("] to close [ at " <> prettyShow a) do
+            sym "]"
 
 
 

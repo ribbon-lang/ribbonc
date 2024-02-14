@@ -4,7 +4,7 @@ module Ribbon.Display
     ( module X
     , shown
     , vcat'
-    , hang, indent
+    , hang, indent, lsep
     , backticks, backticked, maybeBackticks, maybeBackticked
     , hashes, hashed, maybeHashes, maybeHashed
     , quoted, maybeQuoted
@@ -16,6 +16,7 @@ module Ribbon.Display
     , PrettyLevel(..)
     , prettyShow, prettyShowLevel
     , prettyPrint, prettyPrintLevel
+    , maybePPrint, maybePPrintPrec
     ) where
 
 import Text.PrettyPrint.Annotated.HughesPJ qualified as X
@@ -67,7 +68,7 @@ instance Pretty ann String where
     pPrintPrec _ _ = shown
 
 instance {-# OVERLAPPABLE #-} (Pretty ann a) => Pretty ann [a] where
-    pPrintPrec lvl _ = brackets . fsep . punctuate (text ",") . fmap (pPrintPrec lvl 0)
+    pPrintPrec lvl _ = brackets . lsep . fmap (pPrintPrec lvl 0)
 
 instance {-# OVERLAPPING #-} (Pretty ann a, Pretty ann b) => Pretty ann (a, b) where
     pPrintPrec lvl _ (a, b) = parens do
@@ -101,18 +102,18 @@ instance {-# OVERLAPPING #-} (Pretty ann a, Pretty ann b) => Pretty ann (Either 
 
 instance {-# OVERLAPPING #-} (Pretty ann k, Pretty ann v) => Pretty ann (Map k v) where
     pPrintPrec lvl _ m
-        = braces . fsep . punctuate (text ",")
+        = braces . lsep
         $ Map.toList m <&> \(k, v) ->
             pPrintPrec lvl 0 k <+> text "=" <+> pPrintPrec lvl 0 v
 
 instance {-# OVERLAPPING #-} (Pretty ann k) => Pretty ann (Set k) where
     pPrintPrec lvl _ s
-        = braces . fsep . punctuate (text ",")
+        = braces . lsep
         $ Set.toList s <&> pPrintPrec lvl 0
 
 instance {-# OVERLAPPING #-} (Pretty ann a) => Pretty ann (Seq a) where
     pPrintPrec lvl _ s
-        = hashes . brackets . fsep . punctuate (text ",")
+        = hashes . brackets . lsep
         $ toList s <&> pPrintPrec lvl 0
 
 -- | Pretty print a value with the default level of verbosity and precedence,
@@ -135,6 +136,12 @@ prettyPrint = prettyPrintLevel @ann PrettyNormal
 prettyPrintLevel :: forall ann a. Pretty ann a => PrettyLevel -> a -> IO ()
 prettyPrintLevel lvl = putStrLn . prettyShowLevel @ann lvl
 
+maybePPrint :: Pretty ann a => Maybe a -> Doc ann
+maybePPrint = maybe mempty pPrint
+
+maybePPrintPrec :: Pretty ann a => PrettyLevel -> Word8 -> Maybe a -> Doc ann
+maybePPrintPrec lvl prec = maybe mempty (pPrintPrec lvl prec)
+
 -- | The usual `hang` with a consistent indentation of 4 spaces
 hang :: Doc ann -> Doc ann -> Doc ann
 hang a = X.hang a 4
@@ -151,6 +158,9 @@ shown = text . show
 vcat' :: [Doc ann] -> Doc ann
 vcat' = foldr ($+$) mempty
 
+-- | @sep . punctuate (text ",")@
+lsep :: [Doc ann] -> Doc ann
+lsep = fsep . punctuate (text ",")
 
 -- | Enclose a @Doc@ in backticks ``
 backticks :: Doc ann -> Doc ann

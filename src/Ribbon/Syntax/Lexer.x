@@ -28,11 +28,11 @@ $alphanum = [A-Za-z0-9_]
 $punc = [\'\,\{\}\(\)\[\]]
 
 @reserved = let | in | as | match | with | do | fun | handler
-          | module | import | use | pub | namespace
+          | module | import | use | file | pub | namespace
           | type | effect | class | instance
           | infix | infixl | infixr | prefix | postfix
-          | "=>" | ";" | ("."+)
-@operator = ($printable # $white # $alphanum # $punc # [\'\"])+
+          | "=>" | ";" | "./" | "../" | ".." | "."
+@operator = ($printable # $white # $alphanum # $punc # [\.\"])+
 @escape = \\ ([\\\'\"0nrt] | x $hex{2} | u \{ $hex+ \})
 
 tokens :-

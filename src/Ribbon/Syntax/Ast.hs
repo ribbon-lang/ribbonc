@@ -1,7 +1,8 @@
 module Ribbon.Syntax.Ast where
 
 import Data.Sequence (Seq)
--- import Data.Map qualified as Map
+import Data.Foldable
+import Data.Functor
 
 
 import Ribbon.Util
@@ -21,67 +22,86 @@ instance Pretty ann Name where
     pPrint (Name s) = text s
 
 
--- | A binding with kind, fixity and precedence
-data KindSpec p
-    -- | A type binding
-    = TypeSpec !(Spec p)
-    -- | An effect binding
-    | EffectSpec !(Spec p)
-    -- | A value binding
-    | ValueSpec !(Spec p)
-    -- | A namespace binding
-    | NamespaceSpec !p
-    deriving (Eq, Ord, Show)
-
-instance Pretty ann p => Pretty ann (KindSpec p) where
-    pPrint = \case
-        TypeSpec s -> text "type" <+> pPrint s
-        EffectSpec s -> text "effect" <+> pPrint s
-        ValueSpec s -> text "value" <+> pPrint s
-        NamespaceSpec p -> text "namespace" <+> pPrint p
-
--- | A binding with fixity and precedence
-data Spec p
-    -- | Construct a Spec from a fixity, optional precedence, and the value
-    = Spec
+-- | A name to bind a definition to
+data DefName
+    -- | Construct a DefName from a DefFixity, a precedence, and a Name
+    = DefName
     -- | The fixity associated with the binding
-    { specFixity :: !Fixity
+    { dnFixity :: !DefFixity
     -- | The precedence associated with the binding, if one was specified
-    , specPrec :: !(Maybe Prec)
-    -- | The binding itself
-    , specValue :: !p
+    , dnPrec :: !(Maybe Prec)
+    -- | The name of the binding
+    , dnName :: !Name
     }
     deriving (Eq, Ord, Show)
 
-instance Pretty ann p => Pretty ann (Spec p) where
-    pPrint (Spec f p v)
-        = pPrint f <+> maybeMEmpty (shown <$> p) <+> pPrint v
+instance Pretty ann DefName where
+    pPrint (DefName f p n) =
+        pPrint f <+> maybePPrint p <+> pPrint n
+
+-- | A name for a lexical import
+data UseName
+    -- | Construct a UseName from an optional DefKind,
+    --   an optional UseFixity, and a Name
+    = UseName
+    { unKind :: !(Maybe UseKind)
+    , unFixity :: !(Maybe UseFixity)
+    , unName :: !Name
+    }
+    deriving (Eq, Ord, Show)
+
+instance Pretty ann UseName where
+    pPrint (UseName k f n) =
+        maybePPrint k <+> maybePPrint f <+> pPrint n
+
+-- | An absolute reference to a definition
+data AbsRef
+    = AbsRef
+    { anPath :: !AbsPath
+    , anFixity :: !UseFixity
+    , anName :: !Name
+    }
+    deriving (Eq, Ord, Show)
+
+instance Pretty ann AbsRef where
+    pPrint (AbsRef p f n) =
+        pPrint p <> text "." <> (pPrint f <+> pPrint n)
 
 -- | A name with a local path prefix
 data LocalPath
     -- | Construct a LocalPath from a LocalPathBase and a list of Name
     = LocalPath
     -- | The starting point of the local path
-    { lpBase :: !LocalPathBase
+    { lpBase :: !(ATag LocalPathBase)
     -- | The subsequent components of the local path
-    , lpComponents :: ![Name]
+    , lpComponents :: ![ATag Name]
     }
     deriving (Eq, Ord, Show)
 
 instance Pretty ann LocalPath where
-    pPrint (LocalPath b ns)
-        = pPrint b <> text "." <> hcat (punctuate (text ".") (pPrint <$> ns))
+    pPrint (LocalPath b ns) =
+        let pNs = hcat (punctuate (text ".") (pPrint <$> ns))
+        in if not (null ns) && localPathBaseNeedsDot (untag b)
+            then pPrint b <> text "." <> pNs
+            else pPrint b <> pNs
+
+
+localPathNeedsDot :: LocalPath -> Bool
+localPathNeedsDot (LocalPath b ns) =
+    not (null ns) || localPathBaseNeedsDot (untag b)
 
 -- | The base of a local path
 data LocalPathBase
     -- | Start at the root of the active module
     = LpRoot
-    -- | Start at the namespace @n@ above the current namespace
+    -- | Start at the namespace a number of levels above the current namespace
     | LpUp !Int
-    -- | Start at the given module
+    -- | Start at the import module with the given name
     | LpModule !Name
     -- | Start in the given file
     | LpFile !String
+    -- | Start at the current namespace
+    | LpHere
     deriving (Eq, Ord, Show)
 
 instance Pretty ann LocalPathBase where
@@ -90,40 +110,136 @@ instance Pretty ann LocalPathBase where
         LpUp i -> hcat $ replicate i (text "../")
         LpModule n -> text "module" <+> pPrint n
         LpFile s -> text "file" <+> doubleQuotes (text s)
+        LpHere -> text "./"
+
+localPathBaseNeedsDot :: LocalPathBase -> Bool
+localPathBaseNeedsDot = \case
+    LpModule _ -> True
+    LpFile _ -> True
+    _ -> False
+
 
 -- | A name with an absolute path prefix
-newtype AbsPath
+data AbsPath
     -- | Construct an AbsPath from a list of Name
-    = AbsPath [Name]
+    = AbsPath
+    -- | The components of the absolute path
+    { apBase :: !(ATag AbsPathBase)
+    , apComponents :: [ATag Name]
+    }
     deriving (Eq, Ord, Show)
 
 instance Pretty ann AbsPath where
-    pPrint (AbsPath ns) = hcat $ punctuate (text ".") (pPrint <$> ns)
+    pPrintPrec lvl _ (AbsPath b ns) =
+        let pNs = hcat (punctuate (text ".") (pPrintPrec lvl 0 <$> ns))
+        in case (untag b, ns) of
+            (_, []) -> pPrintPrec lvl 0 b
+            (ApRoot, _) -> pPrintPrec lvl 0 b <> pNs
+            _ -> pPrintPrec lvl 0 b <> text "." <> pNs
 
--- | A fixity specifier
-data Fixity
-    -- | Left associative infix operator
-    = InfixL
-    -- | Right associative infix operator
-    | InfixR
-    -- | Non-associative infix operator
-    | Infix
-    -- | Prefix operator
-    | Prefix
-    -- | Postfix operator
-    | Postfix
-    -- | Atomic symbol
-    | Atomic
+-- | The base of an absolute path
+data AbsPathBase
+    -- | Start at the root of the active module
+    = ApRoot
+    -- | Start at the import module with the given name
+    | ApModule !Name
+    -- | Start in the given file
+    | ApFile !String
     deriving (Eq, Ord, Show)
 
-instance Pretty ann Fixity where
+instance Pretty ann AbsPathBase where
     pPrint = \case
-        InfixL -> text "infixl"
-        InfixR -> text "infixr"
-        Infix -> text "infix"
-        Prefix -> text "prefix"
-        Postfix -> text "postfix"
-        Atomic -> text "atom"
+        ApRoot -> text "/"
+        ApModule n -> text "module" <+> pPrint n
+        ApFile s -> text "file" <+> doubleQuotes (text s)
+
+
+-- | A fixity specifier for imports
+data UseFixity
+    -- | Infix operator of unspecified associativity
+    = UseInfix
+    -- | Prefix operator
+    | UsePrefix
+    -- | Postfix operator
+    | UsePostfix
+    -- | Atomic symbol
+    | UseAtomic
+    deriving (Eq, Ord, Show, Enum, Bounded)
+
+instance Pretty ann UseFixity where
+    pPrint = \case
+        UseInfix -> text "infix"
+        UsePrefix -> text "prefix"
+        UsePostfix -> text "postfix"
+        UseAtomic -> text "atom"
+
+-- | A fixity specifier for definitions
+data DefFixity
+    -- | Left associative infix operator
+    = DefInfixL
+    -- | Right associative infix operator
+    | DefInfixR
+    -- | Non-associative infix operator
+    | DefInfix
+    -- | Prefix operator
+    | DefPrefix
+    -- | Postfix operator
+    | DefPostfix
+    -- | Atomic symbol
+    | DefAtomic
+    deriving (Eq, Ord, Show, Enum, Bounded)
+
+instance Pretty ann DefFixity where
+    pPrint = \case
+        DefInfixL -> text "infixl"
+        DefInfixR -> text "infixr"
+        DefInfix -> text "infix"
+        DefPrefix -> text "prefix"
+        DefPostfix -> text "postfix"
+        DefAtomic -> text "atom"
+
+
+data ModuleProtoHead
+    = ModuleProtoHead
+    { mhName :: !(ATag String)
+    , mhVersion :: !(ATag Version)
+    , mhMeta :: ![(ATag String, ATag String)]
+    , mhSources :: ![ATag String]
+    , mhDependencies :: ![ATag ModuleProtoDependency]
+    }
+    deriving (Eq, Ord, Show)
+
+instance Pretty ann ModuleProtoHead where
+    pPrint (ModuleProtoHead n v m s ds) =
+        hang (text "module" <+> pPrint n <+> text "=") do
+            vcat' (meta <> rest)
+        where
+        meta = m <&> \(k, mv) ->
+            hang (text (untag k) <+> text "=") do
+                pPrint mv
+        rest =
+            [ hang (text "version" <+> text "=") do
+                doubleQuoted v
+            , hang (text "sources" <+> text "=") do
+                vcat' $ punctuate (text ",") (pPrint <$> s)
+            , hang (text "dependencies" <+> text "=") do
+                vcat' $ punctuate (text ",") (pPrint <$> ds)
+            ]
+
+emptyModuleProtoHead :: ATag String -> ModuleProtoHead
+emptyModuleProtoHead name = ModuleProtoHead name (Version 0 0 0 :@: Nil) [] [] []
+
+data ModuleProtoDependency
+    = ModuleProtoDependency
+    { mdNameVer :: !(ATag (String, Version))
+    , mdAlias :: !(Maybe (ATag Name))
+    }
+    deriving (Eq, Ord, Show)
+
+instance Pretty ann ModuleProtoDependency where
+    pPrint (ModuleProtoDependency (T' (n, v)) a) =
+        hang (doubleQuotes (text n <> text "@" <> pPrint v)) do
+            maybeMEmpty ((text "as" <+>) . pPrint <$> a)
 
 
 -- | Prototypical definitions, such as types, values and effects,
@@ -131,22 +247,28 @@ instance Pretty ann Fixity where
 data ProtoDef
     -- | A type definition that has not been fully parsed
     = ProtoType
+        -- | The visibility of the type
+        { ptVisibility :: !Visibility
         -- | The name of the type
-        { ptName :: !(ATag (Spec Name))
+        , ptName :: !(ATag DefName)
         -- | The body of the type definition
         , ptBody :: !(Seq (ATag Token))
         }
     -- | An effect definition that has not been fully parsed
     | ProtoEffect
+        -- | The visibility of the effect
+        { peVisibility :: !Visibility
         -- | The name of the effect
-        { peName :: !(ATag (Spec Name))
+        , peName :: !(ATag DefName)
         -- | The body of the effect definition
         , peBody :: ![ATag ProtoEffectCase]
         }
     -- | A value definition that has not been fully parsed
     | ProtoValue
+        -- | The visibility of the value
+        { pvVisibility :: !Visibility
         -- | The name of the value
-        { pvName :: !(ATag (Spec Name))
+        , pvName :: !(ATag DefName)
         -- | The type designating head of the value definition
         , pvHead :: !(Seq (ATag Token))
         -- | The body of the value definition
@@ -154,35 +276,43 @@ data ProtoDef
         }
     -- | A namespace definition who's members have not been fully parsed
     | ProtoNamespace
+        -- | The visibility of the namespace
+        { pnVisibility :: !Visibility
         -- | The name of the namespace
-        { pnName :: !(ATag Name)
+        , pnName :: !(ATag Name)
         -- | The members of the namespace
         , pnDefs :: ![ATag ProtoDef]
         }
+    -- | A set of lexical imports
+    | ProtoUse
+    { puVisibility :: !Visibility
+    , puBody :: !(ATag Use)
+    }
     deriving (Eq, Ord, Show)
 
 instance Pretty ann ProtoDef where
     pPrint = \case
-        ProtoType n b ->
-            hang (text "type" <+> pPrint n <+> text "=")
+        ProtoType v n b ->
+            hang (pPrint v <+> text "type" <+> pPrint n <+> text "=")
                 (pPrint b)
-        ProtoEffect n b ->
-            hang (text "effect" <+> pPrint n <+> text "=")
+        ProtoEffect v n b ->
+            hang (pPrint v <+> text "effect" <+> pPrint n <+> text "=")
                 (pPrint b)
-        ProtoValue n h b ->
-            hang (hang (pPrint n <> text ":")
+        ProtoValue v n h b ->
+            hang (pPrint v <+> text "value" <+> hang (pPrint n <> text ":")
                     (pPrint h))
                 (text "=" <+> pPrint b)
-        ProtoNamespace n ds ->
-            hang (text "namespace" <+> pPrint n <+> text "=")
+        ProtoNamespace v n ds ->
+            hang (pPrint v <+> text "namespace" <+> pPrint n <+> text "=")
                 (vcat' (pPrint <$> ds))
+        ProtoUse v u -> pPrint v <+> text "use" <+> pPrint u
 
 -- | A specific case in a prototypical effect definition
 data ProtoEffectCase
     -- | Construct a prototypical effect case from a name and tokens
     = ProtoEffectCase
     -- | The name of the case
-    { pcName :: !(ATag (Spec Name))
+    { pcName :: !(ATag DefName)
     -- | The body of the case
     , pcBody :: !(Seq (ATag Token))
     }
@@ -192,6 +322,73 @@ instance Pretty ann ProtoEffectCase where
     pPrint (ProtoEffectCase n b)
         = hang (pPrint n <+> text ":")
             (pPrint b)
+
+data Use
+    = Use
+    { useBase :: !(Maybe (ATag LocalPath))
+    , useTree :: !(Maybe (ATag UseTree))
+    , useAlias :: !(Maybe (ATag DefName))
+    }
+    deriving (Eq, Ord, Show)
+
+instance Pretty ann Use where
+    pPrint (Use b t a)
+        = (if maybe False
+                (localPathNeedsDot . untag)
+                (find ((/= UseAll) . untag) t >>= const b)
+            then maybePPrint b <> text "." <> maybePPrint t
+            else maybePPrint b <> maybePPrint t)
+        <+> maybeMEmpty ((text "as" <+>) . pPrint <$> a)
+
+-- | A use tree for lexical imports
+data UseTree
+    -- | A set of bindings
+    = UseBranch ![ATag Use]
+    -- | A path to a specific binding
+    | UseLeaf !UseName
+    -- | A wildcard indicating all bindings at the given path
+    | UseAll
+    deriving (Eq, Ord, Show)
+
+instance Pretty ann UseTree where
+    pPrint = \case
+        UseBranch ts -> braces $ lsep (pPrint <$> ts)
+        UseLeaf n -> pPrint n
+        UseAll -> text ".."
+
+
+
+-- | Kind of a usage
+data UseKind
+    -- | A type usage
+    = UseType
+    -- | An effect usage
+    | UseEffect
+    -- | A value usage
+    | UseValue
+    -- | A namespace usage
+    | UseNamespace
+    deriving (Eq, Ord, Show)
+
+instance Pretty ann UseKind where
+    pPrint = \case
+        UseType -> text "type"
+        UseEffect -> text "effect"
+        UseValue -> text "value"
+        UseNamespace -> text "namespace"
+
+-- | Visibility of a definition
+data Visibility
+    -- | A public definition
+    = Public
+    -- | A private definition
+    | Private
+    deriving (Eq, Ord, Show)
+
+instance Pretty ann Visibility where
+    pPrint = \case
+        Public -> text "pub"
+        Private -> mempty
 
 -- | Kind of a definition
 data DefKind
@@ -203,6 +400,8 @@ data DefKind
     | DkValue
     -- | A namespace definition
     | DkNamespace
+    -- | A set of lexical imports
+    | DkUse
     deriving (Eq, Ord, Show)
 
 instance Pretty ann DefKind where
@@ -211,6 +410,7 @@ instance Pretty ann DefKind where
         DkEffect -> text "effect"
         DkValue -> text "value"
         DkNamespace -> text "namespace"
+        DkUse -> text "use"
 
 -- | The type of a type
 data Kind
@@ -229,7 +429,7 @@ data Type
     --   These are replaced during kind inference
     | TFree !(Maybe Name)
     -- | Type constructor, such as @:->@ or @Int@
-    | TConstructor !(Spec AbsPath)
+    | TConstructor !AbsRef
     -- | Type-level constants, such as @Int@, @String@
     | TConstant !TypeConstant
     -- | Type application, such as @Int :-> Int@ or @Maybe Int@
@@ -325,7 +525,7 @@ data Expr
     -- | Binds terms from the local environment
     = EVar !Name
     -- | Binds terms from the global environment
-    | EGlobal !(Spec AbsPath)
+    | EGlobal !AbsRef
     -- | A constant, literal value
     | ELit !Literal
     -- | Functional abstraction ie lambda
@@ -351,9 +551,9 @@ data Expr
     | EProductProject !(ATag Expr) !(ATag Name)
 
     -- | Constructs a new sum
-    | ESumConstructor !(ATag (Spec AbsPath)) !(ATag Expr)
+    | ESumConstructor !(ATag AbsRef) !(ATag Expr)
     -- | Inserts a sum value into a larger sum type
-    | ESumExtend !(ATag Name) !(ATag Expr) !(ATag Expr)
+    | ESumExtend !(ATag AbsRef) !(ATag Expr) !(ATag Expr)
 
     -- | Annotates a term with a type
     | EAnn !(ATag Expr) !(ATag Type)
@@ -380,7 +580,7 @@ data Patt
     -- | Matches a product value
     | PProductConstructor ![Field (ATag Patt)] !(ATag ProductRestPattern)
     -- | Matches a sum value
-    | PSumConstructor !(ATag Name) !(ATag Patt)
+    | PSumConstructor !(ATag AbsRef) !(ATag Patt)
     deriving (Eq, Ord, Show)
 
 

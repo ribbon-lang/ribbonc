@@ -19,6 +19,8 @@ import Data.ByteString.Lazy qualified as ByteString
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text
 
+import Ribbon.Display
+
 
 -- | Marks something not yet implemented
 todo :: a
@@ -42,6 +44,10 @@ bytesToString
 select :: Bool -> a -> a -> a
 select True a _ = a
 select False _ b = b
+
+-- | Branch on a boolean, selecting a or b for true or false, respectively
+selecting :: a -> a -> Bool -> a
+selecting a b p = select p a b
 
 
 -- | equivalent of Applicative.some (one or more) with unit return value
@@ -78,15 +84,29 @@ option a fa = fa <|> pure a
 compose :: (a -> b) -> (b -> c) -> (a -> c)
 compose f g a = g (f a)
 
+-- | Split a list into multiple sub-lists
+--   at each element that satisfies a predicate
+splitWith :: (a -> Bool) -> [a] -> [[a]]
+splitWith p = go where
+    go [] = []
+    go xs = case break p xs of
+        (a, _ : b) -> a : go b
+        _ -> [xs]
 
+-- | Split a list into multiple sub-lists
+--   at each element that is equal to a given value
+splitOn :: Eq a => a -> [a] -> [[a]]
+splitOn = splitWith . (==)
 
 -- | Compositional @&&@
 (&&&) :: (a -> Bool) -> (a -> Bool) -> (a -> Bool)
 (&&&) f g a = f a && g a
+infixl 8 &&&
 
 -- | Compositional @||@
 (|||) :: (a -> Bool) -> (a -> Bool) -> (a -> Bool)
 (|||) f g a = f a || g a
+infixl 8 |||
 
 -- | Compositional @not@
 not'd :: (a -> Bool) -> (a -> Bool)
@@ -154,3 +174,23 @@ instance Semigroup a => Nil (Maybe a) where
 pattern Nil :: Nil m => m
 pattern Nil <- (isNil -> True) where
     Nil = nil
+
+
+
+
+-- | A semantic version specifier
+data Version
+    = Version
+    { versionMajor :: !Word
+    , versionMinor :: !Word
+    , versionPatch :: !Word
+    }
+    deriving (Show, Eq, Ord)
+
+instance Pretty ann Version where
+    pPrintPrec _ _ (Version major minor patch) = do
+        shown major <> text "." <> shown minor <> text "." <> shown patch
+
+instance Nil Version where
+    nil = Version 0 0 0
+    isNil = (== Nil)
