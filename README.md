@@ -133,11 +133,10 @@ play with features implemented thus far, the best way to do that is via
 
 Currently you can:
 - Read files as source-tracking File objects, using `loadFile`
-- Play with the lexical analysis of the parser,
+- Play with the lexer,
 using `lexFile`/`lexString`/`lexByteString`
-- Play with the parsers,
-using `parseFileWith`/`parseStringWith`/`parseByteStringWith`
-    > Some parsers you can try are `moduleHead`,`protoDef`,`protoDefs`
+- Play with the parser,
+using `parseModuleFileProtos`/`parseSourceFileProtos`
 
 
 ## Discussion

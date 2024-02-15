@@ -1,9 +1,14 @@
 module Ribbon.Syntax.Token where
 
+import Data.Functor
+import Data.Foldable
+
+import Data.Sequence (Seq)
+
 import Ribbon.Display
+import Ribbon.Source
 import Ribbon.Syntax.Literal
 import Ribbon.Syntax.Text
-
 
 
 
@@ -23,9 +28,13 @@ data Token
 
 instance Pretty ann Token where
     pPrint = \case
-        TSymbol s -> text "T" <> shown s
+        TSymbol s -> text s
         TLiteral l -> pPrint l
         TEof -> text "{EOF}"
+
+instance Pretty ann (Seq (ATag Token)) where
+    pPrint ts = vcat' $ toList ts <&> \(t :@: a) ->
+        pPrint t <+> text "@" <+> pPrint a
 
 -- | Check if a token terminates expressions (ie @,@, @}@ etc)
 isSentinelToken :: Token -> Bool

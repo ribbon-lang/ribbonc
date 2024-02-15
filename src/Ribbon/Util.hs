@@ -3,6 +3,7 @@ module Ribbon.Util where
 import Control.Applicative
 import Control.Monad.Except
 import Data.Maybe qualified as Maybe
+import Data.Either qualified as Either
 
 import Data.Set (Set)
 import Data.Set qualified as Set
@@ -132,8 +133,17 @@ maybeEmpty = Maybe.maybe empty pure
 maybeMEmpty :: Monoid a => Maybe a -> a
 maybeMEmpty = Maybe.fromMaybe mempty
 
+-- | Either -> Left with exception on Right
+forceLeft :: Either a b -> a
+forceLeft = Either.fromLeft (error "expected left")
+
+-- | Either -> Right with exception on Left
+forceRight :: Either a b -> b
+forceRight = Either.fromRight (error "expected right")
+
 -- | Lift a 4 argument function into an Applicative
-liftA4 :: Applicative m => (a -> b -> c -> d -> e) -> m a -> m b -> m c -> m d -> m e
+liftA4 :: Applicative m =>
+    (a -> b -> c -> d -> e) -> m a -> m b -> m c -> m d -> m e
 liftA4 f ma mb mc md = liftA3 f ma mb mc <*> md
 
 

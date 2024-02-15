@@ -53,6 +53,8 @@ instance Eq a => Eq (Tag t a) where
 
 instance Ord a => Ord (Tag t a) where
     compare a b = compare (untag a) (untag b)-- | @(a :\@:) <$> t@
+
+-- | Lift @:\@:@ over a functor, ie @fmap (a :\@:) t@
 (<@>) :: Functor f => a -> f t -> f (Tag t a)
 a <@> t = (a :@:) <$> t
 infixl 4 <@>
@@ -82,73 +84,60 @@ tagApp1 f x = f x :@: tagOf x
 -- | Tag mapping with concatenation of attribute
 --
 --   i.e. @_ t f x = f x :\@: (t <> tagOf x)@
-tagApp1With
-    :: Semigroup t
-    => t
-    -> (Tag t a -> b)
-    -> Tag t a -> Tag t b
+tagApp1With :: Semigroup t =>
+    t -> (Tag t a -> b) -> Tag t a -> Tag t b
 tagApp1With t f x = f x :@: (t <> tagOf x)
 
 
 -- | Tag t application with attribute concatenation
 --
 --   i.e. @_ f x y = f x y :\@: (tagOf x <> tagOf y)@
-tagApp2
-    :: Semigroup t
-    => (Tag t a -> Tag t b -> c)
-    -> Tag t a -> Tag t b -> Tag t c
+tagApp2 :: Semigroup t =>
+    (Tag t a -> Tag t b -> c) -> Tag t a -> Tag t b -> Tag t c
 tagApp2 f x y = f x y :@: (tagOf x <> tagOf y)
 
 -- | Tag t application with concatenation of attribute
 --
 --   i.e. @_ t f x y = f x y :\@: (t <> tagOf x <> tagOf y)@
-tagApp2With
-    :: Semigroup t
-    => t
-    -> (Tag t a -> Tag t b -> c)
-    -> Tag t a -> Tag t b -> Tag t c
+tagApp2With ::
+    Semigroup t =>
+        t -> (Tag t a -> Tag t b -> c) -> Tag t a -> Tag t b -> Tag t c
 tagApp2With t f x y = f x y :@: (t <> tagOf x <> tagOf y)
 
 
 -- | Tag t application with attribute concatenation
 --
 --   i.e. @_ f x y z = f x y z :\@: (tagOf x <> tagOf y <> tagOf z)@
-tagApp3
-    :: Semigroup t
-    => (Tag t a -> Tag t b -> Tag t c -> d)
-    -> Tag t a -> Tag t b -> Tag t c -> Tag t d
+tagApp3 :: Semigroup t =>
+    (Tag t a -> Tag t b -> Tag t c -> d)
+        -> Tag t a -> Tag t b -> Tag t c -> Tag t d
 tagApp3 f x y z = f x y z :@: (tagOf x <> tagOf y <> tagOf z)
 
 -- | Tag t application with concatenation of attribute
 --
 --   i.e. @_ t f x y z = f x y z :\@:
 --   (t <> tagOf x <> tagOf y <> tagOf z)@
-tagApp3With
-    :: Semigroup t
-    => t
-    -> (Tag t a -> Tag t b -> Tag t c -> d)
-    -> Tag t a -> Tag t b -> Tag t c -> Tag t d
+tagApp3With :: Semigroup t =>
+    t -> (Tag t a -> Tag t b -> Tag t c -> d)
+        -> Tag t a -> Tag t b -> Tag t c -> Tag t d
 tagApp3With t f x y z = f x y z :@: (t <> tagOf x <> tagOf y <> tagOf z)
 
 
 -- | Tag t application with attribute concatenation
 --
 --   i.e. @_ f x y z = f x y z :\@: (tagOf x <> tagOf y <> tagOf z)@
-tagApp4
-    :: Semigroup t
-    => (Tag t a -> Tag t b -> Tag t c -> d)
-    -> Tag t a -> Tag t b -> Tag t c -> Tag t d
+tagApp4 :: Semigroup t =>
+    (Tag t a -> Tag t b -> Tag t c -> d)
+        -> Tag t a -> Tag t b -> Tag t c -> Tag t d
 tagApp4 f x y z = f x y z :@: (tagOf x <> tagOf y <> tagOf z)
 
 -- | Tag t application with concatenation of attribute
 --
 --   i.e. @_ t f x y z w = f x y z w :\@:
 --   (t <> tagOf x <> tagOf y <> tagOf z <> tagOf w)@
-tagApp4With
-    :: Semigroup t
-    => t
-    -> (Tag t a -> Tag t b -> Tag t c -> Tag t d -> e)
-    -> Tag t a -> Tag t b -> Tag t c -> Tag t d -> Tag t e
+tagApp4With :: Semigroup t =>
+    t -> (Tag t a -> Tag t b -> Tag t c -> Tag t d -> e)
+        -> Tag t a -> Tag t b -> Tag t c -> Tag t d -> Tag t e
 tagApp4With t f x y z w = f x y z w :@:
     (t <> tagOf x <> tagOf y <> tagOf z <> tagOf w)
 
@@ -204,7 +193,7 @@ instance Show Pos where
 
 instance Pretty ann Pos where
     pPrintPrec lvl _ (Pos o l c) =
-        let s = text ":" <> pPrint l <> text ":" <> pPrint c
+        let s = pPrint l <> text ":" <> pPrint c
         in if lvl > PrettyNormal
             then s <> parens (pPrint o)
             else s
@@ -219,6 +208,9 @@ instance Nil Pos where
     isNil = (== Nil)
     nil = Pos 0 1 1
 
+-- | Determine if two @Pos@ are adjacent in terms of line and column
+posConnected :: Pos -> Pos -> Bool
+posConnected a b = posLine a == posLine b && posColumn a == posColumn b
 
 
 -- | Range indicating the origin of a span of characters
@@ -238,7 +230,9 @@ instance Pretty ann Range where
             b = pPrintPrec lvl 0 e
         in if s == e
             then a
-            else a <+> text "to" <+> b
+            else if posLine s == posLine e
+                then pPrint s <> text "-" <> pPrint (posColumn e)
+                else pPrint s <> text " to " <> pPrint b
 
 instance Semigroup Range where
     a <> b = Range
@@ -255,7 +249,11 @@ instance Nil Range where
 unitRange :: Pos -> Range
 unitRange p = Range p p
 
-
+-- | Determine if two @Range@s are adjacent in terms of line and column
+rangeConnected :: Range -> Range -> Bool
+rangeConnected a b
+     = posConnected (rangeEnd a) (rangeStart b)
+    || posConnected (rangeEnd b) (rangeStart a)
 
 
 -- | Source attribution
@@ -273,7 +271,8 @@ instance Show Attr where
     show (Attr f r) = show f <> show r
 
 instance Pretty ann Attr where
-    pPrintPrec lvl prec (Attr f r) = pPrintPrec lvl prec f <> pPrintPrec lvl prec r
+    pPrintPrec lvl prec (Attr f r) =
+        pPrintPrec lvl prec f <> text ":" <> pPrintPrec lvl prec r
 
 instance Semigroup Attr where
     a <> b = assert (attrFile a == attrFile b) $
@@ -284,6 +283,11 @@ instance Monoid Attr where
 
 instance Nil Attr where
     isNil = (== mempty)
+
+-- | Determine if two @Attr@s are adjacent in terms of line and column
+attrConnected :: Attr -> Attr -> Bool
+attrConnected a b =
+    attrFile a == attrFile b && rangeConnected (attrRange a) (attrRange b)
 
 
 

@@ -4,15 +4,15 @@ pub type Foo = Int
 
 use ../bar
 use module test
-use module test.foo..
+use module test/foo/..
 use ../..
 use {}
 use ..
 use {abc, ..}
 use ../{test}
 use {test}
-use {test, ../foo}
-use ./{../../baz.., qux..} as Qux
+use {test, ../foo/bar/baz}
+use ../{../../baz/.., qux/.., ..} as Qux
 
 lits = 'x'; '\x00'; "\"abc\""; "\0foo"; 1; 1.0
 

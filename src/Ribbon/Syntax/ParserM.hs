@@ -1,13 +1,7 @@
 module Ribbon.Syntax.ParserM where
 
 import Data.Functor
-
 import Data.Foldable
-
-import Control.Applicative
-import Control.Monad.State
-import Control.Monad.Reader
-import Control.Monad.Except
 
 import Data.String (fromString)
 
@@ -19,17 +13,20 @@ import Data.Set qualified as Set
 
 import Data.ByteString.Lazy (ByteString)
 
+import Control.Applicative
+import Control.Monad.State
+import Control.Monad.Reader
+import Control.Monad.Except
+
 import Ribbon.Util
 import Ribbon.Source
 import Ribbon.Display
-import Ribbon.Display qualified as D
 import Ribbon.Syntax.Token
 import Ribbon.Syntax.Literal
-
-
 import Ribbon.Syntax.Lexer qualified as L
 import Ribbon.Syntax.Text
-import Debug.Trace (traceM)
+
+
 
 
 -- | Input type for Parser
@@ -56,10 +53,12 @@ data ParseExcept
 
 instance Pretty () ParseExcept where
     pPrint = \case
-        (ParseError (msg :@: x)) -> hang (pPrint x <+> text ":") msg
+        (ParseError (msg :@: x)) ->
+            hang (text "error at" <+> pPrint x <+> text ":")
+                msg
         (ParseFail x msgs) ->
-            text "unhandled failure at offset"
-                <+> hang (pPrint x <+> text ":") (formatExpected msgs)
+            hang (text "unhandled failure at offset" <+> pPrint x <+> text ":")
+                (formatExpected msgs)
 
 -- | Composition class for monads wrapping Parser
 class ( Monad m, Alternative m, MonadFail m, MonadError (Doc ()) m
@@ -68,11 +67,14 @@ class ( Monad m, Alternative m, MonadFail m, MonadError (Doc ()) m
     => ParserMonad m where
     -- | Lift a Parser action into the current monad
     liftP :: Parser a -> m a
+    unliftP :: m a -> m (Parser a)
     -- | Catch a ParseExcept in a Parser action embedded in the current monad
     catchParseExcept :: m a -> (ParseExcept -> m a) -> m a
 
+
 instance ParserMonad Parser where
     liftP = id
+    unliftP = pure
 
     catchParseExcept (Parser a) f = Parser \s i ->
         case a s i of
@@ -257,13 +259,13 @@ expectingMulti' msgs m = m `catchParseFail` \_ msgs' ->
 -- | Formatting function for unexpected input, or expected input at EOF
 formatInput :: ParseStream -> Int -> Doc ann
 formatInput s ie = case psValue s ie of
-    Just t -> text "unexpected token" <+> D.backticked t
+    Just t -> text "unexpected token" <+> backticked t
     _ -> text "expected additional input"
 
 -- | Formatting function for expected input
 formatExpected :: Set String -> Doc ann
 formatExpected Nil = text "expected additional input"
-formatExpected msgs = text "expected" <+> pPrint msgs
+formatExpected msgs = text "expected" <+> lsep (text <$> Set.toList msgs)
 
 -- | Formatting function used by `noFail` to produce an error message,
 --   given either a set of expectations from the failure,
@@ -299,8 +301,8 @@ consumesAll m = do
         else parseError' (psAttr s i) (formatInput s i)
 
 -- | Fail with an expectation message if the condition is false
-guard :: ParserMonad m => Bool -> String -> m ()
-guard p expStr = if p then pure () else fail expStr
+guardFail :: ParserMonad m => Bool -> String -> m ()
+guardFail p expStr = if p then pure () else fail expStr
 
 -- | Fail with an expectation set if the condition is false
 guardMulti :: ParserMonad m => Bool -> [String] -> m ()
@@ -524,7 +526,6 @@ wsDominated l (_ :@: l') =
 parseFileWith :: Parser a -> File -> Either (Doc ()) a
 parseFileWith p file = do
     toks <- L.lexFile file
-    traceM (prettyShow toks)
     evalParser p file toks
 
 -- | Perform syntactic analysis on a string, using the given Parser,
@@ -541,19 +542,25 @@ parseStringWith p name = parseByteStringWith p name . fromString
 -- | Evaluate a Parser on a given File, converting ParseErrors to Strings
 evalParser :: Parser a -> File -> Seq (ATag Token) -> Either (Doc ()) a
 evalParser px file toks =
-    case runParser (noFail $ consumesAll (px << eof)) (ParseStream toks file) 0 of
-        Left (ParseError (msg :@: l)) -> Left $ text "syntax error" <+> (pPrint l <> text ":") <+> msg
-        Left _ -> undefined
-        Right (a, _) -> Right a
+    case runParser
+        (noFail $ consumesAll (px << eof))
+        (ParseStream toks file) 0 of
+            Left (ParseError (msg :@: l)) -> Left $
+                hang (text "syntax error" <+> (pPrint l <> text ":"))
+                    msg
+            Left _ -> undefined
+            Right (a, _) -> Right a
 
 -- | Evaluate a Parser on a sub-stream of Tokens.
 --   The parser must consume all tokens (except eof)
-recurseParser :: ParserMonad m => Parser a -> Seq (ATag Token) -> m a
+recurseParser :: ParserMonad m => m a -> Seq (ATag Token) -> m a
 recurseParser px toks = do
-    f <- getFile
-    case runParser (noFail $ consumesAll (px << eof)) (ParseStream toks f) 0 of
-        Left e -> liftP $ Parser \_ _ -> Left e
-        Right (a, _) -> pure a
+    p <- unliftP (noFail $ consumesAll (px << eof))
+    liftP do
+        f <- getFile
+        case runParser p (ParseStream toks f) 0 of
+            Left e -> liftP $ Parser \_ _ -> Left e
+            Right (a, _) -> pure a
 
 
 -- | Expect a Literal
@@ -622,10 +629,11 @@ trySym s = peek >>= \case
     TSymbol s' | s == s' -> True <$ advance
     _ -> pure False
 
+
 -- | Expect a given Parser to be surrounded with parentheses
 parens :: ParserMonad m => m a -> m a
 parens px = do
-    a <- posOf (sym "(")
+    a <- attrOf (sym "(")
     noFail do
         px << expecting (") to close ( at " <> prettyShow a) do
             sym ")"
@@ -633,7 +641,7 @@ parens px = do
 -- | Expect a given Parser to be surrounded with braces
 braces :: ParserMonad m => m a -> m a
 braces px = do
-    a <- posOf (sym "{")
+    a <- attrOf (sym "{")
     noFail do
         px << expecting ("} to close { at " <> prettyShow a) do
             sym "}"
@@ -641,10 +649,26 @@ braces px = do
 -- | Expect a given Parser to be surrounded with brackets
 brackets :: ParserMonad m => m a -> m a
 brackets px = do
-    a <- posOf (sym "[")
+    a <- attrOf (sym "[")
     noFail do
         px << expecting ("] to close [ at " <> prettyShow a) do
             sym "]"
 
-
-
+-- | Expect a given Parser's first input token to be directly adjacent,
+--   in terms of line and column position, to the previous token consumed.
+--   Note that if this is used on the first token in an input it has no effect
+connected :: ParserMonad m => m a -> m a
+connected p = do
+    f <- getFile
+    px <- unliftP p
+    liftP $ Parser \s i ->
+        let a = psAttr s (i - 1)
+            a' = psAttr s i
+        in if
+        | i == 0 -> runParser px s i
+        | attrConnected a a' -> runParser px s i
+        | otherwise -> runParser px (ParseStream mempty f) i `catchError` do
+            Left . \case
+                ParseFail j Nil ->
+                    (ParseFail j (Set.singleton "a connected token"))
+                err -> err

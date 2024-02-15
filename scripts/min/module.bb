@@ -12,4 +12,14 @@ module "min" =
         "test-dep@0.1.0" as test
 
 
-pub use file "./main.bb"..
+pub use file "./main.bb"/..
+
+pub use {h/x}
+
+use module foo/{ a, b/c }
+use module foo/..
+use a/b/c
+use a/..
+use module foo/a/b/c
+use module foo/bar/{ a, b/c }
+use module foo/bar/..

@@ -116,8 +116,9 @@ instance Monad Lexer where
         Left e -> Left e
 
 instance MonadFail Lexer where
-    fail msg = Lexer \s ->
-        Left $ LexFailure (msg :@: Attr (lxFile s) (unitRange $ aiPos $ lxInput s))
+    fail msg = Lexer \s -> Left $ LexFailure
+        (msg :@: Attr (lxFile s)
+        (unitRange $ aiPos $ lxInput s))
 
 instance MonadState LexerState Lexer where
     state = Lexer . (Right .)

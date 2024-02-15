@@ -1,7 +1,6 @@
 module Ribbon.Syntax.Ast where
 
 import Data.Sequence (Seq)
-import Data.Foldable
 import Data.Functor
 
 
@@ -79,8 +78,8 @@ instance Pretty ann LocalPathBase where
         LpFile s -> text "file" <+> doubleQuotes (text s)
         LpHere -> text "./"
 
-localPathBaseNeedsDot :: LocalPathBase -> Bool
-localPathBaseNeedsDot = \case
+localPathBaseNeedsSlash :: LocalPathBase -> Bool
+localPathBaseNeedsSlash = \case
     LpModule _ -> True
     LpFile _ -> True
     _ -> False
@@ -274,7 +273,7 @@ data AbsRef
 
 instance Pretty ann AbsRef where
     pPrint (AbsRef p f n) =
-        pPrint p <> text "." <> (pPrint f <+> pPrint n)
+        pPrint p <> text "/" <> (pPrint f <+> pPrint n)
 
 
 
@@ -291,14 +290,14 @@ data LocalPath
 
 instance Pretty ann LocalPath where
     pPrint (LocalPath b ns) =
-        let pNs = hcat (punctuate (text ".") (pPrint <$> ns))
-        in if not (null ns) && localPathBaseNeedsDot (untag b)
-            then pPrint b <> text "." <> pNs
+        let pNs = hcat (punctuate (text "/") (pPrint <$> ns))
+        in if not (null ns) && localPathBaseNeedsSlash (untag b)
+            then pPrint b <> text "/" <> pNs
             else pPrint b <> pNs
 
-localPathNeedsDot :: LocalPath -> Bool
-localPathNeedsDot (LocalPath b ns) =
-    not (null ns) || localPathBaseNeedsDot (untag b)
+localPathNeedsSlash :: LocalPath -> Bool
+localPathNeedsSlash (LocalPath b ns) =
+    not (null ns) || localPathBaseNeedsSlash (untag b)
 
 
 
@@ -314,11 +313,11 @@ data AbsPath
 
 instance Pretty ann AbsPath where
     pPrintPrec lvl _ (AbsPath b ns) =
-        let pNs = hcat (punctuate (text ".") (pPrintPrec lvl 0 <$> ns))
+        let pNs = hcat (punctuate (text "/") (pPrintPrec lvl 0 <$> ns))
         in case (untag b, ns) of
             (_, []) -> pPrintPrec lvl 0 b
             (ApRoot, _) -> pPrintPrec lvl 0 b <> pNs
-            _ -> pPrintPrec lvl 0 b <> text "." <> pNs
+            _ -> pPrintPrec lvl 0 b <> text "/" <> pNs
 
 
 
@@ -491,9 +490,9 @@ data Use
 instance Pretty ann Use where
     pPrint (Use b t a)
         = (if maybe False
-                (localPathNeedsDot . untag)
-                (find ((/= UseAll) . untag) t >>= const b)
-            then maybePPrint b <> text "." <> maybePPrint t
+                (localPathNeedsSlash . untag)
+                (t >>= const b)
+            then maybePPrint b <> text "/" <> maybePPrint t
             else maybePPrint b <> maybePPrint t)
         <+> maybeMEmpty ((text "as" <+>) . pPrint <$> a)
 

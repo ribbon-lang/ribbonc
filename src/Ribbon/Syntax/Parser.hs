@@ -1,32 +1,38 @@
 module Ribbon.Syntax.Parser where
 
-import Prelude hiding (exp)
+import qualified Data.List as List
+import qualified Data.Maybe as Maybe
 
 import Data.Functor
 
 import Control.Applicative
+import Control.Monad
 
 import Ribbon.Util
 import Ribbon.Source
-import Ribbon.Display qualified as D
+import Ribbon.Display(Doc, (<+>), text, render, prettyShow, backticked)
+import Ribbon.Syntax.Text
 import Ribbon.Syntax.Token
 import Ribbon.Syntax.Ast
 import Ribbon.Syntax.ParserM
-import Debug.Trace (traceM)
-import Control.Monad
-import qualified Data.List as List
-import qualified Data.Maybe as Maybe
-import Ribbon.Syntax.Text (parseVersion)
 
 
 
--- parseFile :: File -> Either String Doc
--- parseFile = parseFileWith doc
+
+-- | Parse a module definition file to a series of prototypes
+parseModuleFileProtos ::
+    File -> Either (Doc ()) (ATag ModuleProtoHead, [ATag ProtoDef])
+parseModuleFileProtos = parseFileWith (liftA2 (,) (tag moduleHead) protoDefs)
+
+-- | Parse a source file to a list of prototypes
+parseSourceFileProtos :: File -> Either (Doc ()) [ATag ProtoDef]
+parseSourceFileProtos = parseFileWith protoDefs
+
 
 
 -- | Parse a module head like `module "foo" = ...`
-moduleHead :: forall m. ParserMonad m => m ModuleProtoHead
-moduleHead = do
+moduleHead :: ParserMonad m => m ModuleProtoHead
+moduleHead = expecting "a module head" do
     a <- attr
     sym "module"
     n <- tag string
@@ -47,25 +53,32 @@ moduleHead = do
         case untag k of
             "version" -> do
                 unless (isNil $ untag $ mhVersion m) do
-                    parseError' (tagOf k) (D.text "multiple `version` entries in module head")
+                    parseError' (tagOf k) $
+                        text "multiple `version` entries in module head"
                 v :@: av <- recurseParser (tag string) vs
                 v' <- parseVersion' av v
                 processPairs a (m { mhVersion = v' :@: av }) ps
             "sources" -> do
                 unless (null $ mhSources m) do
-                    parseError' (tagOf k) (D.text "multiple `source` entries in module head")
+                    parseError' (tagOf k) $
+                        text "multiple `source` entries in module head"
                 v <- recurseParser (listSome (sym ",") $ tag string) vs
                 processPairs a (m { mhSources = v }) ps
             "dependencies" -> do
                 unless (null $ mhDependencies m) do
-                    parseError' (tagOf k) (D.text "multiple `dependencies` entries in module head")
+                    parseError' (tagOf k) $
+                        text "multiple `dependencies` entries in module head"
                 v <- recurseParser (listSome (sym ",") $ tag dependency) vs
                 processPairs a (m { mhDependencies = v }) ps
             _ -> do
-                unless (Maybe.isNothing $ List.find (\(k', _) -> untag k' == untag k) (mhMeta m)) do
-                    parseError' (tagOf k) (D.text "duplicate key `" <> D.text (untag k) <> D.text "` in module head")
+                unless (Maybe.isNothing $ lookupMeta (mhMeta m)) do
+                    parseError' (tagOf k) $
+                        text "duplicate key `" <> text (untag k)
+                        <> text "` in module head"
                 v <- recurseParser (tag string) vs
-                processPairs a (m {mhMeta = (k, v) : mhMeta m}) ps
+                processPairs a (m { mhMeta = (k, v) : mhMeta m }) ps
+        where
+        lookupMeta = List.find \(k', _) -> untag k == untag k'
 
     dependency = do
         nameVerStr <- tag string
@@ -81,30 +94,31 @@ moduleHead = do
             _ -> err
         where
             err = parseError' (tagOf nv) do
-                D.text "dependency specifier must be of the form"
-                    D.<+> D.text "`name@version`, e.g. `foo@1.2.3`"
+                text "dependency specifier must be of the form"
+                    <+> text "`name@version`, e.g. `foo@1.2.3`"
 
     parseVersion' a v =
         maybe
             do parseError' a $
-                D.text "version specifier must be of the form"
-                D.<+> D.text "`major.minor.patch`"
-                D.<+> D.text "with all parts being integers > 0"
-                D.<+> D.text "e.g. `1.2.3`"
+                text "version specifier must be of the form"
+                <+> text "`major.minor.patch`"
+                <+> text "with all parts being non-negative integers, "
+                <+> text "and at least one > 0; "
+                <+> text "e.g. `0.1.0`"
             pure
             (parseVersion v)
 
     validateName n =
         when ('@' `elem` untag n) do
-            parseError' (tagOf n) (D.text "module name cannot contain `@`")
+            parseError' (tagOf n) (text "module name cannot contain `@`")
 
     validateMod a (ModuleProtoHead n v _ s _) = do
         when (null $ untag n) do
-            parseError' (tagOf n) (D.text "module name is required")
+            parseError' (tagOf n) (text "module name is required")
         when (isNil $ untag v) do
-            parseError' a (D.text "module version is required")
+            parseError' a (text "module version is required")
         when (null s) do
-            parseError' a (D.text "at least one module source is required")
+            parseError' a (text "at least one module source is required")
 
 
 
@@ -120,36 +134,31 @@ protoDef :: ParserMonad m => m ProtoDef
 protoDef = noFailBeforeEof do
     a <- attr
     v <- option Private vis
-    option DkValue defKind >>= \case
+    option DkValue kind >>= \case
         DkType -> do
-            traceM "parsing type definition"
             dn <- tag defName
             ProtoType v dn <$> (sym "=" >> body dn a)
 
         DkEffect -> do
-            traceM "parsing effect definition"
             dn <- tag defName
             ProtoEffect v dn <$> (sym "=" >> effBody dn a)
 
         DkValue -> do
-            traceM "parsing value definition"
             dn <- tag defName
             symOf [":", "="] >>= \case
                 ":" -> liftA2 (ProtoValue v dn)
                     do expectB "or `=` delimited type head" dn do
                         grabDomain (wsDominated a &&& notAssign)
-                    do option Nil do sym "=" >> noFail (body dn a)
+                    do option Nil $ sym "=" >> body dn a
                 _ -> ProtoValue v dn Nil <$> body dn a
 
         DkNamespace -> do
-            traceM "parsing namespace definition"
             n <- tag name
             ProtoNamespace v n <$>
-                expectB "body" ("namespace " <> D.prettyShow n) do
+                expectB "body" ("namespace " <> prettyShow n) do
                     sym "=" >> recurse a
 
         DkUse -> do
-            traceM "parsing use definition"
             ProtoUse v <$> do
                 toks <- expecting "a whitespace-delimited body for use" do
                     grabWhitespaceDomain a
@@ -159,10 +168,36 @@ protoDef = noFailBeforeEof do
     notAssign = not . isSymbolToken "=" . untag
 
     expectB n dn = expecting $
-        "a whitespace-delimited " <> n <> " for " <> D.render (D.backticked dn)
+        "a whitespace-delimited " <> n <> " for " <> render (backticked dn)
     body dn a = expectB "body" dn do grabWhitespaceDomain a
 
     recurse a = grabWhitespaceDomain a >>= recurseParser protoDefs
+
+    vis = sym "pub" $> Public
+
+    kind = asum
+        [ sym "type" $> DkType
+        , sym "effect" $> DkEffect
+        , sym "value" $> DkValue
+        , sym "namespace" $> DkNamespace
+        , sym "use" $> DkUse
+        ]
+
+    defName = expecting "a definition head" do
+        fx <- option DefAtomic fixity
+        case fx of
+            DefAtomic -> DefName fx Nothing <$> noFailBeforeEof name
+            _ -> liftA2 (DefName fx) (optional int) (noFail name)
+
+        where
+        fixity = asum
+            [ sym "infixl" $> DefInfixL
+            , sym "infixr" $> DefInfixR
+            , sym "infix" $> DefInfix
+            , sym "prefix" $> DefPrefix
+            , sym "postfix" $> DefPostfix
+            , sym "atom" $> DefAtomic
+            ]
 
     effBody dn a =
         body dn a >>= recurseParser (some $ tag effCase)
@@ -172,42 +207,50 @@ protoDef = noFailBeforeEof do
         ProtoEffectCase dn <$> body dn (tagOf dn)
 
     use = do
+        o <- getOffset
         a <- optional (tag localPath)
-        b <- optional $ tag $ asum
-            [ UseBranch <$> braces do
-                listMany (sym ",") (tag use)
-            , do
-                when (maybe False (localPathNeedsDot . untag) a) do
-                    sym "."
-                UseLeaf <$> useName
-            , sym ".." $> UseAll
-            ]
+        b <- optional $ tag
+            case a of
+                Just _ -> connected (useTree a)
+                _ -> useTree a
         case (a, b) of
-            (Nothing, Nothing) -> fail "a name, path, or branch"
-            _ -> Use a b <$> useAs
+            (Nothing, Nothing) -> failAtMulti o ["name", "path", "branch"]
+            _ -> Use a b <$> optional do
+                sym "as" >> tag defName
 
-    useAs = optional $ sym "as" >> tag defName
-
-
-
+    useTree a = case a of
+        Just (untag -> av) | localPathNeedsSlash av -> do
+            sym "/"
+            noFail (connected useTreeBody)
+        _ -> useTreeBody
+    useTreeBody = asum
+        [ UseBranch <$> useBranch
+        , UseLeaf <$> useName
+        , UseAll <$ sym ".."
+        ]
+    useBranch = braces do
+        listMany (sym ",") (tag use)
 
 
 -- | Parse a local path
 localPath :: ParserMonad m => m LocalPath
 localPath = do
     optional (tag pathBase) >>= \case
-        Just base
-            | LpModule _ <- untag base -> maybeTail base
-            | LpFile _ <- untag base -> maybeTail base
-            | otherwise -> LocalPath base <$> manyTail
+        Just base -> LocalPath base <$>
+            if localPathBaseNeedsSlash (untag base)
+                then maybeTail
+                else manyTail
         _ -> do
-            ns :@: a <- tag someTail
+            ns :@: a <- tag do
+                liftA2 (:) (tag name) maybeTail
             pure $ LocalPath (LpHere :@: a) ns
     where
-    maybeTail base = LocalPath base <$> do
-        trySym "." >>= selecting someTail (pure Nil)
-    someTail = listSome (sym ".") (tag name)
-    manyTail = listMany (sym ".") (tag name)
+    maybeTail = option Nil do
+        connected (sym "/")
+        listSome
+            (connected $ sym "/")
+            (connected $ tag name)
+    manyTail = listMany (connected $ sym "/") (connected $ tag name)
     pathBase = asum
         [ sym "/" >> pure LpRoot
         , some (sym "../") <&> LpUp . length
@@ -221,67 +264,26 @@ localPath = do
 name :: ParserMonad m => m Name
 name = Name <$> unreserved
 
-
 -- | Parse a UseName, which is an optional fixity, followed by a name
 useName :: ParserMonad m => m UseName
 useName = expecting "a usable name" do
-    k <- optional useKind
+    k <- optional kind
     case k of
         Just UseNamespace -> UseName k Nothing <$> name
         _ -> liftA2 (UseName k)
-            do optional useFixity
+            do optional fixity
             do name
+    where
+    fixity = asum
+        [ sym "infix" $> UseInfix
+        , sym "prefix" $> UsePrefix
+        , sym "postfix" $> UsePostfix
+        , sym "atom" $> UseAtomic
+        ]
 
-
-
--- | Parse a DefName, which is an optional fixity and an optional precedence,
---   followed by a name
-defName :: ParserMonad m => m DefName
-defName = expecting "a definition head" do
-    fx <- option DefAtomic defFixity
-    case fx of
-        DefAtomic -> DefName fx Nothing <$> noFailBeforeEof name
-        _ -> liftA2 (DefName fx) (optional int) (noFail name)
-
--- | Parse a visibility specification, ie "pub"
-vis :: ParserMonad m => m Visibility
-vis = sym "pub" $> Public
-
--- | Parse a use kind name, such as "type" or "value"
-useKind :: ParserMonad m => m UseKind
-useKind = asum
-    [ sym "type" $> UseType
-    , sym "effect" $> UseEffect
-    , sym "value" $> UseValue
-    , sym "namespace" $> UseNamespace
-    ]
-
--- | Parse a definition kind name, such as "type" or "use"
-defKind :: ParserMonad m => m DefKind
-defKind = asum
-    [ sym "type" $> DkType
-    , sym "effect" $> DkEffect
-    , sym "value" $> DkValue
-    , sym "namespace" $> DkNamespace
-    , sym "use" $> DkUse
-    ]
-
--- | Parse a fixity specification, such as "infix" or "prefix"
-useFixity :: ParserMonad m => m UseFixity
-useFixity = asum
-    [ sym "infix" $> UseInfix
-    , sym "prefix" $> UsePrefix
-    , sym "postfix" $> UsePostfix
-    , sym "atom" $> UseAtomic
-    ]
-
--- | Parse a fixity specification, such as "infixl" or "prefix"
-defFixity :: ParserMonad m => m DefFixity
-defFixity = asum
-    [ sym "infixl" $> DefInfixL
-    , sym "infixr" $> DefInfixR
-    , sym "infix" $> DefInfix
-    , sym "prefix" $> DefPrefix
-    , sym "postfix" $> DefPostfix
-    , sym "atom" $> DefAtomic
-    ]
+    kind = asum
+        [ sym "type" $> UseType
+        , sym "effect" $> UseEffect
+        , sym "value" $> UseValue
+        , sym "namespace" $> UseNamespace
+        ]
