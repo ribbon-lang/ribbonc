@@ -3,7 +3,7 @@
 module Ribbon.Display
     ( module X
     , shown
-    , vcat'
+    , vcat', vcatDouble
     , hang, indent, lsep
     , backticks, backticked, maybeBackticks, maybeBackticked
     , hashes, hashed, maybeHashes, maybeHashed
@@ -24,6 +24,7 @@ import Text.PrettyPrint.Annotated.HughesPJ as X hiding
     ((<>), empty, ptext, char, hang
     , int, integer, float, double, rational
     , semi, comma, space, equals, lparen, rparen, lbrack, rbrack, lbrace, rbrace
+    , first
     )
 
 import Data.Map (Map)
@@ -170,6 +171,13 @@ shown = text . show
 -- | list version of @($+$)@
 vcat' :: [Doc ann] -> Doc ann
 vcat' = foldr ($+$) mempty
+
+-- | Concatenate a list with double new lines between elements
+vcatDouble :: [Doc ann] -> Doc ann
+vcatDouble = (`foldr` mempty) \a ->
+    \case
+        (isEmpty -> True) -> a
+        b -> a $+$ zeroWidthText "" $+$ b
 
 -- | @sep . punctuate (text ",")@
 lsep :: [Doc ann] -> Doc ann

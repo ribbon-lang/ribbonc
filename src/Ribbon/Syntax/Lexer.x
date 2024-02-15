@@ -183,11 +183,11 @@ lexFile file =
 
 -- | Perform lexical analysis on a ByteString,
 --   yielding a sequence of tagged tokens
-lexByteString :: String -> ByteString -> Either (Doc ()) (Seq (ATag Token))
-lexByteString name input = lexFile (File name input)
+lexByteString :: FilePath -> ByteString -> Either (Doc ()) (Seq (ATag Token))
+lexByteString name input = lexFile (File "memory" name input)
 
 -- | Perform lexical analysis on a String,
 --   yielding a sequence of tagged tokens
-lexString :: String -> String -> Either (Doc ()) (Seq (ATag Token))
+lexString :: FilePath -> String -> Either (Doc ()) (Seq (ATag Token))
 lexString name input = lexByteString name (fromString input)
 }

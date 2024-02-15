@@ -1,7 +1,10 @@
 module Ribbon.Util where
 
+import Data.Foldable
+
 import Control.Applicative
 import Control.Monad.Except
+
 import Data.Maybe qualified as Maybe
 import Data.Either qualified as Either
 
@@ -146,6 +149,14 @@ liftA4 :: Applicative m =>
     (a -> b -> c -> d -> e) -> m a -> m b -> m c -> m d -> m e
 liftA4 f ma mb mc md = liftA3 f ma mb mc <*> md
 
+
+-- | `foldr` with the function taken last
+foldWith :: Foldable t => b -> t a -> (a -> b -> b) -> b
+foldWith b as f = foldr f b as
+
+-- | `foldrM` with the function taken last
+foldWithM :: (Foldable t, Monad m) => b -> t a -> (a -> b -> m b) -> m b
+foldWithM b as f = foldrM f b as
 
 
 -- | An extension class for monoids allowing the Nil pattern to function

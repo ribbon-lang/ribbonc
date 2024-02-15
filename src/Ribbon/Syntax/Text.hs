@@ -1,6 +1,7 @@
 module Ribbon.Syntax.Text where
 
 import Data.Char qualified as Char
+import Data.List qualified as List
 
 import Numeric
 
@@ -9,6 +10,12 @@ import Data.Foldable
 import Ribbon.Util
 
 
+
+-- | Concatenate with a slash between the elements
+(</>) :: String -> String -> String
+(</>) a b
+    | "/" `List.isSuffixOf` a || "/" `List.isPrefixOf` b = a <> b
+    | otherwise = a <> "/" <> b
 
 
 -- | Predicate checking if a character is part of a whitespace segment,

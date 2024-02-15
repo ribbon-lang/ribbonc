@@ -530,12 +530,12 @@ parseFileWith p file = do
 
 -- | Perform syntactic analysis on a string, using the given Parser,
 --   with errors reported to be in a file with the given name
-parseByteStringWith :: Parser a -> String -> ByteString -> Either (Doc ()) a
-parseByteStringWith p name content = parseFileWith p (File name content)
+parseByteStringWith :: Parser a -> FilePath -> ByteString -> Either (Doc ()) a
+parseByteStringWith p name content = parseFileWith p (File "memory" name content)
 
 -- | Perform syntactic analysis on a string, using the given Parser,
 --   with errors reported to be in a file with the given name
-parseStringWith :: Parser a -> String -> String -> Either (Doc ()) a
+parseStringWith :: Parser a -> FilePath -> String -> Either (Doc ()) a
 parseStringWith p name = parseByteStringWith p name . fromString
 
 

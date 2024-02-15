@@ -260,19 +260,19 @@ rangeConnected a b
 data Attr
     -- | Source attribution for a range of characters in a file
     = Attr
-    -- | File containing the range of an Attr
-    { attrFile :: !File
+    -- | FilePath of file containing the range of an Attr
+    { attrFile :: !FilePath
     -- | Offset, Line and Column Range for an Attr
     , attrRange :: !Range
     }
     deriving (Eq, Ord)
 
 instance Show Attr where
-    show (Attr f r) = show f <> show r
+    show (Attr f r) = f <> show r
 
 instance Pretty ann Attr where
     pPrintPrec lvl prec (Attr f r) =
-        pPrintPrec lvl prec f <> text ":" <> pPrintPrec lvl prec r
+        text f <> text ":" <> pPrintPrec lvl prec r
 
 instance Semigroup Attr where
     a <> b = assert (attrFile a == attrFile b) $
@@ -295,8 +295,10 @@ attrConnected a b =
 data File
     -- | Source file with name, text, and line and column database
     = File
-    -- | Name or path of a File
-    { fileName :: !String
+    -- | The full path of a File
+    { filePath :: !FilePath
+    -- | The name of a File as it is referenced in a module
+    , fileName :: !FilePath
     -- | Lazy ByteString of a File's textual content
     , fileContent :: !ByteString
     }
@@ -304,8 +306,8 @@ data File
 
 instance Pretty ann File where
     pPrintPrec lvl _ = if lvl == PrettyVerbose
-        then \(File name content) -> text "{" <> do
-            shown name <> text ":" $+$ do
+        then \(File path name content) -> text "{" <> do
+            (shown path <+> text "\\" <+> text name) <> text ":" $+$ do
                 vcat' . fmap (indent . text) . lines . bytesToString $ content
         $+$ text "}"
         else text . fileName
@@ -318,8 +320,8 @@ instance Ord File where
 
 instance Nil File where
     isNil = (== Nil)
-    nil = File "" mempty
+    nil = File "" "" mempty
 
 -- | Load a text file into a File object
-loadFile :: String -> IO File
-loadFile name = File name <$> ByteString.readFile name
+loadFile :: FilePath -> FilePath -> IO File
+loadFile fullPath name = File fullPath name <$> ByteString.readFile fullPath

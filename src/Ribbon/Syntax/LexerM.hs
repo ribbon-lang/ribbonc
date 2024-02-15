@@ -117,7 +117,7 @@ instance Monad Lexer where
 
 instance MonadFail Lexer where
     fail msg = Lexer \s -> Left $ LexFailure
-        (msg :@: Attr (lxFile s)
+        (msg :@: Attr (filePath $ lxFile s)
         (unitRange $ aiPos $ lxInput s))
 
 instance MonadState LexerState Lexer where
@@ -130,12 +130,12 @@ failWith = Lexer . const . Left
 
 -- | Fail lexing at a given position due to an unexpected end of file
 unexpectedEof :: Pos -> Lexer a
-unexpectedEof p = getFile >>=
+unexpectedEof p = getFilePath >>=
     failWith . LexUnexpectedEof . (`Attr` unitRange p)
 
 -- | Fail lexing at a given position due to an unexpected input
 unexpectedInput :: Pos -> Lexer a
-unexpectedInput p = getFile >>=
+unexpectedInput p = getFilePath >>=
     failWith . LexUnexpectedInput . (`Attr` unitRange p)
 
 -- | Get the current byte offset in the input stream
@@ -150,6 +150,10 @@ getPos = gets $ aiPos . lxInput
 getFile :: Lexer File
 getFile = gets lxFile
 
+-- | Get the FilePath of the current file being lexed
+getFilePath :: Lexer FilePath
+getFilePath = filePath <$> getFile
+
 -- | Create a range from the given position to the current one
 getRange :: Pos -> Lexer Range
 getRange start = Range start <$> getPos
@@ -161,12 +165,12 @@ getUnitRange = unitRange <$> getPos
 -- | Create a range from the given position to the current one and build
 --   an Attr from it and the file being lexed
 getAttr :: Pos -> Lexer Attr
-getAttr start = Attr <$> getFile <*> getRange start
+getAttr start = Attr <$> getFilePath <*> getRange start
 
 -- | Create a unary range from the current position and build
 --   an Attr from it and the file being lexed
 getUnitAttr :: Lexer Attr
-getUnitAttr = Attr <$> getFile <*> getUnitRange
+getUnitAttr = Attr <$> getFilePath <*> getUnitRange
 
 -- | Get the current state
 getState :: Lexer LexerState

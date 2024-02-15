@@ -1,8 +1,13 @@
 module Ribbon.Syntax.Ast where
 
+import Data.Functor
+import Data.Function
+
 import Data.Sequence (Seq)
 import Data.Sequence qualified as Seq
-import Data.Functor
+
+import Data.Map.Lazy (Map)
+import qualified Data.Map.Lazy as Map
 
 
 import Ribbon.Util
@@ -67,7 +72,7 @@ data LocalPathBase
     -- | Start at the import module with the given name
     | LpModule !Name
     -- | Start in the given file
-    | LpFile !String
+    | LpFile !FilePath
     -- | Start at the current namespace
     | LpHere
     deriving (Eq, Ord, Show)
@@ -95,7 +100,7 @@ data AbsPathBase
     -- | Start at the import module with the given name
     | ApModule !Name
     -- | Start in the given file
-    | ApFile !String
+    | ApFile !FilePath
     deriving (Eq, Ord, Show)
 
 instance Pretty ann AbsPathBase where
@@ -339,14 +344,63 @@ instance Pretty ann AbsPath where
 -- proto module data -----------------------------------------------------------
 
 
+data ProtoModule = ProtoModule
+    { mpHead :: ATag ProtoModuleHead
+    , mpRoot :: [ATag ProtoDef]
+    , mpFiles :: Map FilePath ProtoFile
+    }
+    deriving Show
+
+instance Eq ProtoModule where
+    (==) = (==) `on` mpHead
+
+instance Ord ProtoModule where
+    compare = compare `on` mpHead
+
+instance Pretty ann ProtoModule where
+    pPrintPrec lvl _ (ProtoModule h ds fs) =
+        vcatDouble
+            $ pPrintPrec lvl 0 h
+            : vcat' (pPrintPrec lvl 0 <$> ds)
+            : (pPrintPrec lvl 0 <$> Map.elems fs)
+
+
+
+-- | A source file
+data ProtoFile
+    -- | Construct a ProtoFile from a FilePath
+    --   and a list of definitions
+    = ProtoFile
+    -- | The complete FilePath for the file
+    { pfPath :: !FilePath
+    -- | The definitions in the file
+    , pfDefs :: ![ATag ProtoDef]
+    }
+    deriving Show
+
+instance Eq ProtoFile where
+    (==) = (==) `on` pfPath
+
+instance Ord ProtoFile where
+    compare = compare `on` pfPath
+
+instance Pretty ann ProtoFile where
+    pPrintPrec lvl _ (ProtoFile f ds) =
+        hang (text "file" <+> pPrintPrec lvl 0 f <+> text "=")
+            if null ds
+                then text "{EMPTY FILE}"
+                else vcat' (pPrintPrec lvl 0 <$> ds)
+
+
+
 -- | A module head, containing information about the active module,
 --   such as its name, version, dependencies, source directories, and
 --   user-defined meta-data
-data ModuleProtoHead
-    -- | Construct a ModuleProtoHead from a name, a version,
+data ProtoModuleHead
+    -- | Construct a ProtoModuleHead from a name, a version,
     --   a list of meta-data, a list of source directories,
     --   and a list of dependencies
-    = ModuleProtoHead
+    = ProtoModuleHead
     -- | The name of the active module
     { mhName :: !(ATag String)
     -- | The version of the active module
@@ -354,14 +408,20 @@ data ModuleProtoHead
     -- | User-defined meta-data for the active module
     , mhMeta :: ![(ATag String, ATag String)]
     -- | The source directories of the active module
-    , mhSources :: ![ATag String]
+    , mhSources :: ![ATag FilePath]
     -- | The dependencies of the active module
-    , mhDependencies :: ![ATag ModuleProtoDependency]
+    , mhDependencies :: ![ATag ProtoModuleDependency]
     }
-    deriving (Eq, Ord, Show)
+    deriving Show
 
-instance Pretty ann ModuleProtoHead where
-    pPrint (ModuleProtoHead n v m s ds) =
+instance Eq ProtoModuleHead where
+    (==) = (==) `on` mhName
+
+instance Ord ProtoModuleHead where
+    compare = compare `on` mhName
+
+instance Pretty ann ProtoModuleHead where
+    pPrint (ProtoModuleHead n v m s ds) =
         hang (text "module" <+> pPrint n <+> text "=") do
             vcat' (meta <> rest)
         where
@@ -377,25 +437,31 @@ instance Pretty ann ModuleProtoHead where
                 vcat' $ punctuate (text ",") (pPrint <$> ds)
             ]
 
-emptyModuleProtoHead :: ATag String -> ModuleProtoHead
-emptyModuleProtoHead name =
-    ModuleProtoHead name (Version 0 0 0 :@: Nil) [] [] []
+emptyProtoModuleHead :: ATag String -> ProtoModuleHead
+emptyProtoModuleHead name =
+    ProtoModuleHead name (Version 0 0 0 :@: Nil) [] [] []
 
 
 
 -- | An unresolved dependency declaration of the active module
-data ModuleProtoDependency
-    -- | Construct a ModuleProtoDependency from a name and an optional alias
-    = ModuleProtoDependency
+data ProtoModuleDependency
+    -- | Construct a ProtoModuleDependency from a name and an optional alias
+    = ProtoModuleDependency
     -- | The name and version of the dependency
     { mdNameVer :: !(ATag (String, Version))
     -- | An optional alias for the dependency
     , mdAlias :: !(Maybe (ATag Name))
     }
-    deriving (Eq, Ord, Show)
+    deriving Show
 
-instance Pretty ann ModuleProtoDependency where
-    pPrint (ModuleProtoDependency (T' (n, v)) a) =
+instance Eq ProtoModuleDependency where
+    (==) = (==) `on` mdNameVer
+
+instance Ord ProtoModuleDependency where
+    compare = compare `on` mdNameVer
+
+instance Pretty ann ProtoModuleDependency where
+    pPrint (ProtoModuleDependency (T' (n, v)) a) =
         hang (doubleQuotes (text n <> text "@" <> pPrint v)) do
             maybeMEmpty ((text "as" <+>) . pPrint <$> a)
 
@@ -444,10 +510,21 @@ data ProtoDef
         }
     -- | A set of lexical imports
     | ProtoUse
-    { puVisibility :: !Visibility
-    , puBody :: !(ATag Use)
-    }
-    deriving (Eq, Ord, Show)
+        -- | The visibility of the use
+        { puVisibility :: !Visibility
+        -- | The lexical binding/s to import
+        , puBody :: !(ATag Use)
+        }
+    deriving Show
+
+instance Eq ProtoDef where
+    (==) = curry \case
+        (ProtoType v1 n1 _, ProtoType v2 n2 _) -> v1 == v2 && n1 == n2
+        (ProtoEffect v1 n1 _, ProtoEffect v2 n2 _) -> v1 == v2 && n1 == n2
+        (ProtoValue v1 n1 _ _, ProtoValue v2 n2 _ _) -> v1 == v2 && n1 == n2
+        (ProtoNamespace v1 n1 _, ProtoNamespace v2 n2 _) -> v1 == v2 && n1 == n2
+        (ProtoUse v1 u1, ProtoUse v2 u2) -> v1 == v2 && u1 == u2
+        _ -> False
 
 instance Pretty ann ProtoDef where
     pPrint = \case
@@ -468,7 +545,8 @@ instance Pretty ann ProtoDef where
         ProtoNamespace v n ds ->
             hang (pPrint v <+> text "namespace" <+> pPrint n <+> text "=")
                 (vcat' (pPrint <$> ds))
-        ProtoUse v u -> pPrint v <+> text "use" <+> pPrint u
+        ProtoUse v u ->
+            pPrint v <+> text "use" <+> pPrint u
 
 instance Pretty ann [ATag ProtoDef] where
     pPrint ds = brackets $ vcat' (pPrint <$> ds)
@@ -484,7 +562,13 @@ data ProtoEffectCase
     -- | The body of the case
     , pcBody :: !(Seq (ATag Token))
     }
-    deriving (Eq, Ord, Show)
+    deriving Show
+
+instance Eq ProtoEffectCase where
+    (==) = (==) `on` pcName
+
+instance Ord ProtoEffectCase where
+    compare = compare `on` pcName
 
 instance Pretty ann ProtoEffectCase where
     pPrint (ProtoEffectCase n b)

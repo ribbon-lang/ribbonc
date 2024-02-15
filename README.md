@@ -117,7 +117,8 @@ under [Apache 2.0](LICENSE)
 
 For a full list see [package.yaml](package.yaml), but in short, as far as
 libraries included via source, just the basic boilerplate dependencies such as
-`containers`, `mtl`, `bytestring`, `text`, `pretty` etc
+`containers`, `mtl`, `bytestring`, `text`, as well as some quality of life stuff
+like `directory`, `pretty`, etc
 
 `alex` is a build dependency
 
@@ -137,6 +138,8 @@ Currently you can:
 using `lexFile`/`lexString`/`lexByteString`
 - Play with the parser,
 using `parseModuleFileProtos`/`parseSourceFileProtos`
+- Play with the module loader,
+using `loadModuleProto`
 
 
 ## Discussion

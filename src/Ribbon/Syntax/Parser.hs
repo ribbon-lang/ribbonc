@@ -21,17 +21,19 @@ import Ribbon.Syntax.ParserM
 
 -- | Parse a module definition file to a series of prototypes
 parseModuleFileProtos ::
-    File -> Either (Doc ()) (ATag ModuleProtoHead, [ATag ProtoDef])
-parseModuleFileProtos = parseFileWith (liftA2 (,) (tag moduleHead) protoDefs)
+    File -> Either (Doc ()) (ATag ProtoModuleHead, [ATag ProtoDef])
+parseModuleFileProtos =
+    parseFileWith (liftA2 (,) (tag moduleHead) protoDefs)
 
 -- | Parse a source file to a list of prototypes
-parseSourceFileProtos :: File -> Either (Doc ()) [ATag ProtoDef]
-parseSourceFileProtos = parseFileWith protoDefs
+parseSourceFileProtos :: File -> Either (Doc ()) ProtoFile
+parseSourceFileProtos file =
+    ProtoFile (fileName file) <$> parseFileWith protoDefs file
 
 
 
 -- | Parse a module head like `module "foo" = ...`
-moduleHead :: ParserMonad m => m ModuleProtoHead
+moduleHead :: ParserMonad m => m ProtoModuleHead
 moduleHead = expecting "a module head" do
     a <- attr
     sym "module"
@@ -40,7 +42,7 @@ moduleHead = expecting "a module head" do
     sym "="
     body <- grabWhitespaceDomain a
     pairs <- recurseParser keyPairs body
-    processPairs a (emptyModuleProtoHead n) pairs
+    processPairs a (emptyProtoModuleHead n) pairs
     where
     keyPairs = some do
         a <- attr
@@ -84,7 +86,7 @@ moduleHead = expecting "a module head" do
         nameVerStr <- tag string
         nameVer <- parseDepName nameVerStr
         alias <- optional $ sym "as" >> tag name
-        pure $ ModuleProtoDependency nameVer alias
+        pure $ ProtoModuleDependency nameVer alias
 
     parseDepName nv =
         case splitOn '@' (untag nv) of
@@ -112,14 +114,11 @@ moduleHead = expecting "a module head" do
         when ('@' `elem` untag n) do
             parseError' (tagOf n) (text "module name cannot contain `@`")
 
-    validateMod a (ModuleProtoHead n v _ s _) = do
+    validateMod a (ProtoModuleHead n v _ _ _) = do
         when (null $ untag n) do
             parseError' (tagOf n) (text "module name is required")
         when (isNil $ untag v) do
             parseError' a (text "module version is required")
-        when (null s) do
-            parseError' a (text "at least one module source is required")
-
 
 
 
@@ -232,6 +231,13 @@ protoDef = noFailBeforeEof do
         listMany (sym ",") (tag use)
 
 
+
+
+-- | Parse an unreserved symbol as a Name
+name :: ParserMonad m => m Name
+name = Name <$> unreserved
+
+
 -- | Parse a local path
 localPath :: ParserMonad m => m LocalPath
 localPath = do
@@ -259,10 +265,6 @@ localPath = do
         , sym "./" >> pure LpHere
         ]
 
-
--- | Parse an unreserved symbol as a Name
-name :: ParserMonad m => m Name
-name = Name <$> unreserved
 
 -- | Parse a UseName, which is an optional fixity, followed by a name
 useName :: ParserMonad m => m UseName

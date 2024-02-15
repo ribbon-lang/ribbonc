@@ -21,6 +21,7 @@ default-extensions:
 
     - PatternSynonyms
     - ViewPatterns
+    - BangPatterns
 
     - TupleSections
 
@@ -46,6 +47,9 @@ dependencies:
     - text
     - bytestring
     - pretty
+    - directory
+    - filepath
+    - parallel-io
 
 build-tools:
     - alex
