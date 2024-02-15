@@ -73,22 +73,26 @@ instance {-# OVERLAPPABLE #-} (Pretty ann a) => Pretty ann [a] where
     pPrintPrec lvl _ = brackets . lsep . fmap (pPrintPrec lvl 0)
 
 instance {-# OVERLAPPABLE #-} (Pretty ann a, Pretty ann b) => Pretty ann (a, b) where
-    pPrintPrec lvl _ (a, b) = parens do
-        pPrintPrec lvl 0 a <+> text "," <+> pPrintPrec lvl 0 b
+    pPrintPrec lvl _ (a, b) = parens $ lsep
+        [ pPrintPrec lvl 0 a
+        , pPrintPrec lvl 0 b
+        ]
 
 instance {-# OVERLAPPABLE #-} (Pretty ann a, Pretty ann b, Pretty ann c) => Pretty ann (a, b, c) where
-    pPrintPrec lvl _ (a, b, c) = parens do
-        pPrintPrec lvl 0 a
-        <+> text "," <+> pPrintPrec lvl 0 b
-        <+> text "," <+> pPrintPrec lvl 0 c
+    pPrintPrec lvl _ (a, b, c) = parens $ lsep
+        [ pPrintPrec lvl 0 a
+        , pPrintPrec lvl 0 b
+        , pPrintPrec lvl 0 c
+        ]
 
 instance {-# OVERLAPPABLE #-} (Pretty ann a, Pretty ann b, Pretty ann c, Pretty ann d)
     => Pretty ann (a, b, c, d) where
-        pPrintPrec lvl _ (a, b, c, d) = parens do
-            pPrintPrec lvl 0 a
-            <+> text "," <+> pPrintPrec lvl 0 b
-            <+> text "," <+> pPrintPrec lvl 0 c
-            <+> text "," <+> pPrintPrec lvl 0 d
+        pPrintPrec lvl _ (a, b, c, d) = parens $ lsep
+            [ pPrintPrec lvl 0 a
+            , pPrintPrec lvl 0 b
+            , pPrintPrec lvl 0 c
+            , pPrintPrec lvl 0 d
+            ]
 
 instance {-# OVERLAPPABLE #-} (Pretty ann a) => Pretty ann (Maybe a) where
     pPrintPrec lvl prec = \case

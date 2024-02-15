@@ -1,6 +1,7 @@
 module Ribbon.Syntax.Ast where
 
 import Data.Sequence (Seq)
+import Data.Sequence qualified as Seq
 import Data.Functor
 
 
@@ -444,13 +445,20 @@ instance Pretty ann ProtoDef where
             hang (pPrint v <+> text "effect" <+> pPrint n <+> text "=")
                 (pPrint b)
         ProtoValue v n h b ->
-            hang (pPrint v <+> text "value" <+> hang (pPrint n <> text ":")
-                    (pPrint h))
-                (text "=" <+> pPrint b)
+            let x = pPrint v <+> text "value" <+> pPrint n
+                t = hang (x <+> text ":") (pPrint h)
+            in case (Seq.null h, Seq.null b) of
+                (True, True) -> x
+                (False, True) -> t
+                (True, False) -> hang (x <+> text "=") (pPrint b)
+                (False, False) -> hang t (text "=" <+> pPrint b)
         ProtoNamespace v n ds ->
             hang (pPrint v <+> text "namespace" <+> pPrint n <+> text "=")
                 (vcat' (pPrint <$> ds))
         ProtoUse v u -> pPrint v <+> text "use" <+> pPrint u
+
+instance Pretty ann [ATag ProtoDef] where
+    pPrint ds = brackets $ vcat' (pPrint <$> ds)
 
 
 

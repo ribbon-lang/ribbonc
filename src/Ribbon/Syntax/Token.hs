@@ -33,8 +33,8 @@ instance Pretty ann Token where
         TEof -> text "{EOF}"
 
 instance Pretty ann (Seq (ATag Token)) where
-    pPrint ts = vcat' $ toList ts <&> \(t :@: a) ->
-        pPrint t <+> text "@" <+> pPrint a
+    pPrint ts = brackets $ vcat' $ toList ts <&> \(t :@: a) ->
+        backticked t <+> text "@" <+> pPrint a
 
 -- | Check if a token terminates expressions (ie @,@, @}@ etc)
 isSentinelToken :: Token -> Bool
