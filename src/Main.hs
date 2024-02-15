@@ -2,7 +2,6 @@
 
 import Data.Functor
 import Control.Applicative
-import Control.Monad.Except
 
 import Ribbon.Util
 import Ribbon.Source

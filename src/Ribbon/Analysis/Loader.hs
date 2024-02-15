@@ -48,8 +48,8 @@ instance Pretty () LoaderError where
 
 -- | Load a module head file, and then traverse the source directories it lists,
 --   in order to construct a @ProtoModule@
-loadProtoModule :: FilePath -> ExceptT LoaderError IO ProtoModule
-loadProtoModule modPath' = do
+loadProtoModule :: FilePath -> IO (Either (Doc ()) ProtoModule)
+loadProtoModule modPath' = first pPrint <$> runExceptT do
     -- we allow specifying the module as a directory
     -- with "module.bb" at its root, or the path to the head file itself
     modPath <- if ".bb" `isExtensionOf` modPath'
