@@ -35,11 +35,11 @@ pattern T' a <- a :@: _
 -- | Type alias for @Tag Attr@
 type ATag = Tag Attr
 
-instance (Show t, Show a) => Show (Tag t a) where
+instance {-# OVERLAPPABLE #-} (Show t, Show a) => Show (Tag t a) where
     show (a :@: t) = render $
         parens (shown a) <> text "@" <> shown t
 
-instance (Pretty ann t, Pretty ann a) => Pretty ann (Tag t a) where
+instance {-# OVERLAPPABLE #-} (Pretty ann t, Pretty ann a) => Pretty ann (Tag t a) where
     pPrintPrec l p (a :@: t) =
         if l >= PrettyRich
             then parens (pPrintPrec l 0 a) <> text "@" <> brackets (pPrintPrec l 0 t)

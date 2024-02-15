@@ -10,6 +10,7 @@ import Ribbon.Source
 import Ribbon.Display
 import Ribbon.Syntax.Literal
 import Ribbon.Syntax.Token
+import Ribbon.Syntax.Text
 
 
 
@@ -224,6 +225,16 @@ newtype Name
 instance Pretty ann Name where
     pPrint (Name s) = text s
 
+printNameEscaped :: Name -> Doc ann
+printNameEscaped (Name s)
+    | any isOperator s = backticks (text s)
+    | otherwise = text s
+
+printTagNameEscaped :: PrettyLevel -> ATag Name -> Doc ann
+printTagNameEscaped lvl (n :@: a) =
+    if lvl >= PrettyRich
+        then printNameEscaped n <> text "@" <> brackets (pPrintPrec lvl 0 a)
+        else printNameEscaped n
 
 
 
@@ -290,8 +301,8 @@ data LocalPath
     deriving (Eq, Ord, Show)
 
 instance Pretty ann LocalPath where
-    pPrint (LocalPath b ns) =
-        let pNs = hcat (punctuate (text "/") (pPrint <$> ns))
+    pPrintPrec lvl _ (LocalPath b ns) =
+        let pNs = hcat (punctuate (text "/") (printTagNameEscaped lvl <$> ns))
         in if not (null ns) && localPathBaseNeedsSlash (untag b)
             then pPrint b <> text "/" <> pNs
             else pPrint b <> pNs
@@ -306,19 +317,21 @@ localPathNeedsSlash (LocalPath b ns) =
 data AbsPath
     -- | Construct an AbsPath from a list of Name
     = AbsPath
-    -- | The components of the absolute path
+    -- | The base of the absolute path
     { apBase :: !(ATag AbsPathBase)
+    -- | The components of the absolute path
     , apComponents :: [ATag Name]
     }
     deriving (Eq, Ord, Show)
 
 instance Pretty ann AbsPath where
     pPrintPrec lvl _ (AbsPath b ns) =
-        let pNs = hcat (punctuate (text "/") (pPrintPrec lvl 0 <$> ns))
+        let pNs = hcat (punctuate (text "/") (printTagNameEscaped lvl <$> ns))
         in case (untag b, ns) of
             (_, []) -> pPrintPrec lvl 0 b
             (ApRoot, _) -> pPrintPrec lvl 0 b <> pNs
             _ -> pPrintPrec lvl 0 b <> text "/" <> pNs
+
 
 
 

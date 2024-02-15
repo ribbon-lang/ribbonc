@@ -1,7 +1,7 @@
 ;; comment
 
 pub type Foo = Int
-
+use core/`/`
 use ../bar
 use module test
 use module test/foo/..

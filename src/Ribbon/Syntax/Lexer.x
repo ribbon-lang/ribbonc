@@ -27,13 +27,14 @@ $hex = [0-9A-Fa-f]
 $alpha = [A-Za-z_]
 $alphanum = [A-Za-z0-9_]
 $punc = [\'\,\{\}\(\)\[\]]
+$backtick = [\`]
 
 @reserved = let | in | as | match | with | do | fun | handler
           | module | import | use | file | pub | namespace
           | type | effect | class | instance
           | infix | infixl | infixr | prefix | postfix
           | "=>" | ";" | "./" | "../" | ".." | "."
-@operator = ($printable # $white # $alphanum # $punc # [\.\"])+
+@operator = ($printable # $white # $alphanum # $punc # $backtick # [\.\"])+
 @escape = \\ ([\\\'\"0nrt] | x $hex{2} | u \{ $hex+ \})
 
 tokens :-
@@ -50,30 +51,22 @@ tokens :-
     <string> @escape | $printable # [\\\"] | $white    { accumString }
     <string> \"                                        { endString }
 
-    <0> @reserved         { reserved }
-    <0> @operator         { operator }
-    <0> $alpha $alphanum* { ident }
-    <0> $punc             { punc }
+    <0> $backtick ($alpha $alphanum* | @operator) $backtick { escSymbol }
+
+    <0> @reserved         { symbol }
+    <0> @operator         { symbol }
+    <0> $alpha $alphanum* { symbol }
+    <0> $punc             { symbol }
 
 
 {
-reserved :: AlexAction (ATag Token)
-reserved input@AlexInput{..} len = do
-    let x = excerpt input 0 len
+escSymbol :: AlexAction (ATag Token)
+escSymbol input@AlexInput{..} len = do
+    let x = excerpt input 1 (len - 1)
     TSymbol x <@> getAttr aiPos
 
-operator :: AlexAction (ATag Token)
-operator input@AlexInput{..} len = do
-    let x = excerpt input 0 len
-    TSymbol x <@> getAttr aiPos
-
-ident :: AlexAction (ATag Token)
-ident input@AlexInput{..} len = do
-    let x = excerpt input 0 len
-    TSymbol x <@> getAttr aiPos
-
-punc :: AlexAction (ATag Token)
-punc input@AlexInput{..} len = do
+symbol :: AlexAction (ATag Token)
+symbol input@AlexInput{..} len = do
     let x = excerpt input 0 len
     TSymbol x <@> getAttr aiPos
 

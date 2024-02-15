@@ -34,15 +34,9 @@ isIdentifierSubsequent c
 
 
 -- | Predicate checking if a character is a valid
---   operator token start
-isOperatorStart :: Char -> Bool
-isOperatorStart
-     = isOperatorSubsequent
-
--- | Predicate checking if a character is a valid
 --   operator token subsequent
-isOperatorSubsequent :: Char -> Bool
-isOperatorSubsequent c
+isOperator :: Char -> Bool
+isOperator c
      = not (Char.isSpace c)
     && not (Char.isControl c)
     && not (Char.isAlphaNum c)
