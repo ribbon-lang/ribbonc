@@ -55,28 +55,28 @@ moduleHead = expecting "a module head" do
         case untag k of
             "version" -> do
                 unless (isNil $ untag m.version) do
-                    parseError' (tagOf k) $
-                        text "multiple `version` entries in module head"
+                    parseError' (tagOf k)
+                        "multiple `version` entries in module head"
                 v :@: av <- recurseParser (tag string) vs
                 v' <- parseVersion' av v
                 processPairs a m{version = v' :@: av} ps
             "sources" -> do
                 unless (null m.sources) do
-                    parseError' (tagOf k) $
-                        text "multiple `source` entries in module head"
+                    parseError' (tagOf k)
+                        "multiple `source` entries in module head"
                 v <- recurseParser (listSome (sym ",") $ tag string) vs
                 processPairs a m{sources = v} ps
             "dependencies" -> do
                 unless (null m.dependencies) do
-                    parseError' (tagOf k) $
-                        text "multiple `dependencies` entries in module head"
+                    parseError' (tagOf k)
+                        "multiple `dependencies` entries in module head"
                 v <- recurseParser (listSome (sym ",") $ tag dependency) vs
                 processPairs a m{dependencies = v} ps
             _ -> do
                 unless (Maybe.isNothing $ lookupMeta m.meta) do
                     parseError' (tagOf k) $
-                        text "duplicate key `" <> text (untag k)
-                        <> text "` in module head"
+                        "duplicate key `" <> text (untag k)
+                        <> "` in module head"
                 v <- recurseParser (tag string) vs
                 processPairs a m{meta = (k, v) : m.meta} ps
         where
@@ -96,33 +96,33 @@ moduleHead = expecting "a module head" do
             _ -> err
         where
             err = parseError' (tagOf nv) do
-                text "dependency specifier must be of the form"
-                    <+> text "`name@version`, e.g. `foo@1.2.3`"
+                "dependency specifier must be of the form"
+                    <+> "`name@version`, e.g. `foo@1.2.3`"
 
     parseVersion' a v =
         maybe
             do parseError' a $
-                text "version specifier must be of the form"
-                <+> text "`major.minor.patch`"
-                <+> text "with all parts being non-negative integers, "
-                <+> text "and at least one > 0; "
-                <+> text "e.g. `0.1.0`"
+                "version specifier must be of the form"
+                <+> "`major.minor.patch`"
+                <+> "with all parts being non-negative integers, "
+                <+> "and at least one > 0; "
+                <+> "e.g. `0.1.0`"
             pure
             (parseVersion v)
 
     validateName n = do
         when ('@' `elem` untag n) do
-            parseError' (tagOf n) (text "module name cannot contain `@`")
+            parseError' (tagOf n) "module name cannot contain `@`"
         when (null $ untag n) do
-            parseError' (tagOf n) (text "module name cannot be empty")
+            parseError' (tagOf n) "module name cannot be empty"
 
     validateMod a (ProtoModuleHead n v _ _ ds) = do
         when (null $ untag n) do
-            parseError' (tagOf n) (text "module name is required")
+            parseError' (tagOf n) "module name is required"
         when (isNil $ untag v) do
-            parseError' a (text "module version is required")
+            parseError' a "module version is required"
         when (selfReferential n v ds) do
-            parseError' a (text "module cannot depend on itself")
+            parseError' a "module cannot depend on itself"
 
     selfReferential (untag -> n) (untag -> v) =
         any \(untag ->

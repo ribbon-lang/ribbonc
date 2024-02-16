@@ -98,22 +98,22 @@ instance {-# OVERLAPPABLE #-} (Pretty a, Pretty b, Pretty c, Pretty d)
 instance {-# OVERLAPPABLE #-} (Pretty a) => Pretty (Maybe a) where
     pPrintPrec lvl prec = \case
         Just a -> maybeParens (prec > 0) do
-            hang (text "Just")
+            hang "Just"
                 (pPrintPrec lvl 0 a)
-        _ -> text "Nothing"
+        _ -> "Nothing"
 
 instance {-# OVERLAPPABLE #-} (Pretty a, Pretty b) => Pretty (Either a b) where
     pPrintPrec lvl prec = maybeParens (prec > 0) . \case
-        Left a -> hang (text "Left")
+        Left a -> hang "Left"
             (pPrintPrec lvl 0 a)
-        Right b -> hang (text "Right")
+        Right b -> hang "Right"
             (pPrintPrec lvl 0 b)
 
 instance {-# OVERLAPPABLE #-} (Pretty k, Pretty v) => Pretty (Map k v) where
     pPrintPrec lvl _ m
         = braces . lsep
         $ Map.toList m <&> \(k, v) ->
-            pPrintPrec lvl 0 k <+> text "=" <+> pPrintPrec lvl 0 v
+            pPrintPrec lvl 0 k <+> "=" <+> pPrintPrec lvl 0 v
 
 instance {-# OVERLAPPABLE #-} (Pretty k) => Pretty (Set k) where
     pPrintPrec lvl _ s
@@ -179,13 +179,13 @@ vcatDouble = (`foldr` mempty) \a ->
         (isEmpty -> True) -> a
         b -> a $+$ zeroWidthText "" $+$ b
 
--- | @sep . punctuate (text ",")@
+-- | @sep . punctuate ","@
 lsep :: [Doc] -> Doc
-lsep = fsep . punctuate (text ",")
+lsep = fsep . punctuate ","
 
 -- | Enclose a @Doc@ in backticks ``
 backticks :: Doc -> Doc
-backticks d = text "`" <> d <> text "`"
+backticks d = "`" <> d <> "`"
 
 -- | Pretty print a value and enclose it in backticks ``
 backticked :: Pretty a => a -> Doc
@@ -202,7 +202,7 @@ maybeBackticked b = maybeBackticks b . pPrint
 
 -- | Enclose a @Doc@ in hashes ##
 hashes :: Doc -> Doc
-hashes d = text "#" <> d <> text "#"
+hashes d = "#" <> d <> "#"
 
 -- | Pretty print a value and enclose it in hashes ##
 hashed :: Pretty a => a -> Doc

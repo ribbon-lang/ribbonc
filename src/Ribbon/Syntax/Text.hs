@@ -29,7 +29,7 @@ isIdentifier s
 -- | Predicate checking if a character is part of a whitespace segment,
 --   but not a newline
 isWhitespace :: Char -> Bool
-isWhitespace = (`elem` " \t\r\n")
+isWhitespace = (`elem` String " \t\r\n")
 
 
 -- | Predicate checking if a character is a valid
@@ -37,7 +37,7 @@ isWhitespace = (`elem` " \t\r\n")
 isIdentifierStart :: Char -> Bool
 isIdentifierStart c
      = Char.isAlpha c
-    || c `elem` "_"
+    || c `elem` String "_"
 
 -- | Predicate checking if a character is a valid
 --   identifier token subsequent
@@ -45,7 +45,7 @@ isIdentifierSubsequent :: Char -> Bool
 isIdentifierSubsequent c
      = isIdentifierStart c
     || Char.isDigit c
-    || c `elem` "'"
+    || c `elem` String "'"
 
 
 -- | Predicate checking if a character is a valid
@@ -55,12 +55,12 @@ isOperator c
      = not (Char.isSpace c)
     && not (Char.isControl c)
     && not (Char.isAlphaNum c)
-    && c `notElem` "()[]{}\"\'`,;."
+    && c `notElem` String "()[]{}\"\'`,;."
 
 
 -- | Predicate checking if a character is syntactic punctuation
 isPunctuation :: Char -> Bool
-isPunctuation c = c `elem` "()[]{},;"
+isPunctuation c = c `elem` String "()[]{},;"
 
 -- | Predicate checking if a string is a syntactic sentinel,
 --  such as closing parens or commas

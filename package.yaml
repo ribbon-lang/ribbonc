@@ -21,6 +21,7 @@ default-extensions:
     - NoFieldSelectors
     - DisambiguateRecordFields
 
+    - OverloadedStrings
 
 ghc-options:
     - -Wall

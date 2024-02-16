@@ -30,11 +30,11 @@ instance Pretty Token where
     pPrint = \case
         TSymbol s -> text s
         TLiteral l -> pPrint l
-        TEof -> text "{EOF}"
+        TEof -> "{EOF}"
 
 instance Pretty (Seq (ATag Token)) where
     pPrint ts = brackets $ vcat' $ toList ts <&> \(t :@: a) ->
-        backticked t <+> text "@" <+> pPrint a
+        backticked t <+> "@" <+> pPrint a
 
 -- | Check if a token terminates expressions (ie @,@, @}@ etc)
 isSentinelToken :: Token -> Bool
@@ -63,8 +63,8 @@ data TokenSpec
 
 instance Pretty TokenSpec where
     pPrint = \case
-        TsSymbol "" -> text "symbol"
+        TsSymbol "" -> "symbol"
         TsSymbol s -> text s
-        TsLiteral Nothing -> text "literal"
+        TsLiteral Nothing -> "literal"
         TsLiteral (Just k) -> pPrint k
-        TsEof -> text "eof"
+        TsEof -> "eof"

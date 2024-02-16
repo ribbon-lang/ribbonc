@@ -27,13 +27,13 @@ data LexError
     deriving Show
 
 instance Pretty LexError where
-    pPrint = (text "lexical error at" <+>) . \case
+    pPrint = ("lexical error at" <+>) . \case
         LexFailure (msg :@: a) ->
-            (pPrint a <> text ":") <+> text msg
+            (pPrint a <> ":") <+> text msg
         LexUnexpectedEof a ->
-            (pPrint a <> text ":") <+> text "unexpected end of file"
+            (pPrint a <> ":") <+> "unexpected end of file"
         LexUnexpectedInput a ->
-            (pPrint a <> text ":") <+> text "unexpected input"
+            (pPrint a <> ":") <+> "unexpected input"
 
 -- | The type of "lexlets" for the lexer
 type AlexAction a = AlexInput -> Int -> Lexer a

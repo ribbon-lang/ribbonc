@@ -54,10 +54,10 @@ data ParseExcept
 instance Pretty ParseExcept where
     pPrint = \case
         (ParseError (msg :@: x)) ->
-            hang (text "error at" <+> pPrint x <+> text ":")
+            hang ("error at" <+> pPrint x <+> ":")
                 msg
         (ParseFail x msgs) ->
-            hang (text "unhandled failure at offset" <+> pPrint x <+> text ":")
+            hang ("unhandled failure at offset" <+> pPrint x <+> ":")
                 (formatExpected msgs)
 
 -- | Composition class for monads wrapping Parser
@@ -260,13 +260,13 @@ expectingMulti' msgs m = m `catchParseFail` \_ msgs' ->
 -- | Formatting function for unexpected input, or expected input at EOF
 formatInput :: ParseStream -> Int -> Doc
 formatInput s ie = case psValue s ie of
-    Just t -> text "unexpected token" <+> backticked t
-    _ -> text "expected additional input"
+    Just t -> "unexpected token" <+> backticked t
+    _ -> "expected additional input"
 
 -- | Formatting function for expected input
 formatExpected :: Set String -> Doc
-formatExpected Nil = text "expected additional input"
-formatExpected msgs = text "expected" <+> lsep (text <$> Set.toList msgs)
+formatExpected Nil = "expected additional input"
+formatExpected msgs = "expected" <+> lsep (text <$> Set.toList msgs)
 
 -- | Formatting function used by `noFail` to produce an error message,
 --   given either a set of expectations from the failure,
@@ -547,7 +547,7 @@ evalParser px file toks =
         (noFail $ consumesAll (px << eof))
         (ParseStream toks file) 0 of
             Left (ParseError (msg :@: l)) -> Left $
-                hang (text "syntax error" <+> (pPrint l <> text ":"))
+                hang ("syntax error" <+> (pPrint l <> ":"))
                     msg
             Left _ -> undefined
             Right (a, _) -> Right a

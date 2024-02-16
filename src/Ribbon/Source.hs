@@ -37,12 +37,12 @@ type ATag = Tag Attr
 
 instance {-# OVERLAPPABLE #-} (Show t, Show a) => Show (Tag t a) where
     show (a :@: t) = render $
-        parens (shown a) <> text "@" <> shown t
+        parens (shown a) <> "@" <> shown t
 
 instance {-# OVERLAPPABLE #-} (Pretty t, Pretty a) => Pretty (Tag t a) where
     pPrintPrec l p (a :@: t) =
         if l >= PrettyRich
-            then parens (pPrintPrec l 0 a) <> text "@" <> brackets (pPrintPrec l 0 t)
+            then parens (pPrintPrec l 0 a) <> "@" <> brackets (pPrintPrec l 0 t)
             else pPrintPrec l p a
 
 instance Bifunctor Tag where
@@ -193,7 +193,7 @@ instance Show Pos where
 
 instance Pretty Pos where
     pPrintPrec lvl _ (Pos o l c) =
-        let s = pPrint l <> text ":" <> pPrint c
+        let s = pPrint l <> ":" <> pPrint c
         in if lvl > PrettyNormal
             then s <> parens (pPrint o)
             else s
@@ -231,8 +231,8 @@ instance Pretty Range where
         in if s == e
             then a
             else if s.line == e.line
-                then pPrint s <> text "-" <> pPrint e.column
-                else pPrint s <> text " to " <> pPrint b
+                then pPrint s <> "-" <> pPrint e.column
+                else pPrint s <> " to " <> pPrint b
 
 instance Semigroup Range where
     a <> b = Range
@@ -272,7 +272,7 @@ instance Show Attr where
 
 instance Pretty Attr where
     pPrintPrec lvl prec (Attr f r) =
-        text f <> text ":" <> pPrintPrec lvl prec r
+        text f <> ":" <> pPrintPrec lvl prec r
 
 instance Semigroup Attr where
     a <> b = assert (a.file == b.file) $
@@ -306,10 +306,10 @@ data File
 
 instance Pretty File where
     pPrintPrec lvl _ = if lvl == PrettyVerbose
-        then \(File path name content) -> text "{" <> do
-            (shown path <+> text "\\" <+> text name) <> text ":" $+$ do
+        then \(File path name content) -> "{" <> do
+            (shown path <+> "\\" <+> text name) <> ":" $+$ do
                 vcat' . fmap (indent . text) . lines . bytesToString $ content
-        $+$ text "}"
+        $+$ "}"
         else text . (.name)
 
 instance Eq File where

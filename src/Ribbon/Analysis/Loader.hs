@@ -35,11 +35,11 @@ data LoaderError
 instance Pretty LoaderError where
     pPrintPrec l _ = \case
         LoaderErrorIn (msg :@: a) ->
-            hang (text "loader error at" <+> pPrintPrec l 0 a)
+            hang ("loader error at" <+> pPrintPrec l 0 a)
                 msg
 
         LoaderErrorAt path msg ->
-            hang (text "loader error at" <+> text path)
+            hang ("loader error at" <+> text path)
                 msg
 
         LoaderErrorPreFormatted msg -> msg
@@ -56,15 +56,15 @@ loadProtoModule modPath' = first pPrint <$> runExceptT do
         then do
             exists <- liftIO $ doesFileExist modPath'
             unless exists do
-                throwError $ LoaderErrorAt modPath' $
-                    text "module head file does not exist"
+                throwError $ LoaderErrorAt modPath'
+                    "module head file does not exist"
             pure modPath'
         else do
             let modHeadPath = modPath' </> "module.bb"
             exists <- liftIO $ doesFileExist modHeadPath
             unless exists do
-                throwError $ LoaderErrorAt modPath' $
-                    text "module head file does not exist"
+                throwError $ LoaderErrorAt modPath'
+                    "module head file does not exist"
             pure modHeadPath
 
     -- All paths are relative to here
@@ -96,9 +96,9 @@ loadProtoModule modPath' = first pPrint <$> runExceptT do
 
         unless fileExists do
             throwError $ LoaderErrorIn $ Tag (tagOf sourcePath) $
-                text "source file"
+                "source file"
                     <+> brackets (text path)
-                    <+> text "does not exist"
+                    <+> "does not exist"
 
         pure (untag sourcePath)
 
@@ -110,9 +110,9 @@ loadProtoModule modPath' = first pPrint <$> runExceptT do
 
         unless dirExists do
             throwError $ LoaderErrorIn $ Tag (tagOf dir) $
-                text "source path"
+                "source path"
                     <+> brackets (text path)
-                    <+> text "is not a directory and does not end in `.bb`"
+                    <+> "is not a directory and does not end in `.bb`"
 
         pure (untag dir)
 
@@ -155,10 +155,10 @@ loadProtoModule modPath' = first pPrint <$> runExceptT do
 
     unless (Map.null overlaps) do
         throwError $ LoaderErrorIn $ Tag sourcesAttr $
-            hang (text "source paths collide:") $ vcat' do
+            hang "source paths collide:" $ vcat' do
                 Map.toList overlaps <&> \(ovl, bases) ->
-                    hang (text "the file" <+> brackets (text ovl)
-                            <+> text "can be found in the following bases:") do
+                    hang ("the file" <+> brackets (text ovl)
+                            <+> "can be found in the following bases:") do
                         vcat' $ brackets . text <$> bases
 
     -- build up a list of IO actions to load and parse the source files

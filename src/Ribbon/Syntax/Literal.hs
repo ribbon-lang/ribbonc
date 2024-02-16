@@ -39,10 +39,10 @@ instance Pretty Literal where
 
 instance Pretty LiteralKind where
     pPrint = \case
-        LkInt -> text "int"
-        LkFloat -> text "float"
-        LkChar -> text "char"
-        LkString -> text "string"
+        LkInt -> "int"
+        LkFloat -> "float"
+        LkChar -> "char"
+        LkString -> "string"
 
 
 -- | Get the LiteralKind of a Literal

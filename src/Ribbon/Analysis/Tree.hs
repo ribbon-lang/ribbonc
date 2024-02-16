@@ -19,9 +19,9 @@ import Control.Monad.State
 import Data.Foldable
 import qualified Data.Set as Set
 
-newtype AnalysisContext a
+newtype AnalysisContext
     = AnalysisContext
-        { modules :: Map (String, Version) (ModuleTree a)
+        { modules :: Map (String, Version) (ModuleTree TreeDef)
         }
 
 newtype TreeError
@@ -29,26 +29,26 @@ newtype TreeError
 
 instance Pretty TreeError where
     pPrint (TreeError (doc :@: a)) =
-        hang (text "error at" <+> bracketed a) doc
+        hang ("error at" <+> bracketed a) doc
 
 
 
 lookupModule ::
-    AnalysisContext TreeDef -> ATag (String, Version) -> Either TreeError (ModuleTree TreeDef)
+    AnalysisContext -> ATag (String, Version) -> Either TreeError (ModuleTree TreeDef)
 lookupModule ctx nameVer =
     let nv@(name, ver) = untag nameVer
     in case Map.lookup nv ctx.modules of
         Just tree -> Right tree
         _ -> Left $ TreeError $ Tag (tagOf nameVer) $
-            hang (text "module" <+> text name
-                      <+> text "with version" <+> pPrint ver
-                      <+> text "not found in context")
+            hang ("module" <+> text name
+                      <+> "with version" <+> pPrint ver
+                      <+> "not found in context")
                 case modFuzzySearch name (Map.keys ctx.modules) of
                     [] -> mempty
                     suggestions ->
-                        hang (text "Did you mean:") do
+                        hang "Did you mean:" do
                             lsep (suggestions <&> \(sn, sv) ->
-                                text sn <+> text "with version" <+> pPrint sv)
+                                text sn <+> "with version" <+> pPrint sv)
     where
     modFuzzySearch :: String -> [(String, Version)] -> [(String, Version)]
     modFuzzySearch name = filter (List.isPrefixOf name . fst)
@@ -71,16 +71,16 @@ bindAbsPath p d = todo
     --     Just existing -> do
     --         when (Set.member d existing) do
     --             throwError $ TreeError $ Tag (tagOf d) $
-    --                 hang (text "duplicate definition of" <+> pPrint p) do
-    --                     text "existing definition here:" <+> pPrint (Set.findMin existing)
+    --                 hang ("duplicate definition of" <+> pPrint p) do
+    --                     "existing definition here:" <+> pPrint (Set.findMin existing)
     --     _ -> put $ m { mtDefs = Map.insert p (Set.singleton d) (mtDefs m) }
 
     -- throwError $ TreeError $ Tag (tagOf d) $
-    --     hang (text "duplicate definition of" <+> pPrint p) do
-    --         text "existing definition here:" <+>
+    --     hang ("duplicate definition of" <+> pPrint p) do
+    --         "existing definition here:" <+>
 
 
-buildTree :: AnalysisContext MiddleDef -> ProtoModule -> Either Doc (ModuleTree MiddleDef)
+buildTree :: AnalysisContext -> ProtoModule -> Either Doc (ModuleTree MiddleDef)
 buildTree ctx ProtoModule{..} = todo --first pPrint do
     -- let ProtoModuleHead{..} = untag pmHead
     --     newHead =
@@ -100,9 +100,9 @@ buildTree ctx ProtoModule{..} = todo --first pPrint do
 
     --             when (Maybe.isNothing alias && mustAlias actualName) do
     --                 throwError $ TreeError $ Tag (tagOf tree) $
-    --                     text "imported module name"
+    --                     "imported module name"
     --                     <+> pPrint actualName
-    --                     <+> text "is not a valid identifier, and must be aliased"
+    --                     <+> "is not a valid identifier, and must be aliased"
 
     --             pure $ bimap
     --                 ((`AbsPath` []) . fmap ApModule)

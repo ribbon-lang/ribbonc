@@ -79,11 +79,11 @@ data LocalPathBase
 
 instance Pretty LocalPathBase where
     pPrint = \case
-        LpRoot -> text "/"
-        LpUp i -> hcat $ replicate i (text "../")
-        LpModule n -> text "module" <+> pPrint n
-        LpFile s -> text "file" <+> doubleQuotes (text s)
-        LpHere -> text "./"
+        LpRoot -> "/"
+        LpUp i -> hcat $ replicate i "../"
+        LpModule n -> "module" <+> pPrint n
+        LpFile s -> "file" <+> doubleQuotes (text s)
+        LpHere -> "./"
 
 localPathBaseNeedsSlash :: LocalPathBase -> Bool
 localPathBaseNeedsSlash = \case
@@ -105,9 +105,9 @@ data AbsPathBase
 
 instance Pretty AbsPathBase where
     pPrint = \case
-        ApRoot -> text "/"
-        ApModule n -> text "module" <+> pPrint n
-        ApFile s -> text "file" <+> doubleQuotes (text s)
+        ApRoot -> "/"
+        ApModule n -> "module" <+> pPrint n
+        ApFile s -> "file" <+> doubleQuotes (text s)
 
 
 
@@ -125,10 +125,10 @@ data UseFixity
 
 instance Pretty UseFixity where
     pPrint = \case
-        UseInfix -> text "infix"
-        UsePrefix -> text "prefix"
-        UsePostfix -> text "postfix"
-        UseAtomic -> text "atom"
+        UseInfix -> "infix"
+        UsePrefix -> "prefix"
+        UsePostfix -> "postfix"
+        UseAtomic -> "atom"
 
 
 
@@ -150,12 +150,12 @@ data DefFixity
 
 instance Pretty DefFixity where
     pPrint = \case
-        DefInfixL -> text "infixl"
-        DefInfixR -> text "infixr"
-        DefInfix -> text "infix"
-        DefPrefix -> text "prefix"
-        DefPostfix -> text "postfix"
-        DefAtomic -> text "atom"
+        DefInfixL -> "infixl"
+        DefInfixR -> "infixr"
+        DefInfix -> "infix"
+        DefPrefix -> "prefix"
+        DefPostfix -> "postfix"
+        DefAtomic -> "atom"
 
 -- | Kind of a usage
 data UseKind
@@ -171,10 +171,10 @@ data UseKind
 
 instance Pretty UseKind where
     pPrint = \case
-        UseType -> text "type"
-        UseEffect -> text "effect"
-        UseValue -> text "value"
-        UseNamespace -> text "namespace"
+        UseType -> "type"
+        UseEffect -> "effect"
+        UseValue -> "value"
+        UseNamespace -> "namespace"
 
 
 
@@ -188,7 +188,7 @@ data Visibility
 
 instance Pretty Visibility where
     pPrint = \case
-        Public -> text "pub"
+        Public -> "pub"
         Private -> mempty
 
 
@@ -209,11 +209,11 @@ data DefKind
 
 instance Pretty DefKind where
     pPrint = \case
-        DkType -> text "type"
-        DkEffect -> text "effect"
-        DkValue -> text "value"
-        DkNamespace -> text "namespace"
-        DkUse -> text "use"
+        DkType -> "type"
+        DkEffect -> "effect"
+        DkValue -> "value"
+        DkNamespace -> "namespace"
+        DkUse -> "use"
 
 
 
@@ -238,7 +238,7 @@ printNameEscaped (Name s)
 printTagNameEscaped :: PrettyLevel -> ATag Name -> Doc
 printTagNameEscaped lvl (n :@: a) =
     if lvl >= PrettyRich
-        then printNameEscaped n <> text "@" <> brackets (pPrintPrec lvl 0 a)
+        then printNameEscaped n <> "@" <> brackets (pPrintPrec lvl 0 a)
         else printNameEscaped n
 
 
@@ -290,7 +290,7 @@ data AbsRef
 
 instance Pretty AbsRef where
     pPrint (AbsRef p f n) =
-        pPrint p <> text "/" <> (pPrint f <+> pPrint n)
+        pPrint p <> "/" <> (pPrint f <+> pPrint n)
 
 
 
@@ -307,9 +307,9 @@ data LocalPath
 
 instance Pretty LocalPath where
     pPrintPrec lvl _ (LocalPath b ns) =
-        let pNs = hcat (punctuate (text "/") (printTagNameEscaped lvl <$> ns))
+        let pNs = hcat (punctuate "/" (printTagNameEscaped lvl <$> ns))
         in if not (null ns) && localPathBaseNeedsSlash (untag b)
-            then pPrint b <> text "/" <> pNs
+            then pPrint b <> "/" <> pNs
             else pPrint b <> pNs
 
 localPathNeedsSlash :: LocalPath -> Bool
@@ -331,11 +331,11 @@ data AbsPath
 
 instance Pretty AbsPath where
     pPrintPrec lvl _ (AbsPath b ns) =
-        let pNs = hcat (punctuate (text "/") (printTagNameEscaped lvl <$> ns))
+        let pNs = hcat (punctuate "/" (printTagNameEscaped lvl <$> ns))
         in case (untag b, ns) of
             (_, []) -> pPrintPrec lvl 0 b
             (ApRoot, _) -> pPrintPrec lvl 0 b <> pNs
-            _ -> pPrintPrec lvl 0 b <> text "/" <> pNs
+            _ -> pPrintPrec lvl 0 b <> "/" <> pNs
 
 
 
@@ -386,9 +386,9 @@ instance Ord ProtoFile where
 
 instance Pretty ProtoFile where
     pPrintPrec lvl _ (ProtoFile f ds) =
-        hang (text "file" <+> pPrintPrec lvl 0 f <+> text "=")
+        hang ("file" <+> pPrintPrec lvl 0 f <+> "=")
             if null ds
-                then text "{EMPTY FILE}"
+                then "{EMPTY FILE}"
                 else vcat' (pPrintPrec lvl 0 <$> ds)
 
 
@@ -422,19 +422,19 @@ instance Ord ProtoModuleHead where
 
 instance Pretty ProtoModuleHead where
     pPrint (ProtoModuleHead n v m s ds) =
-        hang (text "module" <+> pPrint n <+> text "=") do
+        hang ("module" <+> pPrint n <+> "=") do
             vcat' (meta <> rest)
         where
         meta = m <&> \(k, mv) ->
-            hang (text (untag k) <+> text "=") do
+            hang (text (untag k) <+> "=") do
                 pPrint mv
         rest =
-            [ hang (text "version" <+> text "=") do
+            [ hang ("version" <+> "=") do
                 doubleQuoted v
-            , hang (text "sources" <+> text "=") do
-                vcat' $ punctuate (text ",") (pPrint <$> s)
-            , hang (text "dependencies" <+> text "=") do
-                vcat' $ punctuate (text ",") (pPrint <$> ds)
+            , hang ("sources" <+> "=") do
+                vcat' $ punctuate "," (pPrint <$> s)
+            , hang ("dependencies" <+> "=") do
+                vcat' $ punctuate "," (pPrint <$> ds)
             ]
 
 emptyProtoModuleHead :: ATag String -> ProtoModuleHead
@@ -462,8 +462,8 @@ instance Ord ProtoModuleDependency where
 
 instance Pretty ProtoModuleDependency where
     pPrint (ProtoModuleDependency (T' (n, v)) a) =
-        hang (doubleQuotes (text n <> text "@" <> pPrint v)) do
-            maybeMEmpty ((text "as" <+>) . pPrint <$> a)
+        hang (doubleQuotes (text n <> "@" <> pPrint v)) do
+            maybeMEmpty (("as" <+>) . pPrint <$> a)
 
 
 
@@ -499,24 +499,24 @@ instance Eq ProtoDef where
 instance Pretty ProtoDef where
     pPrint = \case
         ProtoType v n b ->
-            hang (pPrint v <+> text "type" <+> pPrint n <+> text "=")
+            hang (pPrint v <+> "type" <+> pPrint n <+> "=")
                 (pPrint b)
         ProtoEffect v n b ->
-            hang (pPrint v <+> text "effect" <+> pPrint n <+> text "=")
+            hang (pPrint v <+> "effect" <+> pPrint n <+> "=")
                 (pPrint b)
         ProtoValue v n h b ->
-            let x = pPrint v <+> text "value" <+> pPrint n
-                t = hang (x <+> text ":") (pPrint h)
+            let x = pPrint v <+> "value" <+> pPrint n
+                t = hang (x <+> ":") (pPrint h)
             in case (Seq.null h, Seq.null b) of
                 (True, True) -> x
                 (False, True) -> t
-                (True, False) -> hang (x <+> text "=") (pPrint b)
-                (False, False) -> hang t (text "=" <+> pPrint b)
+                (True, False) -> hang (x <+> "=") (pPrint b)
+                (False, False) -> hang t ("=" <+> pPrint b)
         ProtoNamespace v n ds ->
-            hang (pPrint v <+> text "namespace" <+> pPrint n <+> text "=")
+            hang (pPrint v <+> "namespace" <+> pPrint n <+> "=")
                 (vcat' (pPrint <$> ds))
         ProtoUse v u ->
-            pPrint v <+> text "use" <+> pPrint u
+            pPrint v <+> "use" <+> pPrint u
 
 instance Pretty [ATag ProtoDef] where
     pPrint ds = brackets $ vcat' (pPrint <$> ds)
@@ -542,7 +542,7 @@ instance Ord ProtoEffectCase where
 
 instance Pretty ProtoEffectCase where
     pPrint (ProtoEffectCase n b)
-        = hang (pPrint n <+> text ":")
+        = hang (pPrint n <+> ":")
             (pPrint b)
 
 
@@ -567,9 +567,9 @@ instance Pretty Use where
         = (if maybe False
                 (localPathNeedsSlash . untag)
                 (t >>= const b)
-            then maybePPrint b <> text "/" <> maybePPrint t
+            then maybePPrint b <> "/" <> maybePPrint t
             else maybePPrint b <> maybePPrint t)
-        <+> maybeMEmpty ((text "as" <+>) . pPrint <$> a)
+        <+> maybeMEmpty (("as" <+>) . pPrint <$> a)
 
 
 
@@ -587,7 +587,7 @@ instance Pretty UseTree where
     pPrint = \case
         UseBranch ts -> braces $ lsep (pPrint <$> ts)
         UseLeaf n -> pPrint n
-        UseAll -> text ".."
+        UseAll -> ".."
 
 
 

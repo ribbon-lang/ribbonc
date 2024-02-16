@@ -163,6 +163,11 @@ foldWithM :: (Foldable t, Monad m) => b -> t a -> (a -> b -> m b) -> m b
 foldWithM b as f = foldrM f b as
 
 
+-- | For forcing a string to be a string under @OverloadedStrings@
+pattern String :: String -> String
+pattern String s = s
+
+
 -- | An extension class for monoids allowing the Nil pattern to function
 class Nil m where
     -- | Check if a value is nil
@@ -210,7 +215,7 @@ data Version
 
 instance Pretty Version where
     pPrintPrec _ _ (Version major minor patch) = do
-        shown major <> text "." <> shown minor <> text "." <> shown patch
+        shown major <> "." <> shown minor <> "." <> shown patch
 
 instance Nil Version where
     nil = Version 0 0 0
