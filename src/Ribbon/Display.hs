@@ -19,8 +19,8 @@ module Ribbon.Display
     , maybePPrint, maybePPrintPrec
     ) where
 
-import Text.PrettyPrint.Annotated.HughesPJ qualified as X
-import Text.PrettyPrint.Annotated.HughesPJ as X hiding
+import Text.PrettyPrint.HughesPJ qualified as X
+import Text.PrettyPrint.HughesPJ as X hiding
     ((<>), empty, ptext, char, hang
     , int, integer, float, double, rational
     , semi, comma, space, equals, lparen, rparen, lbrack, rbrack, lbrace, rbrace
@@ -52,42 +52,42 @@ data PrettyLevel
 
 -- | Pretty printing class, similar to `Show`,
 --   interfacing with `Text.PrettyPrint` `Doc`s
-class Pretty ann a where
+class Pretty a where
     -- | Pretty print a value with a given level of verbosity and precedence
-    pPrintPrec :: PrettyLevel -> Word8 -> a -> Doc ann
+    pPrintPrec :: PrettyLevel -> Word8 -> a -> Doc
     -- | Pretty print a value with the default level of verbosity and precedence
-    pPrint :: a -> Doc ann
+    pPrint :: a -> Doc
 
     pPrint = pPrintPrec PrettyNormal 0
     pPrintPrec _ _ = pPrint
 
-instance {-# OVERLAPPABLE #-} Show a => Pretty ann a where
+instance {-# OVERLAPPABLE #-} Show a => Pretty a where
     pPrint = shown
 
-instance Pretty ann Char where
+instance Pretty Char where
     pPrintPrec _ _ = shown
 
-instance Pretty ann String where
+instance Pretty String where
     pPrintPrec _ _ = shown
 
-instance {-# OVERLAPPABLE #-} (Pretty ann a) => Pretty ann [a] where
+instance {-# OVERLAPPABLE #-} (Pretty a) => Pretty [a] where
     pPrintPrec lvl _ = brackets . lsep . fmap (pPrintPrec lvl 0)
 
-instance {-# OVERLAPPABLE #-} (Pretty ann a, Pretty ann b) => Pretty ann (a, b) where
+instance {-# OVERLAPPABLE #-} (Pretty a, Pretty b) => Pretty (a, b) where
     pPrintPrec lvl _ (a, b) = parens $ lsep
         [ pPrintPrec lvl 0 a
         , pPrintPrec lvl 0 b
         ]
 
-instance {-# OVERLAPPABLE #-} (Pretty ann a, Pretty ann b, Pretty ann c) => Pretty ann (a, b, c) where
+instance {-# OVERLAPPABLE #-} (Pretty a, Pretty b, Pretty c) => Pretty (a, b, c) where
     pPrintPrec lvl _ (a, b, c) = parens $ lsep
         [ pPrintPrec lvl 0 a
         , pPrintPrec lvl 0 b
         , pPrintPrec lvl 0 c
         ]
 
-instance {-# OVERLAPPABLE #-} (Pretty ann a, Pretty ann b, Pretty ann c, Pretty ann d)
-    => Pretty ann (a, b, c, d) where
+instance {-# OVERLAPPABLE #-} (Pretty a, Pretty b, Pretty c, Pretty d)
+    => Pretty (a, b, c, d) where
         pPrintPrec lvl _ (a, b, c, d) = parens $ lsep
             [ pPrintPrec lvl 0 a
             , pPrintPrec lvl 0 b
@@ -95,32 +95,32 @@ instance {-# OVERLAPPABLE #-} (Pretty ann a, Pretty ann b, Pretty ann c, Pretty 
             , pPrintPrec lvl 0 d
             ]
 
-instance {-# OVERLAPPABLE #-} (Pretty ann a) => Pretty ann (Maybe a) where
+instance {-# OVERLAPPABLE #-} (Pretty a) => Pretty (Maybe a) where
     pPrintPrec lvl prec = \case
         Just a -> maybeParens (prec > 0) do
             hang (text "Just")
                 (pPrintPrec lvl 0 a)
         _ -> text "Nothing"
 
-instance {-# OVERLAPPABLE #-} (Pretty ann a, Pretty ann b) => Pretty ann (Either a b) where
+instance {-# OVERLAPPABLE #-} (Pretty a, Pretty b) => Pretty (Either a b) where
     pPrintPrec lvl prec = maybeParens (prec > 0) . \case
         Left a -> hang (text "Left")
             (pPrintPrec lvl 0 a)
         Right b -> hang (text "Right")
             (pPrintPrec lvl 0 b)
 
-instance {-# OVERLAPPABLE #-} (Pretty ann k, Pretty ann v) => Pretty ann (Map k v) where
+instance {-# OVERLAPPABLE #-} (Pretty k, Pretty v) => Pretty (Map k v) where
     pPrintPrec lvl _ m
         = braces . lsep
         $ Map.toList m <&> \(k, v) ->
             pPrintPrec lvl 0 k <+> text "=" <+> pPrintPrec lvl 0 v
 
-instance {-# OVERLAPPABLE #-} (Pretty ann k) => Pretty ann (Set k) where
+instance {-# OVERLAPPABLE #-} (Pretty k) => Pretty (Set k) where
     pPrintPrec lvl _ s
         = braces . lsep
         $ Set.toList s <&> pPrintPrec lvl 0
 
-instance {-# OVERLAPPABLE #-} (Pretty ann a) => Pretty ann (Seq a) where
+instance {-# OVERLAPPABLE #-} (Pretty a) => Pretty (Seq a) where
     pPrintPrec lvl _ s
         = hashes . brackets . lsep
         $ toList s <&> pPrintPrec lvl 0
@@ -129,134 +129,134 @@ instance {-# OVERLAPPABLE #-} (Pretty ann a) => Pretty ann (Seq a) where
 
 -- | Pretty print a value with the default level of verbosity and precedence,
 --   and convert the resulting @Doc@ to a @String@
-prettyShow :: forall ann a. Pretty ann a => a -> String
-prettyShow = prettyShowLevel @ann PrettyNormal
+prettyShow :: Pretty a => a -> String
+prettyShow = prettyShowLevel PrettyNormal
 
 -- | Pretty print a value with a given level of verbosity and precedence,
 --   and convert the resulting @Doc@ to a @String@
-prettyShowLevel :: forall ann a. Pretty ann a => PrettyLevel -> a -> String
-prettyShowLevel lvl = render . pPrintPrec @ann lvl 0
+prettyShowLevel :: Pretty a => PrettyLevel -> a -> String
+prettyShowLevel lvl = render . pPrintPrec lvl 0
 
 -- | Pretty print a value with the default level of verbosity and precedence,
 --   and print the resulting @Doc@ to the console
-prettyPrint :: forall ann a. Pretty ann a => a -> IO ()
-prettyPrint = prettyPrintLevel @ann PrettyNormal
+prettyPrint :: Pretty a => a -> IO ()
+prettyPrint = prettyPrintLevel PrettyNormal
 
 -- | Pretty print a value with a given level of verbosity and precedence,
 --   and print the resulting @Doc@ to the console
-prettyPrintLevel :: forall ann a. Pretty ann a => PrettyLevel -> a -> IO ()
-prettyPrintLevel lvl = putStrLn . prettyShowLevel @ann lvl
+prettyPrintLevel :: Pretty a => PrettyLevel -> a -> IO ()
+prettyPrintLevel lvl = putStrLn . prettyShowLevel lvl
 
 -- | Pretty print the value if it exists, otherwise print nothing
-maybePPrint :: Pretty ann a => Maybe a -> Doc ann
+maybePPrint :: Pretty a => Maybe a -> Doc
 maybePPrint = maybe mempty pPrint
 
 -- | Pretty print the value with a given level of verbosity and precedence,
 --   if it exists, otherwise print nothing
-maybePPrintPrec :: Pretty ann a => PrettyLevel -> Word8 -> Maybe a -> Doc ann
+maybePPrintPrec :: Pretty a => PrettyLevel -> Word8 -> Maybe a -> Doc
 maybePPrintPrec lvl prec = maybe mempty (pPrintPrec lvl prec)
 
 -- | The usual `hang` with a consistent indentation of 4 spaces
-hang :: Doc ann -> Doc ann -> Doc ann
+hang :: Doc -> Doc -> Doc
 hang a = X.hang a 4
 
 -- | The usual `nest` with a consistent indentation of 4 spaces
-indent :: Doc ann -> Doc ann
+indent :: Doc -> Doc
 indent = nest 4
 
 -- | @text . show@
-shown :: Show a => a -> Doc ann
+shown :: Show a => a -> Doc
 shown = text . show
 
 -- | list version of @($+$)@
-vcat' :: [Doc ann] -> Doc ann
+vcat' :: [Doc] -> Doc
 vcat' = foldr ($+$) mempty
 
 -- | Concatenate a list with double new lines between elements
-vcatDouble :: [Doc ann] -> Doc ann
+vcatDouble :: [Doc] -> Doc
 vcatDouble = (`foldr` mempty) \a ->
     \case
         (isEmpty -> True) -> a
         b -> a $+$ zeroWidthText "" $+$ b
 
 -- | @sep . punctuate (text ",")@
-lsep :: [Doc ann] -> Doc ann
+lsep :: [Doc] -> Doc
 lsep = fsep . punctuate (text ",")
 
 -- | Enclose a @Doc@ in backticks ``
-backticks :: Doc ann -> Doc ann
+backticks :: Doc -> Doc
 backticks d = text "`" <> d <> text "`"
 
 -- | Pretty print a value and enclose it in backticks ``
-backticked :: Pretty ann a => a -> Doc ann
+backticked :: Pretty a => a -> Doc
 backticked = backticks . pPrint
 
 -- | Enclose a @Doc@ in backticks `` if the boolean is true
-maybeBackticks :: Bool -> Doc ann -> Doc ann
+maybeBackticks :: Bool -> Doc -> Doc
 maybeBackticks True = backticks
 maybeBackticks False = id
 
 -- | Pretty print a value and enclose it in backticks `` if the boolean is true
-maybeBackticked :: Pretty ann a => Bool -> a -> Doc ann
+maybeBackticked :: Pretty a => Bool -> a -> Doc
 maybeBackticked b = maybeBackticks b . pPrint
 
 -- | Enclose a @Doc@ in hashes ##
-hashes :: Doc ann -> Doc ann
+hashes :: Doc -> Doc
 hashes d = text "#" <> d <> text "#"
 
 -- | Pretty print a value and enclose it in hashes ##
-hashed :: Pretty ann a => a -> Doc ann
+hashed :: Pretty a => a -> Doc
 hashed = hashes . pPrint
 
 -- | Enclose a @Doc@ in hashes ## if the boolean is true
-maybeHashes :: Bool -> Doc ann -> Doc ann
+maybeHashes :: Bool -> Doc -> Doc
 maybeHashes True = hashes
 maybeHashes False = id
 
 -- | Pretty print a value and enclose it in hashes ## if the boolean is true
-maybeHashed :: Pretty ann a => Bool -> a -> Doc ann
+maybeHashed :: Pretty a => Bool -> a -> Doc
 maybeHashed b = maybeHashes b . pPrint
 
 -- | Pretty print a value and enclose it in single quotes ''
-quoted :: Pretty ann a => a -> Doc ann
+quoted :: Pretty a => a -> Doc
 quoted = quotes . pPrint
 
 -- | Pretty print a value and enclose it in single quotes ''
 --   if the boolean is true
-maybeQuoted :: Pretty ann a => Bool -> a -> Doc ann
+maybeQuoted :: Pretty a => Bool -> a -> Doc
 maybeQuoted b = maybeQuotes b . pPrint
 
 -- | Pretty print a value and enclose it in double quotes ""
-doubleQuoted :: Pretty ann a => a -> Doc ann
+doubleQuoted :: Pretty a => a -> Doc
 doubleQuoted = doubleQuotes . pPrint
 
 -- | Pretty print a value and enclose it in double quotes ""
 --   if the boolean is true
-maybeDoubleQuoted :: Pretty ann a => Bool -> a -> Doc ann
+maybeDoubleQuoted :: Pretty a => Bool -> a -> Doc
 maybeDoubleQuoted b = maybeDoubleQuotes b . pPrint
 
 -- | Pretty print a value and enclose it in parens ()
-paren'd :: Pretty ann a => a -> Doc ann
+paren'd :: Pretty a => a -> Doc
 paren'd = parens . pPrint
 
 -- | Enclose a @Doc@ in parens () if the boolean is true
-maybeParen'd :: Pretty ann a => Bool -> a -> Doc ann
+maybeParen'd :: Pretty a => Bool -> a -> Doc
 maybeParen'd b = maybeParens b . pPrint
 
 -- | Pretty print a value and enclose it in braces {}
-braced :: Pretty ann a => a -> Doc ann
+braced :: Pretty a => a -> Doc
 braced = braces . pPrint
 
 -- | Pretty print a value and enclose it in braces {}
 --   if the boolean is true
-maybeBraced :: Pretty ann a => Bool -> a -> Doc ann
+maybeBraced :: Pretty a => Bool -> a -> Doc
 maybeBraced b = maybeBraces b . pPrint
 
 -- | Pretty print a value and enclose it in brackets []
-bracketed :: Pretty ann a => a -> Doc ann
+bracketed :: Pretty a => a -> Doc
 bracketed = brackets . pPrint
 
 -- | Pretty print a value and enclose it in brackets []
 --   if the boolean is true
-maybeBracketed :: Pretty ann a => Bool -> a -> Doc ann
+maybeBracketed :: Pretty a => Bool -> a -> Doc
 maybeBracketed b = maybeBrackets b . pPrint

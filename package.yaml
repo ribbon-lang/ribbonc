@@ -2,36 +2,24 @@ name: ribbonc
 version: 0.1.0.0
 
 default-extensions:
+    - GHC2021
+
     - LambdaCase
     - BlockArguments
     - MultiWayIf
 
-    - ScopedTypeVariables
-    - TypeApplications
-    - AllowAmbiguousTypes
-
-    - ImportQualifiedPost
-
-    - FlexibleInstances
-    - FlexibleContexts
     - UndecidableInstances
-    - MultiParamTypeClasses
-    - FunctionalDependencies
     - DefaultSignatures
 
     - PatternSynonyms
     - ViewPatterns
-    - BangPatterns
-
-    - TupleSections
-
     - RecordWildCards
+    - NamedFieldPuns
 
-    - GeneralizedNewtypeDeriving
-    - DerivingStrategies
-    - DeriveFunctor
-    - DeriveFoldable
-    - DeriveTraversable
+    - OverloadedRecordDot
+    - DuplicateRecordFields
+    - NoFieldSelectors
+    - DisambiguateRecordFields
 
 
 ghc-options:

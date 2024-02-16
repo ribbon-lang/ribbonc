@@ -13,7 +13,7 @@ import Ribbon.Source
 import Ribbon.Display(Doc, (<+>), text, render, prettyShow, backticked)
 import Ribbon.Syntax.Text
 import Ribbon.Syntax.Token
-import Ribbon.Syntax.Ast
+import Ribbon.Syntax.Ast hiding (ModuleTreeHead(..))
 import Ribbon.Syntax.ParserM
 
 
@@ -21,14 +21,14 @@ import Ribbon.Syntax.ParserM
 
 -- | Parse a module definition file to a series of prototypes
 parseModuleFileProtos ::
-    File -> Either (Doc ()) (ATag ProtoModuleHead, [ATag ProtoDef])
+    File -> Either Doc (ATag ProtoModuleHead, [ATag ProtoDef])
 parseModuleFileProtos =
     parseFileWith (liftA2 (,) (tag moduleHead) protoDefs)
 
 -- | Parse a source file to a list of prototypes
-parseSourceFileProtos :: File -> Either (Doc ()) ProtoFile
+parseSourceFileProtos :: File -> Either Doc ProtoFile
 parseSourceFileProtos file =
-    ProtoFile (fileName file) <$> parseFileWith protoDefs file
+    ProtoFile file.name <$> parseFileWith protoDefs file
 
 
 
@@ -54,31 +54,31 @@ moduleHead = expecting "a module head" do
     processPairs a m ((k, vs) : ps) = do
         case untag k of
             "version" -> do
-                unless (isNil $ untag $ mhVersion m) do
+                unless (isNil $ untag m.version) do
                     parseError' (tagOf k) $
                         text "multiple `version` entries in module head"
                 v :@: av <- recurseParser (tag string) vs
                 v' <- parseVersion' av v
-                processPairs a (m { mhVersion = v' :@: av }) ps
+                processPairs a m{version = v' :@: av} ps
             "sources" -> do
-                unless (null $ mhSources m) do
+                unless (null m.sources) do
                     parseError' (tagOf k) $
                         text "multiple `source` entries in module head"
                 v <- recurseParser (listSome (sym ",") $ tag string) vs
-                processPairs a (m { mhSources = v }) ps
+                processPairs a m{sources = v} ps
             "dependencies" -> do
-                unless (null $ mhDependencies m) do
+                unless (null m.dependencies) do
                     parseError' (tagOf k) $
                         text "multiple `dependencies` entries in module head"
                 v <- recurseParser (listSome (sym ",") $ tag dependency) vs
-                processPairs a (m { mhDependencies = v }) ps
+                processPairs a m{dependencies = v} ps
             _ -> do
-                unless (Maybe.isNothing $ lookupMeta (mhMeta m)) do
+                unless (Maybe.isNothing $ lookupMeta m.meta) do
                     parseError' (tagOf k) $
                         text "duplicate key `" <> text (untag k)
                         <> text "` in module head"
                 v <- recurseParser (tag string) vs
-                processPairs a (m { mhMeta = (k, v) : mhMeta m }) ps
+                processPairs a m{meta = (k, v) : m.meta} ps
         where
         lookupMeta = List.find \(k', _) -> untag k == untag k'
 
@@ -110,15 +110,25 @@ moduleHead = expecting "a module head" do
             pure
             (parseVersion v)
 
-    validateName n =
+    validateName n = do
         when ('@' `elem` untag n) do
             parseError' (tagOf n) (text "module name cannot contain `@`")
+        when (null $ untag n) do
+            parseError' (tagOf n) (text "module name cannot be empty")
 
-    validateMod a (ProtoModuleHead n v _ _ _) = do
+    validateMod a (ProtoModuleHead n v _ _ ds) = do
         when (null $ untag n) do
             parseError' (tagOf n) (text "module name is required")
         when (isNil $ untag v) do
             parseError' a (text "module version is required")
+        when (selfReferential n v ds) do
+            parseError' a (text "module cannot depend on itself")
+
+    selfReferential (untag -> n) (untag -> v) =
+        any \(untag ->
+                ProtoModuleDependency{nameVer = (untag -> (dn, dv))}) ->
+                    n == dn && v == dv
+
 
 
 

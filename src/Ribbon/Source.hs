@@ -39,7 +39,7 @@ instance {-# OVERLAPPABLE #-} (Show t, Show a) => Show (Tag t a) where
     show (a :@: t) = render $
         parens (shown a) <> text "@" <> shown t
 
-instance {-# OVERLAPPABLE #-} (Pretty ann t, Pretty ann a) => Pretty ann (Tag t a) where
+instance {-# OVERLAPPABLE #-} (Pretty t, Pretty a) => Pretty (Tag t a) where
     pPrintPrec l p (a :@: t) =
         if l >= PrettyRich
             then parens (pPrintPrec l 0 a) <> text "@" <> brackets (pPrintPrec l 0 t)
@@ -183,15 +183,15 @@ tagCon2 t f a b = f (a :@: t) (b :@: t) :@: t
 --   as well as its line and column numbers
 data Pos
     = Pos
-    { posOffset :: !Int64
-    , posLine :: !Int64
-    , posColumn :: !Int64
+    { offset :: !Int64
+    , line :: !Int64
+    , column :: !Int64
     }
 
 instance Show Pos where
     show = prettyShow
 
-instance Pretty ann Pos where
+instance Pretty Pos where
     pPrintPrec lvl _ (Pos o l c) =
         let s = pPrint l <> text ":" <> pPrint c
         in if lvl > PrettyNormal
@@ -199,10 +199,10 @@ instance Pretty ann Pos where
             else s
 
 instance Eq Pos where
-    a == b = posOffset a == posOffset b
+    a == b = a.offset == b.offset
 
 instance Ord Pos where
-    compare a b = compare (posOffset a) (posOffset b)
+    compare a b = compare a.offset b.offset
 
 instance Nil Pos where
     isNil = (== Nil)
@@ -210,34 +210,34 @@ instance Nil Pos where
 
 -- | Determine if two @Pos@ are adjacent in terms of line and column
 posConnected :: Pos -> Pos -> Bool
-posConnected a b = posLine a == posLine b && posColumn a == posColumn b
+posConnected a b = a.line == b.line && a.column == b.column
 
 
 -- | Range indicating the origin of a span of characters
 data Range
     = Range
-    { rangeStart :: !Pos
-    , rangeEnd :: !Pos
+    { start :: !Pos
+    , end :: !Pos
     }
     deriving (Eq, Ord)
 
 instance Show Range where
     show = prettyShow
 
-instance Pretty ann Range where
+instance Pretty Range where
     pPrintPrec lvl _ (Range s e) =
         let a = pPrintPrec lvl 0 s
             b = pPrintPrec lvl 0 e
         in if s == e
             then a
-            else if posLine s == posLine e
-                then pPrint s <> text "-" <> pPrint (posColumn e)
+            else if s.line == e.line
+                then pPrint s <> text "-" <> pPrint e.column
                 else pPrint s <> text " to " <> pPrint b
 
 instance Semigroup Range where
     a <> b = Range
-        (min (rangeStart a) (rangeStart b))
-        (max (rangeEnd a) (rangeEnd b))
+        (min a.start b.start)
+        (max a.end b.end)
 
 instance Monoid Range where
     mempty = Range Nil Nil
@@ -252,8 +252,8 @@ unitRange p = Range p p
 -- | Determine if two @Range@s are adjacent in terms of line and column
 rangeConnected :: Range -> Range -> Bool
 rangeConnected a b
-     = posConnected (rangeEnd a) (rangeStart b)
-    || posConnected (rangeEnd b) (rangeStart a)
+     = posConnected a.end b.start
+    || posConnected b.end a.start
 
 
 -- | Source attribution
@@ -261,22 +261,22 @@ data Attr
     -- | Source attribution for a range of characters in a file
     = Attr
     -- | FilePath of file containing the range of an Attr
-    { attrFile :: !FilePath
+    { file :: !FilePath
     -- | Offset, Line and Column Range for an Attr
-    , attrRange :: !Range
+    , range :: !Range
     }
     deriving (Eq, Ord)
 
 instance Show Attr where
     show (Attr f r) = f <> show r
 
-instance Pretty ann Attr where
+instance Pretty Attr where
     pPrintPrec lvl prec (Attr f r) =
         text f <> text ":" <> pPrintPrec lvl prec r
 
 instance Semigroup Attr where
-    a <> b = assert (attrFile a == attrFile b) $
-        Attr (attrFile a) (attrRange a <> attrRange b)
+    a <> b = assert (a.file == b.file) $
+        Attr a.file (a.range <> b.range)
 
 instance Monoid Attr where
     mempty = Attr Nil mempty
@@ -287,7 +287,7 @@ instance Nil Attr where
 -- | Determine if two @Attr@s are adjacent in terms of line and column
 attrConnected :: Attr -> Attr -> Bool
 attrConnected a b =
-    attrFile a == attrFile b && rangeConnected (attrRange a) (attrRange b)
+    a.file == b.file && rangeConnected a.range b.range
 
 
 
@@ -296,27 +296,27 @@ data File
     -- | Source file with name, text, and line and column database
     = File
     -- | The full path of a File
-    { filePath :: !FilePath
+    { path :: !FilePath
     -- | The name of a File as it is referenced in a module
-    , fileName :: !FilePath
+    , name :: !FilePath
     -- | Lazy ByteString of a File's textual content
-    , fileContent :: !ByteString
+    , content :: !ByteString
     }
     deriving Show
 
-instance Pretty ann File where
+instance Pretty File where
     pPrintPrec lvl _ = if lvl == PrettyVerbose
         then \(File path name content) -> text "{" <> do
             (shown path <+> text "\\" <+> text name) <> text ":" $+$ do
                 vcat' . fmap (indent . text) . lines . bytesToString $ content
         $+$ text "}"
-        else text . fileName
+        else text . (.name)
 
 instance Eq File where
-    a == b = fileName a == fileName b
+    a == b = a.name == b.name
 
 instance Ord File where
-    compare a b = compare (fileName a) (fileName b)
+    compare a b = compare a.name b.name
 
 instance Nil File where
     isNil = (== Nil)

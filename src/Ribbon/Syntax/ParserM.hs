@@ -34,9 +34,9 @@ data ParseStream
     -- | Create a new ParseStream
     = ParseStream
     -- | The input sequence of syntax objects to parse
-    { psInput :: Seq (ATag Token)
+    { input :: Seq (ATag Token)
     -- | The file associated with the input sequence
-    , psFile :: File
+    , file :: File
     }
     deriving Show
 
@@ -44,14 +44,14 @@ data ParseStream
 data ParseExcept
     -- | Indicates an unrecoverable error during parsing,
     --   with a message ascribed an Attr that describes the error
-    = ParseError (ATag (Doc ()))
+    = ParseError (ATag Doc)
     -- | Indicates a recoverable error during parsing
     --   with an offset in the ParseStream,
     --   and a set of expectations that were not met
     | ParseFail Int (Set String)
     deriving Show
 
-instance Pretty () ParseExcept where
+instance Pretty ParseExcept where
     pPrint = \case
         (ParseError (msg :@: x)) ->
             hang (text "error at" <+> pPrint x <+> text ":")
@@ -61,7 +61,7 @@ instance Pretty () ParseExcept where
                 (formatExpected msgs)
 
 -- | Composition class for monads wrapping Parser
-class ( Monad m, Alternative m, MonadFail m, MonadError (Doc ()) m
+class ( Monad m, Alternative m, MonadFail m, MonadError Doc m
       , MonadReader ParseStream m, MonadState Int m
       )
     => ParserMonad m where
@@ -84,10 +84,11 @@ instance ParserMonad Parser where
 -- | Parsing monad
 newtype Parser a
     -- | Wrap a function into a Parser action
-    = Parser
-    -- | Unwrap a Parser action into a function
-    { runParser :: ParseStream -> Int -> Either ParseExcept (a, Int) }
+    = Parser (ParseStream -> Int -> Either ParseExcept (a, Int))
     deriving Functor
+
+runParser :: Parser a -> ParseStream -> Int -> Either ParseExcept (a, Int)
+runParser (Parser m) = m
 
 instance Applicative Parser where
     pure a = Parser \_ i -> Right (a, i)
@@ -114,7 +115,7 @@ instance Alternative Parser where
 instance MonadFail Parser where
     fail msg = Parser \_ i -> Left (ParseFail i (Set.singleton msg))
 
-instance MonadError (Doc ()) Parser where
+instance MonadError Doc Parser where
     throwError msg = Parser \s i -> Left (ParseError (msg :@: psAttr s i))
     catchError (Parser a) f = Parser \s i ->
         case a s i of
@@ -132,17 +133,17 @@ instance MonadState Int Parser where
 
 -- | Get the Attr for a particular offset in a ParseStream
 psAttr :: ParseStream -> Int -> Attr
-psAttr ps i = case Seq.lookup i (psInput ps) of
+psAttr ps i = case Seq.lookup i ps.input of
     Just (_ :@: x) -> x
     _ -> error "psAttr: invalid offset"
 
 -- | Get the syntax object for a particular offset in a ParseStream
 psValue :: ParseStream -> Int -> Maybe Token
-psValue ps i = untag <$> Seq.lookup i (psInput ps)
+psValue ps i = untag <$> Seq.lookup i ps.input
 
 -- | Get the length of a ParseStream
 psLength :: ParseStream -> Int
-psLength = Seq.length . psInput
+psLength = Seq.length . (.input)
 
 -- | Throw a custom parser error in the current monad.
 --   Note that you would normally use
@@ -157,7 +158,7 @@ catchParseFail m f = m `catchParseExcept` \case
     e -> throwParseExcept e
 
 -- | Catch a ParseError in the current monad.
-catchParseError :: ParserMonad m => m a -> (Attr -> Doc () -> m a) -> m a
+catchParseError :: ParserMonad m => m a -> (Attr -> Doc -> m a) -> m a
 catchParseError m f = m `catchParseExcept` \case
     ParseError (msg :@: ie) -> f ie msg
     e -> throwParseExcept e
@@ -168,11 +169,11 @@ getStream = liftP $ Parser (curry Right)
 
 -- | Get the token sequence associated with the current Parser action
 getTokenSeq :: ParserMonad m => m (Seq (ATag Token))
-getTokenSeq = psInput <$> getStream
+getTokenSeq = (.input) <$> getStream
 
 -- | Get the file associated with the current Parser action
 getFile :: ParserMonad m => m File
-getFile = psFile <$> getStream
+getFile = (.file) <$> getStream
 
 -- | Get the current offset in the current Parser action
 modOffset :: ParserMonad m => (Int -> Int) -> m Int
@@ -189,7 +190,7 @@ parseFail :: ParserMonad m => Set String -> m a
 parseFail msgs = liftP $ Parser \_ i -> Left (ParseFail i msgs)
 
 -- | Trigger a parser error with a message
-parseError :: ParserMonad m => Doc () -> m a
+parseError :: ParserMonad m => Doc -> m a
 parseError msg = liftP $ Parser \s i -> Left (ParseError (msg :@: psAttr s i))
 
 -- | Trigger a parser failure at a given offset with a set of expected values.
@@ -200,7 +201,7 @@ parseFail' i msgs = liftP $ Parser \_ _ -> Left (ParseFail i msgs)
 
 -- | Trigger a parser error at a given Attr with a message.
 --   Note that you would normally use `throwError`
-parseError' :: ParserMonad m => Attr -> Doc () -> m a
+parseError' :: ParserMonad m => Attr -> Doc -> m a
 parseError' a msg = liftP $ Parser \_ _ -> Left (ParseError (msg :@: a))
 
 -- | Trigger a parser failure at the current offset
@@ -219,7 +220,7 @@ failAt :: ParserMonad m => Int -> String -> m a
 failAt i msg = liftP $ Parser \_ _ -> Left (ParseFail i (Set.singleton msg))
 
 -- | Trigger a parser error at a given Attr with a message
-throwErrorAt :: ParserMonad m => Attr -> Doc () -> m a
+throwErrorAt :: ParserMonad m => Attr -> Doc -> m a
 throwErrorAt a m = liftP $ Parser \_ _ -> Left (ParseError (m :@: a))
 
 -- | If the given parser fails,
@@ -257,20 +258,20 @@ expectingMulti' msgs m = m `catchParseFail` \_ msgs' ->
     failMulti (msgs <> Set.toList msgs')
 
 -- | Formatting function for unexpected input, or expected input at EOF
-formatInput :: ParseStream -> Int -> Doc ann
+formatInput :: ParseStream -> Int -> Doc
 formatInput s ie = case psValue s ie of
     Just t -> text "unexpected token" <+> backticked t
     _ -> text "expected additional input"
 
 -- | Formatting function for expected input
-formatExpected :: Set String -> Doc ann
+formatExpected :: Set String -> Doc
 formatExpected Nil = text "expected additional input"
 formatExpected msgs = text "expected" <+> lsep (text <$> Set.toList msgs)
 
 -- | Formatting function used by `noFail` to produce an error message,
 --   given either a set of expectations from the failure,
 --   or a `formatInput` message
-format :: ParseStream -> Int -> Set String -> Doc ann
+format :: ParseStream -> Int -> Set String -> Doc
 format s i msgs =
     if Set.null msgs
         then formatInput s i
@@ -313,11 +314,11 @@ guardMultiAt :: ParserMonad m => Bool -> Int -> Set String -> m ()
 guardMultiAt p i expStrs = if p then pure () else parseFail' i expStrs
 
 -- | Error with a message if the condition is false
-assert :: ParserMonad m => Bool -> Doc () -> m ()
+assert :: ParserMonad m => Bool -> Doc -> m ()
 assert p expStr = if p then pure () else throwError expStr
 
 -- | Error with a message at the given Attr if the condition is false
-assertAt :: ParserMonad m => Bool -> Attr -> Doc () -> m ()
+assertAt :: ParserMonad m => Bool -> Attr -> Doc -> m ()
 assertAt p a expStr = if p then pure () else throwErrorAt a expStr
 
 -- | Get the current offset in the current parser monad
@@ -377,7 +378,7 @@ attrOf = fmap tagOf . tag
 -- | Execute @tag@ and discard the result,
 --   keeping only the first Pos of the Attr generated
 posOf :: ParserMonad m => m a -> m Pos
-posOf = fmap (rangeStart . attrRange) . attrOf
+posOf = fmap ((.start) . (.range)) . attrOf
 
 -- | Get the offset of the currently selected element in the parse stream
 --   then execute the given parser, returning only the offset
@@ -515,32 +516,32 @@ grabWhitespaceDomain = grabDomain . wsDominated
 --   a higher indentation level than that of the given Attr
 wsDominated :: Attr -> Tag Attr a -> Bool
 wsDominated l (_ :@: l') =
-    let Pos _ l1 c1 = rangeStart (attrRange l)
-        Pos _ l2 c2 = rangeStart (attrRange l')
+    let Pos _ l1 c1 = l.range.start
+        Pos _ l2 c2 = l'.range.start
     in (l1 <= l2 && c1 < c2)
     || (l1 == l2 && c1 <= c2)
 
 
 
 -- | Perform syntactic analysis on a File, using the given Parser
-parseFileWith :: Parser a -> File -> Either (Doc ()) a
+parseFileWith :: Parser a -> File -> Either Doc a
 parseFileWith p file = do
     toks <- L.lexFile file
     evalParser p file toks
 
 -- | Perform syntactic analysis on a string, using the given Parser,
 --   with errors reported to be in a file with the given name
-parseByteStringWith :: Parser a -> FilePath -> ByteString -> Either (Doc ()) a
+parseByteStringWith :: Parser a -> FilePath -> ByteString -> Either Doc a
 parseByteStringWith p name content = parseFileWith p (File "memory" name content)
 
 -- | Perform syntactic analysis on a string, using the given Parser,
 --   with errors reported to be in a file with the given name
-parseStringWith :: Parser a -> FilePath -> String -> Either (Doc ()) a
+parseStringWith :: Parser a -> FilePath -> String -> Either Doc a
 parseStringWith p name = parseByteStringWith p name . fromString
 
 
 -- | Evaluate a Parser on a given File, converting ParseErrors to Strings
-evalParser :: Parser a -> File -> Seq (ATag Token) -> Either (Doc ()) a
+evalParser :: Parser a -> File -> Seq (ATag Token) -> Either Doc a
 evalParser px file toks =
     case runParser
         (noFail $ consumesAll (px << eof))

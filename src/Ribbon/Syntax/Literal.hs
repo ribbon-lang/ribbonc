@@ -30,14 +30,14 @@ data LiteralKind
     deriving (Eq, Ord, Show)
 
 
-instance Pretty ann Literal where
+instance Pretty Literal where
     pPrint = \case
         LInt i -> pPrint i
         LFloat f -> pPrint f
         LChar c -> pPrint c
         LString s -> pPrint s
 
-instance Pretty ann LiteralKind where
+instance Pretty LiteralKind where
     pPrint = \case
         LkInt -> text "int"
         LkFloat -> text "float"

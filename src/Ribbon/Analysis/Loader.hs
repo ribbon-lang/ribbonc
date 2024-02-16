@@ -27,12 +27,12 @@ import Ribbon.Syntax.Parser
 -- | Errors produced by the module loader
 data LoaderError
     -- | Constructor a LoaderError from a Doc with an Attr
-    = LoaderErrorIn (ATag (Doc ()))
-    | LoaderErrorAt FilePath (Doc ())
-    | LoaderErrorPreFormatted (Doc ())
+    = LoaderErrorIn (ATag Doc)
+    | LoaderErrorAt FilePath Doc
+    | LoaderErrorPreFormatted Doc
     deriving Show
 
-instance Pretty () LoaderError where
+instance Pretty LoaderError where
     pPrintPrec l _ = \case
         LoaderErrorIn (msg :@: a) ->
             hang (text "loader error at" <+> pPrintPrec l 0 a)
@@ -48,7 +48,7 @@ instance Pretty () LoaderError where
 
 -- | Load a module head file, and then traverse the source directories it lists,
 --   in order to construct a @ProtoModule@
-loadProtoModule :: FilePath -> IO (Either (Doc ()) ProtoModule)
+loadProtoModule :: FilePath -> IO (Either Doc ProtoModule)
 loadProtoModule modPath' = first pPrint <$> runExceptT do
     -- we allow specifying the module as a directory
     -- with "module.bb" at its root, or the path to the head file itself
@@ -79,10 +79,10 @@ loadProtoModule modPath' = first pPrint <$> runExceptT do
     -- if no sources were provided,
     -- we use the module directory by passing the empty string here
     let (sources :@: sourcesAttr) =
-            if null (mhSources modHeadContents)
+            if null modHeadContents.sources
                 then ["" :@: tagOf modHead] :@: tagOf modHead
-                else mhSources modHeadContents :@:
-                    foldr1 (<>) (tagOf <$> mhSources modHeadContents)
+                else modHeadContents.sources :@:
+                    foldr1 (<>) (tagOf <$> modHeadContents.sources)
     -- split sources into individual files and (should-be-)directories
         (uncheckedBaseSourcePaths, uncheckedBaseDirs) =
             List.partition (isExtensionOf ".bb" . untag) sources

@@ -26,13 +26,13 @@ data Token
     | TEof
     deriving (Eq, Ord, Show)
 
-instance Pretty ann Token where
+instance Pretty Token where
     pPrint = \case
         TSymbol s -> text s
         TLiteral l -> pPrint l
         TEof -> text "{EOF}"
 
-instance Pretty ann (Seq (ATag Token)) where
+instance Pretty (Seq (ATag Token)) where
     pPrint ts = brackets $ vcat' $ toList ts <&> \(t :@: a) ->
         backticked t <+> text "@" <+> pPrint a
 
@@ -61,7 +61,7 @@ data TokenSpec
     | TsEof
     deriving (Eq, Ord, Show)
 
-instance Pretty ann TokenSpec where
+instance Pretty TokenSpec where
     pPrint = \case
         TsSymbol "" -> text "symbol"
         TsSymbol s -> text s

@@ -26,7 +26,7 @@ data LexError
     | LexUnexpectedInput !Attr
     deriving Show
 
-instance Pretty ann LexError where
+instance Pretty LexError where
     pPrint = (text "lexical error at" <+>) . \case
         LexFailure (msg :@: a) ->
             (pPrint a <> text ":") <+> text msg
@@ -43,9 +43,9 @@ data AlexInput
     -- | Construct an input stream for the lexer
     = AlexInput
     -- | The current position in the file being lexed
-    { aiPos   :: !Pos
+    { pos   :: !Pos
     -- | The remaining bytes to be lexed
-    , aiBytes :: !ByteString
+    , bytes :: !ByteString
     }
     deriving Show
 
@@ -58,13 +58,13 @@ alexInputPrevChar =
 -- | Get the next byte from an input stream, updating the position
 alexGetByte :: AlexInput -> Maybe (Word8, AlexInput)
 alexGetByte input@AlexInput {..} =
-    case ByteString.uncons aiBytes of
-        Just (byte, aiBytes') ->
-            let aiPos' = nextPos aiPos byte
+    case ByteString.uncons bytes of
+        Just (byte, bytes') ->
+            let pos' = nextPos pos byte
                 input' =
                     input
-                    { aiPos   = aiPos'
-                    , aiBytes = aiBytes'
+                    { pos   = pos'
+                    , bytes = bytes'
                     }
             in Just (byte, input')
         _ -> Nothing
@@ -74,34 +74,37 @@ alexGetByte input@AlexInput {..} =
 
 -- | Check if an input stream is at the end of the file
 isEof :: AlexInput -> Bool
-isEof = ByteString.null . aiBytes
+isEof = ByteString.null . (.bytes)
 
 -- | Convert a subsection of the input's byte string to a string
 excerpt :: AlexInput -> Int -> Int -> String
 excerpt AlexInput{..} offset len
     = bytesToString
     . ByteString.drop (fromIntegral offset)
-    $ ByteString.take (fromIntegral len) aiBytes
+    $ ByteString.take (fromIntegral len) bytes
 
 -- | The state of the lexer, contains the input stream,
 --   the current start code, and the string accumulator,
 --   as well as the current file being lexed
 data LexerState
     = LexerState
-    { lxInput :: !AlexInput
-    , lxStartCode :: !Int
-    , lxStringAccumulator :: !String
-    , lxStringStart :: !Pos
-    , lxFile :: !File
+    { input :: !AlexInput
+    , startCode :: !Int
+    , stringAccumulator :: !String
+    , stringStart :: !Pos
+    , file :: !File
     }
     deriving Show
 
 -- | The lexer monad
 newtype Lexer a
     -- | Wrap a function into a Lexer action
-    = Lexer
-    -- | Unwrap a Lexer action to a function
-    { runLexer :: LexerState -> Either LexError (a, LexerState) }
+    = Lexer (LexerState -> Either LexError (a, LexerState))
+
+-- | Unwrap a Lexer action to a function
+runLexer :: Lexer a -> LexerState -> Either LexError (a, LexerState)
+runLexer (Lexer m) = m
+
 
 instance Functor Lexer where
     fmap = liftM
@@ -117,8 +120,8 @@ instance Monad Lexer where
 
 instance MonadFail Lexer where
     fail msg = Lexer \s -> Left $ LexFailure
-        (msg :@: Attr (filePath $ lxFile s)
-        (unitRange $ aiPos $ lxInput s))
+        (msg :@: Attr s.file.path
+        (unitRange s.input.pos))
 
 instance MonadState LexerState Lexer where
     state = Lexer . (Right .)
@@ -140,19 +143,19 @@ unexpectedInput p = getFilePath >>=
 
 -- | Get the current byte offset in the input stream
 getOffset :: Lexer Int64
-getOffset = posOffset <$> getPos
+getOffset = (.offset) <$> getPos
 
 -- | Get the current position in the input stream
 getPos :: Lexer Pos
-getPos = gets $ aiPos . lxInput
+getPos = gets $ (.pos) . (.input)
 
 -- | Get the current file being lexed
 getFile :: Lexer File
-getFile = gets lxFile
+getFile = gets (.file)
 
 -- | Get the FilePath of the current file being lexed
 getFilePath :: Lexer FilePath
-getFilePath = filePath <$> getFile
+getFilePath = (.path) <$> getFile
 
 -- | Create a range from the given position to the current one
 getRange :: Pos -> Lexer Range
@@ -182,42 +185,42 @@ setState = put
 
 -- | Get the current input
 getInput :: Lexer AlexInput
-getInput = lxInput <$> getState
+getInput = (.input) <$> getState
 
 -- | Set the current input
 setInput :: AlexInput -> Lexer ()
 setInput ai = modify \s ->
-    s { lxInput = ai }
+    s { input = ai }
 
 -- | Get the current start code
 getStartCode :: Lexer Int
-getStartCode = lxStartCode <$> getState
+getStartCode = (.startCode) <$> getState
 
 -- | Set the current start code
 setStartCode :: Int -> Lexer ()
 setStartCode sc = modify \s ->
-    s { lxStartCode = sc }
+    s { startCode = sc }
 
 -- | Set the starting Pos for the string accumulator
 setStringStart :: Pos -> Lexer ()
 setStringStart p = modify \s ->
-    s { lxStringStart = p }
+    s { stringStart = p }
 
 -- | Get the starting Pos for the string accumulator
 getStringStart :: Lexer Pos
-getStringStart = lxStringStart <$> getState
+getStringStart = (.stringStart) <$> getState
 
 -- | Push a string to the end of the string accumulator
 pushStringAccumulator :: String -> Lexer ()
 pushStringAccumulator a = modify \s ->
-    s { lxStringAccumulator = lxStringAccumulator s <> a }
+    s { stringAccumulator = s.stringAccumulator <> a }
 
 -- | Clear the string accumulator
 clearStringAccumulator :: Lexer ()
 clearStringAccumulator = modify \s ->
-    s { lxStringAccumulator = "" }
+    s { stringAccumulator = "" }
 
 -- | Clear the string accumulator and return its contents
 popStringAccumulator :: Lexer String
 popStringAccumulator =
-    lxStringAccumulator <$> getState << clearStringAccumulator
+    (.stringAccumulator) <$> getState << clearStringAccumulator

@@ -84,6 +84,10 @@ option a fa = fa <|> pure a
 compose :: (a -> b) -> (b -> c) -> (a -> c)
 compose f g a = g (f a)
 
+-- | Compose a list of functions
+composeAll :: [a -> a] -> a -> a
+composeAll = foldr compose id
+
 -- | Split a list into multiple sub-lists
 --   at each element that satisfies a predicate
 splitWith :: (a -> Bool) -> [a] -> [[a]]
@@ -198,13 +202,13 @@ pattern Nil <- (isNil -> True) where
 -- | A semantic version specifier
 data Version
     = Version
-    { versionMajor :: !Word
-    , versionMinor :: !Word
-    , versionPatch :: !Word
+    { major :: !Word
+    , minor :: !Word
+    , patch :: !Word
     }
     deriving (Show, Eq, Ord)
 
-instance Pretty ann Version where
+instance Pretty Version where
     pPrintPrec _ _ (Version major minor patch) = do
         shown major <> text "." <> shown minor <> text "." <> shown patch
 

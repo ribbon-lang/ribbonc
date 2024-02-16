@@ -63,12 +63,12 @@ tokens :-
 escSymbol :: AlexAction (ATag Token)
 escSymbol input@AlexInput{..} len = do
     let x = excerpt input 1 (len - 1)
-    TSymbol x <@> getAttr aiPos
+    TSymbol x <@> getAttr pos
 
 symbol :: AlexAction (ATag Token)
 symbol input@AlexInput{..} len = do
     let x = excerpt input 0 len
-    TSymbol x <@> getAttr aiPos
+    TSymbol x <@> getAttr pos
 
 char :: AlexAction (ATag Token)
 char input@AlexInput{..} len = do
@@ -76,7 +76,7 @@ char input@AlexInput{..} len = do
     c <- maybeFail
         ("cannot parse character literal: " <> x)
         (parseChar x)
-    TLiteral (LChar c) <@> getAttr aiPos
+    TLiteral (LChar c) <@> getAttr pos
 
 float :: AlexAction (ATag Token)
 float input@AlexInput{..} len = do
@@ -84,7 +84,7 @@ float input@AlexInput{..} len = do
     f <- maybeFail
         ("cannot parse decimal digits to valid Float: " <> x)
         (parseFloat x)
-    TLiteral (LFloat f) <@> getAttr aiPos
+    TLiteral (LFloat f) <@> getAttr pos
 
 decInt :: AlexAction (ATag Token)
 decInt input@AlexInput{..} len = do
@@ -92,7 +92,7 @@ decInt input@AlexInput{..} len = do
     i <- maybeFail
         ("cannot parse decimal digits to valid Int: " <> x)
         (parseDecInt x)
-    TLiteral (LInt i) <@> getAttr aiPos
+    TLiteral (LInt i) <@> getAttr pos
 
 hexInt :: AlexAction (ATag Token)
 hexInt input@AlexInput{..} len = do
@@ -100,7 +100,7 @@ hexInt input@AlexInput{..} len = do
     i <- maybeFail
         ("cannot parse hexadecimal digits to valid Int: " <> x)
         (parseHexInt x)
-    TLiteral (LInt i) <@> getAttr aiPos
+    TLiteral (LInt i) <@> getAttr pos
 
 binInt :: AlexAction (ATag Token)
 binInt input@AlexInput{..} len = do
@@ -108,13 +108,13 @@ binInt input@AlexInput{..} len = do
     i <- maybeFail
         ("cannot parse binary digits to valid Int: " <> x)
         (parseBinInt x)
-    TLiteral (LInt i) <@> getAttr aiPos
+    TLiteral (LInt i) <@> getAttr pos
 
 
 beginString :: AlexAction (ATag Token)
 beginString AlexInput{..} _ = do
     setStartCode string
-    setStringStart aiPos
+    setStringStart pos
     next
 
 accumString :: AlexAction (ATag Token)
@@ -142,11 +142,11 @@ next = do
         AlexEOF ->
             getStartCode >>= \case
                 0 -> TEof <@> getUnitAttr
-                _ -> unexpectedEof (aiPos input)
+                _ -> unexpectedEof input.pos
         AlexError input' ->
             if isEof input'
-                then unexpectedEof (aiPos input')
-                else unexpectedInput (aiPos input')
+                then unexpectedEof input'.pos
+                else unexpectedInput input'.pos
         AlexSkip input' _ -> do
             setInput input'
             next
@@ -162,20 +162,20 @@ loop = do
         _    -> (token Seq.:<|) <$> loop
 
 -- | Perform lexical analysis on a File, yielding a sequence of tagged tokens
-lexFile :: File -> Either (Doc ()) (Seq (ATag Token))
+lexFile :: File -> Either Doc (Seq (ATag Token))
 lexFile file =
     case do {
         runLexer loop
             LexerState
-            { lxInput =
+            { input =
                 AlexInput
-                { aiPos = Nil
-                , aiBytes = fileContent file
+                { pos = Nil
+                , bytes = file.content
                 }
-            , lxStartCode = 0
-            , lxStringAccumulator = ""
-            , lxStringStart = Nil
-            , lxFile  = file
+            , startCode = 0
+            , stringAccumulator = ""
+            , stringStart = Nil
+            , file  = file
             }
     } of
         Right (tokens, _) -> Right tokens
@@ -183,11 +183,11 @@ lexFile file =
 
 -- | Perform lexical analysis on a ByteString,
 --   yielding a sequence of tagged tokens
-lexByteString :: FilePath -> ByteString -> Either (Doc ()) (Seq (ATag Token))
+lexByteString :: FilePath -> ByteString -> Either Doc (Seq (ATag Token))
 lexByteString name input = lexFile (File "memory" name input)
 
 -- | Perform lexical analysis on a String,
 --   yielding a sequence of tagged tokens
-lexString :: FilePath -> String -> Either (Doc ()) (Seq (ATag Token))
+lexString :: FilePath -> String -> Either Doc (Seq (ATag Token))
 lexString name input = lexByteString name (fromString input)
 }

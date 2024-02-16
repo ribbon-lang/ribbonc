@@ -17,6 +17,14 @@ import Ribbon.Util
     | "/" `List.isSuffixOf` a || "/" `List.isPrefixOf` b = a <> b
     | otherwise = a <> "/" <> b
 
+-- | Check if a string is an identifier
+isIdentifier :: String -> Bool
+isIdentifier s
+    | null s = False
+    | otherwise = isIdentifierStart (head s)
+               && all isIdentifierSubsequent (tail s)
+               && not (isReserved s)
+
 
 -- | Predicate checking if a character is part of a whitespace segment,
 --   but not a newline
