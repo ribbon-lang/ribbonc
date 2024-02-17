@@ -15,6 +15,7 @@ import Ribbon.Syntax.Text
 import Ribbon.Syntax.Token
 import Ribbon.Syntax.Ast hiding (ModuleTreeHead(..))
 import Ribbon.Syntax.ParserM
+import qualified Data.Sequence as Seq
 
 
 
@@ -143,16 +144,16 @@ protoDef :: ParserMonad m => m ProtoDef
 protoDef = noFailBeforeEof do
     a <- attr
     v <- option Private vis
-    option DkValue kind >>= \case
-        DkType -> do
+    option PkValue kind >>= \case
+        PkType -> do
             dn <- tag defName
             ProtoType v dn <$> (sym "=" >> body dn a)
 
-        DkEffect -> do
+        PkEffect -> do
             dn <- tag defName
             ProtoEffect v dn <$> (sym "=" >> effBody dn a)
 
-        DkValue -> do
+        PkValue -> do
             dn <- tag defName
             symOf [":", "="] >>= \case
                 ":" -> liftA2 (ProtoValue v dn)
@@ -161,13 +162,13 @@ protoDef = noFailBeforeEof do
                     do option Nil $ sym "=" >> body dn a
                 _ -> ProtoValue v dn Nil <$> body dn a
 
-        DkNamespace -> do
+        PkNamespace -> do
             n <- tag name
             ProtoNamespace v n <$>
                 expectB "body" ("namespace " <> prettyShow n) do
                     sym "=" >> recurse a
 
-        DkUse -> do
+        PkUse -> do
             ProtoUse v <$> do
                 toks <- expecting "a whitespace-delimited body for use" do
                     grabWhitespaceDomain a
@@ -185,11 +186,11 @@ protoDef = noFailBeforeEof do
     vis = sym "pub" $> Public
 
     kind = asum
-        [ sym "type" $> DkType
-        , sym "effect" $> DkEffect
-        , sym "value" $> DkValue
-        , sym "namespace" $> DkNamespace
-        , sym "use" $> DkUse
+        [ sym "type" $> PkType
+        , sym "effect" $> PkEffect
+        , sym "value" $> PkValue
+        , sym "namespace" $> PkNamespace
+        , sym "use" $> PkUse
         ]
 
     defName = expecting "a definition head" do
@@ -224,6 +225,8 @@ protoDef = noFailBeforeEof do
                 _ -> useTree a
         case (a, b) of
             (Nothing, Nothing) -> failAtMulti o ["name", "path", "branch"]
+            (_, Just (UseBranch _ :@: _)) -> pure $ Use a b Nothing
+            (_, Just (UseAll :@: _)) -> pure $ Use a b Nothing
             _ -> Use a b <$> optional do
                 sym "as" >> tag defName
 
@@ -252,14 +255,14 @@ name = Name <$> unreserved
 localPath :: ParserMonad m => m LocalPath
 localPath = do
     optional (tag pathBase) >>= \case
-        Just base -> LocalPath base <$>
+        Just base -> LocalPath base. Seq.fromList <$>
             if localPathBaseNeedsSlash (untag base)
                 then maybeTail
                 else manyTail
         _ -> do
             ns :@: a <- tag do
                 liftA2 (:) (tag name) maybeTail
-            pure $ LocalPath (LpHere :@: a) ns
+            pure $ LocalPath (LpHere :@: a) (Seq.fromList ns)
     where
     maybeTail = option Nil do
         connected (sym "/")

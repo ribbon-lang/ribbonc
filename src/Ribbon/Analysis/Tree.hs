@@ -13,106 +13,163 @@ import Data.Bifunctor
 import qualified Data.Char as Char
 import Control.Monad
 import Ribbon.Syntax.Text
+import Ribbon.Syntax.Token
 import qualified Data.Maybe as Maybe
 import Control.Monad.Except
 import Control.Monad.State
 import Data.Foldable
 import qualified Data.Set as Set
+import Data.Sequence (Seq)
+import Ribbon.Analysis.Context
+import Control.Monad.Reader
 
-newtype AnalysisContext
-    = AnalysisContext
-        { modules :: Map (String, Version) (ModuleTree TreeDef)
+
+
+
+
+buildTree :: AnalysisContext -> ProtoModule -> Either Doc MidModule
+buildTree ctx proto = first pPrint $ flip runReaderT ctx do
+    let protoHead = untag proto.head
+        newHead =
+            ModuleTreeHead
+            { name = protoHead.name
+            , version = protoHead.version
+            , meta = protoHead.meta
+            }
+
+    imports <- processImports protoHead.dependencies
+
+    rootNamespace <- processNamespace proto.root
+
+    pure $ ModuleTree
+        { head = newHead
+        , imports = imports
+        , rootNamespace = rootNamespace
         }
 
-newtype TreeError
-    = TreeError (ATag Doc)
-
-instance Pretty TreeError where
-    pPrint (TreeError (doc :@: a)) =
-        hang ("error at" <+> bracketed a) doc
 
 
+bindDef ::
+    (Ord a, MonadAnalysis m, MonadState (Namespace a u) m) =>
+        Name -> ATag a -> m ()
+bindDef n d = gets (Map.lookup n . (.localDefs)) >>= \case
+    Just existing -> do
+        when (Set.member d existing) do
+            throwError $ AnalysisError $ Tag (tagOf d) $
+                hang ("duplicate definition of" <+> pPrint n) do
+                    "existing definition here:" <+> pPrint do
+                        tagOf (Maybe.fromJust $ find (== d) existing)
+        modify \ns -> ns{localDefs =
+            Map.insertWith (<>) n (Set.singleton d) ns.localDefs}
+    _ -> modify \ns -> ns{localDefs =
+        Map.insert n (Set.singleton d) ns.localDefs}
 
-lookupModule ::
-    AnalysisContext -> ATag (String, Version) -> Either TreeError (ModuleTree TreeDef)
-lookupModule ctx nameVer =
-    let nv@(name, ver) = untag nameVer
-    in case Map.lookup nv ctx.modules of
-        Just tree -> Right tree
-        _ -> Left $ TreeError $ Tag (tagOf nameVer) $
-            hang ("module" <+> text name
-                      <+> "with version" <+> pPrint ver
-                      <+> "not found in context")
-                case modFuzzySearch name (Map.keys ctx.modules) of
-                    [] -> mempty
-                    suggestions ->
-                        hang "Did you mean:" do
-                            lsep (suggestions <&> \(sn, sv) ->
-                                text sn <+> "with version" <+> pPrint sv)
-    where
-    modFuzzySearch :: String -> [(String, Version)] -> [(String, Version)]
-    modFuzzySearch name = filter (List.isPrefixOf name . fst)
-
-
-nameFuzzySearch :: String -> [String] -> [String]
-nameFuzzySearch name = todo where
-    matches sub ss =
-        let subs = take 8 $ List.permutations $ lower sub
-        in List.sortOn length $ foldMap (match0 subs) ss
-    match0 subs s = foldMap (`match` s) subs
-    match sub s = [s | List.isSubsequenceOf sub (lower s)]
-    lower = fmap Char.toLower
+bindEffect ::
+    (MonadAnalysis m, MonadState (EffectCaseTable t) m) =>
+        Name -> ATag (EffectCase t) -> m ()
+bindEffect n e = gets (Map.lookup n) >>= \case
+    Just existing -> do
+        when (Set.member e existing) do
+            throwError $ AnalysisError $ Tag (tagOf e) $
+                hang ("duplicate effect case" <+> pPrint n) do
+                    "existing case here:" <+> pPrint do
+                        tagOf (Maybe.fromJust $ find (== e) existing)
+        modify $ Map.insertWith (<>) n (Set.singleton e)
+    _ -> modify $ Map.insert n (Set.singleton e)
 
 
-bindAbsPath :: AbsPath -> ATag a -> StateT (ModuleTree a) (Either TreeError) ()
-bindAbsPath p d = todo
-    -- m <- get
-    -- case Map.lookup p (mtDefs m) of
-    --     Just existing -> do
-    --         when (Set.member d existing) do
-    --             throwError $ TreeError $ Tag (tagOf d) $
-    --                 hang ("duplicate definition of" <+> pPrint p) do
-    --                     "existing definition here:" <+> pPrint (Set.findMin existing)
-    --     _ -> put $ m { mtDefs = Map.insert p (Set.singleton d) (mtDefs m) }
+processImports :: MonadAnalysis m =>
+    [ATag ProtoModuleDependency] ->
+        m (Map Name (ATag Module))
+processImports deps = flip execStateT mempty do
+    resolvedDependencies <-
+        zip ((.alias) . untag <$> deps) <$> traverse
+            (traverse (lookupModule . (.nameVer)))
+            deps
 
-    -- throwError $ TreeError $ Tag (tagOf d) $
-    --     hang ("duplicate definition of" <+> pPrint p) do
-    --         "existing definition here:" <+>
+    forM_ resolvedDependencies \(alias, tree) -> do
+        let actualName = untag (untag tree).head.name
 
+        when (Maybe.isNothing alias && not (isIdentifier actualName)) do
+            throwError $ AnalysisError $ Tag (tagOf tree) $
+                "imported module name"
+                <+> pPrint actualName
+                <+> "is not a valid identifier, and must be aliased"
 
-buildTree :: AnalysisContext -> ProtoModule -> Either Doc (ModuleTree MiddleDef)
-buildTree ctx ProtoModule{..} = todo --first pPrint do
-    -- let ProtoModuleHead{..} = untag pmHead
-    --     newHead =
-    --         ModuleTreeHead
-    --         { mthName = pmhName
-    --         , mthVersion = pmhVersion
-    --         , mthMeta = pmhMeta
-    --         }
-    -- snd <$> flip runStateT (ModuleTree newHead mempty) do
-    --     resolvedDependencies <-
-    --         zip (mdAlias . untag <$> pmhDependencies) <$>
-    --             traverse (traverse (lift . lookupModule ctx . mdNameVer)) pmhDependencies
+        let dep = case alias of
+                Just n -> (untag n, reTagFrom n tree)
+                _ -> (Name actualName, tree)
 
-    --     renamedDependencies <-
-    --         forM resolvedDependencies \(alias, tree) -> do
-    --             let actualName = untag $ mthName (mtHead $ untag tree)
-
-    --             when (Maybe.isNothing alias && mustAlias actualName) do
-    --                 throwError $ TreeError $ Tag (tagOf tree) $
-    --                     "imported module name"
-    --                     <+> pPrint actualName
-    --                     <+> "is not a valid identifier, and must be aliased"
-
-    --             pure $ bimap
-    --                 ((`AbsPath` []) . fmap ApModule)
-    --                 (fmap $ TreeBinding Private . TreeDependency)
-    --                 case alias of
-    --                     Just n -> (n, reTagFrom n tree)
-    --                     _ -> (Name actualName :@: tagOf tree, tree)
-
-    --     traverse_ (uncurry bindAbsPath ) renamedDependencies
+        gets (Map.lookup (fst dep)) >>= \case
+            Just existing -> throwError $ AnalysisError $ Tag (tagOf existing) $
+                "an import module has already been bound to the name"
+                <+> pPrint (fst dep)
+            _ -> modify $ uncurry Map.insert dep
 
 
-    -- where
-    -- mustAlias = not . isIdentifier
+processNamespace :: MonadAnalysis m =>
+    [ATag ProtoDef] -> m MidNamespace
+processNamespace ns = flip execStateT Nil do
+    forM_ ns $ compose untag \case
+        ProtoType vis (spec :@: a) body ->
+            bindDef spec.name $ Tag a $
+                DefType
+                    vis
+                    spec.fixity
+                    (Maybe.fromMaybe
+                        (defaultPrec spec.fixity)
+                        spec.prec)
+                    body
+
+        ProtoEffect vis (spec :@: a) body ->
+            processEffect body >>=
+                bindDef spec.name . Tag a . DefEffect
+                    vis
+                    spec.fixity
+                    (Maybe.fromMaybe
+                        (defaultPrec spec.fixity)
+                        spec.prec)
+
+        ProtoValue vis (spec :@: a) ty ex ->
+            bindDef spec.name $ Tag a $ DefValue
+                vis
+                spec.fixity
+                (Maybe.fromMaybe
+                    (defaultPrec spec.fixity)
+                    spec.prec)
+                (ty, ex)
+
+        ProtoNamespace vis (name :@: a) subDefs -> do
+            processNamespace subDefs >>=
+                bindDef name . Tag a . DefNamespace vis
+
+        ProtoUse vis use -> do
+
+            todo where
+
+
+processEffect :: MonadAnalysis m =>
+    [ATag ProtoEffectCase] -> m (EffectCaseTable (Seq (ATag Token)))
+processEffect pe = flip execStateT mempty do
+    forM_ pe \(ProtoEffectCase (sp :@: ea) bd :@: _) ->
+        bindEffect sp.name $ Tag ea $ EffectCase
+            sp.fixity
+            (Maybe.fromMaybe
+                (defaultPrec sp.fixity)
+                sp.prec)
+            bd
+
+processUse ::
+    (MonadState MidNamespace m, MonadAnalysis m) =>
+        Use -> m ()
+processUse (Use mp mt ma) = todo
+
+
+defaultPrec :: DefFixity -> Prec
+defaultPrec = \case
+    DefInfixL -> 90
+    DefInfixR -> 90
+    DefInfix -> 90
+    DefPrefix -> 70
+    DefPostfix -> 0
+    DefAtomic -> 0

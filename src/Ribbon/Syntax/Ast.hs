@@ -16,6 +16,8 @@ import Ribbon.Display
 import Ribbon.Syntax.Literal
 import Ribbon.Syntax.Token
 import Ribbon.Syntax.Text
+import Data.Set (Set)
+import Data.Foldable (toList)
 
 
 
@@ -56,6 +58,30 @@ type SubRowConstraint = (Type, Type)
 --   to be the third row; sub rows are not necessarily disjoint
 type ConcatRowConstraint = (Type, Type, Type)
 
+-- | A complete module definition
+type Module = ModuleTree Def AliasImports
+
+-- | A module that has been converted to a tree, but is not yet fully parsed
+type MidModule = ModuleTree MidDef MidImports
+
+type AliasNamespace = Namespace Def AliasImports
+
+type MidNamespace = Namespace MidDef MidImports
+
+-- | A complete definition
+type Def = DefF
+    (Quantifier (ATag TypeDef))
+    (Scheme (EffectCaseTable (ATag Type)))
+    (Scheme (ATag Type, ATag Expr))
+    AliasImports
+
+-- | A definition in the process of being converted to a tree
+type MidDef = DefF
+    (Seq (ATag Token))
+    (EffectCaseTable (Seq (ATag Token)))
+    (Seq (ATag Token), Seq (ATag Token))
+    MidImports
+
 
 
 
@@ -92,25 +118,6 @@ localPathBaseNeedsSlash = \case
     _ -> False
 
 
-
--- | The base of an absolute path
-data AbsPathBase
-    -- | Start at the root of the active module
-    = ApRoot
-    -- | Start at the import module with the given name
-    | ApModule !Name
-    -- | Start in the given file
-    | ApFile !FilePath
-    deriving (Eq, Ord, Show)
-
-instance Pretty AbsPathBase where
-    pPrint = \case
-        ApRoot -> "/"
-        ApModule n -> "module" <+> pPrint n
-        ApFile s -> "file" <+> doubleQuotes (text s)
-
-
-
 -- | A fixity specifier for imports
 data UseFixity
     -- | Infix operator of unspecified associativity
@@ -129,6 +136,18 @@ instance Pretty UseFixity where
         UsePrefix -> "prefix"
         UsePostfix -> "postfix"
         UseAtomic -> "atom"
+
+
+
+-- | A fixity specifier for overloading definitions in tree
+data TreeFixity
+    -- | Infix operator of unspecified associativity
+    = TreeInfix
+    -- | Prefix operator or atomic symbol
+    | TreePrefixAtomic
+    -- | Postfix operator
+    | TreePostfix
+    deriving (Eq, Ord, Show, Enum, Bounded)
 
 
 
@@ -156,6 +175,17 @@ instance Pretty DefFixity where
         DefPrefix -> "prefix"
         DefPostfix -> "postfix"
         DefAtomic -> "atom"
+
+defFixityToTree :: DefFixity -> TreeFixity
+defFixityToTree = \case
+    DefInfixL -> TreeInfix
+    DefInfixR -> TreeInfix
+    DefInfix -> TreeInfix
+    DefPrefix -> TreePrefixAtomic
+    DefPostfix -> TreePostfix
+    DefAtomic -> TreePrefixAtomic
+
+
 
 -- | Kind of a usage
 data UseKind
@@ -193,27 +223,53 @@ instance Pretty Visibility where
 
 
 
--- | Kind of a definition
-data DefKind
+-- | Kind of a prototypical definition
+data ProtoKind
     -- | A type definition
-    = DkType
+    = PkType
     -- | An effect definition
-    | DkEffect
+    | PkEffect
     -- | A value definition
-    | DkValue
+    | PkValue
     -- | A namespace definition
-    | DkNamespace
+    | PkNamespace
     -- | A set of lexical imports
-    | DkUse
+    | PkUse
     deriving (Eq, Ord, Show)
 
-instance Pretty DefKind where
+instance Pretty ProtoKind where
     pPrint = \case
-        DkType -> "type"
-        DkEffect -> "effect"
-        DkValue -> "value"
-        DkNamespace -> "namespace"
-        DkUse -> "use"
+        PkType -> "type"
+        PkEffect -> "effect"
+        PkValue -> "value"
+        PkNamespace -> "namespace"
+        PkUse -> "use"
+
+
+
+data TreeDefKind
+    = TkType !TreeFixity
+    | TkEffect !TreeFixity
+    | TkValue !TreeFixity
+    | TkNamespace
+    deriving (Eq, Ord, Show)
+
+
+
+data TreeUse
+    = TreeUseType !DefFixity !Prec
+    | TreeUseValue !DefFixity !Prec
+    | TreeUseEffect !DefFixity !Prec
+    | TreeUseNamespace
+    deriving (Eq, Ord, Show)
+
+instance Pretty TreeUse where
+    pPrint = \case
+        TreeUseType f p -> "type" <+> pPrint f <+> pPrint p
+        TreeUseEffect f p -> "effect" <+> pPrint f <+> pPrint p
+        TreeUseValue f p -> "value" <+> pPrint f <+> pPrint p
+        TreeUseNamespace -> "namespace"
+
 
 
 
@@ -264,7 +320,7 @@ instance Pretty DefName where
 
 -- | A name for a lexical import
 data UseName
-    -- | Construct a UseName from an optional DefKind,
+    -- | Construct a UseName from an optional UseKind,
     --   an optional UseFixity, and a Name
     = UseName
     { kind :: !(Maybe UseKind)
@@ -284,13 +340,33 @@ data AbsRef
     = AbsRef
     { path :: !AbsPath
     , fixity :: !UseFixity
-    , name :: !Name
     }
     deriving (Eq, Ord, Show)
 
 instance Pretty AbsRef where
-    pPrint (AbsRef p f n) =
-        pPrint p <> "/" <> (pPrint f <+> pPrint n)
+    pPrint (AbsRef (t Seq.:|> p) f) =
+        hcat (punctuate "/" (pPrint <$> toList t))
+            <> "/" <> (pPrint f <+> pPrint p)
+    pPrint _ = error "AbsRef: empty AbsPath"
+
+
+data LocalRef
+    = LocalRef
+    { path :: !LocalPath
+    , fixity :: !(Maybe UseFixity)
+    }
+    deriving (Eq, Ord, Show)
+
+instance Pretty LocalRef where
+    pPrint (LocalRef (LocalPath b (t Seq.:|> p)) (Just f)) =
+        let bd = pPrint b
+            td = hcat (punctuate "/" (pPrint <$> toList t)) <> "/"
+            pd = pPrint f <+> pPrint p
+        in if localPathBaseNeedsSlash (untag b)
+            then bd <> "/" <> td <> pd
+            else bd <> td <> pd
+    pPrint (LocalRef p Nothing) = pPrint p
+    pPrint _ = error "LocalRef: headless LocalPath with specified fixity"
 
 
 
@@ -301,13 +377,13 @@ data LocalPath
     -- | The starting point of the local path
     { base :: !(ATag LocalPathBase)
     -- | The subsequent components of the local path
-    , components :: ![ATag Name]
+    , components :: !AbsPath
     }
     deriving (Eq, Ord, Show)
 
 instance Pretty LocalPath where
     pPrintPrec lvl _ (LocalPath b ns) =
-        let pNs = hcat (punctuate "/" (printTagNameEscaped lvl <$> ns))
+        let pNs = pPrintPrec lvl 0 ns
         in if not (null ns) && localPathBaseNeedsSlash (untag b)
             then pPrint b <> "/" <> pNs
             else pPrint b <> pNs
@@ -319,24 +395,165 @@ localPathNeedsSlash (LocalPath b ns) =
 
 
 -- | A name with an absolute path prefix
-data AbsPath
-    -- | Construct an AbsPath from a list of Name
-    = AbsPath
-    -- | The base of the absolute path
-    { base :: !(ATag AbsPathBase)
-    -- | The components of the absolute path
-    , components :: [ATag Name]
+type AbsPath = Seq (ATag Name)
+
+instance Pretty AbsPath where
+    pPrintPrec lvl _ ns =
+        hcat (punctuate "/" (printTagNameEscaped lvl <$> toList ns))
+
+
+
+
+-- module tree data ------------------------------------------------------------
+
+
+data ModuleTree a u
+    = ModuleTree
+    { head :: !ModuleTreeHead
+    , imports :: !(Map Name (ATag Module))
+    , rootNamespace :: !(Namespace a u)
+    }
+    deriving Show
+
+instance (Pretty a, Pretty u) => Pretty (ModuleTree a u) where
+    pPrintPrec lvl _ (ModuleTree h ms ds) =
+        vcatDouble
+            [ pPrintPrec lvl 0 h
+            , vcat' $ Map.toList ms <&> \(k, m :@: _) ->
+                "import" <+> backticks do
+                        pPrint m.head.name <> "@" <> pPrint m.head.version
+                <+> "as" <+> pPrint k
+            , pPrintPrec lvl 0 ds
+            ]
+
+
+
+data ModuleTreeHead
+    = ModuleTreeHead
+    { name :: !(ATag String)
+    , version :: !(ATag Version)
+    , meta :: ![(ATag String, ATag String)]
+    }
+    deriving Show
+
+instance Pretty ModuleTreeHead where
+    pPrint (ModuleTreeHead n v m) =
+        hang ("module" <+> pPrint n <+> "=") do
+            vcat' (rest : meta)
+        where
+        meta = m <&> \(k, mv) ->
+            hang (text (untag k) <+> "=") do
+                pPrint mv
+        rest = hang ("version" <+> "=") do
+                doubleQuoted v
+
+
+
+data DefF t e v u
+    -- | A type definition
+    = DefType !Visibility !DefFixity !Prec !t
+    -- | An effect definition
+    | DefEffect !Visibility !DefFixity !Prec !e
+    -- | A value definition
+    | DefValue !Visibility !DefFixity !Prec !v
+    -- | A namespace definition
+    | DefNamespace !Visibility !(Namespace (DefF t e v u) u)
+    deriving Show
+
+instance Eq (DefF t e v u) where
+    (==) = (==) `on` treeDefKind
+
+instance Ord (DefF t e v u) where
+    compare = compare `on` treeDefKind
+
+treeDefKind :: DefF t e v u -> TreeDefKind
+treeDefKind = \case
+    DefType _ f _ _ -> TkType (defFixityToTree f)
+    DefEffect _ f _ _ -> TkEffect (defFixityToTree f)
+    DefValue _ f _ _ -> TkValue (defFixityToTree f)
+    DefNamespace{} -> TkNamespace
+
+type EffectCaseTable t = Map Name (Set (ATag (EffectCase t)))
+
+data EffectCase t
+    = EffectCase
+    { fixity :: !DefFixity
+    , prec :: !Prec
+    , body :: !t
+    }
+    deriving Show
+
+instance Eq (EffectCase t) where
+    (==) = (==) `on` (.fixity)
+
+instance Ord (EffectCase t) where
+    compare = compare `on` (.fixity)
+
+
+-- | A namespace, generic over the Def type
+data Namespace d u
+    = Namespace
+    { localDefs :: Map Name (Set (ATag d))
+    , imports :: u
     }
     deriving (Eq, Ord, Show)
 
-instance Pretty AbsPath where
-    pPrintPrec lvl _ (AbsPath b ns) =
-        let pNs = hcat (punctuate "/" (printTagNameEscaped lvl <$> ns))
-        in case (untag b, ns) of
-            (_, []) -> pPrintPrec lvl 0 b
-            (ApRoot, _) -> pPrintPrec lvl 0 b <> pNs
-            _ -> pPrintPrec lvl 0 b <> "/" <> pNs
+instance Nil u => Nil (Namespace d u) where
+    isNil = isNil . (.localDefs) &&& isNil . (.imports)
+    nil = Namespace Nil Nil
 
+instance (Pretty d, Pretty u) => Pretty (Namespace d u) where
+    pPrintPrec lvl _ (Namespace l i) =
+        vcatDouble
+            [ pPrintPrec lvl 0 i
+            , vcat' $ Map.toList l <&> \(k, v) ->
+                hang (pPrint k <+> "=") do
+                    vcat' (pPrint <$> toList v)
+            ]
+
+data AliasImports
+    = AliasImports
+    { aliasDefs :: Map Name (Set (ATag Alias))
+    , aliasBlobs :: [ATag (Visibility, AbsPath)]
+    }
+    deriving (Eq, Ord, Show)
+
+-- | A resolved lexical import
+data Alias
+    = Alias
+    { visibility :: !Visibility
+    , origin :: !AbsRef
+    , kind :: !UseKind
+    , fixity :: !DefFixity
+    , prec :: !Prec
+    , name :: !Name
+    }
+    deriving (Eq, Ord, Show)
+
+data MidImports
+    = MidImports
+    { importDefs :: Map Name [ATag (Visibility, MidUse)]
+    , importBlobs :: [ATag (Visibility, LocalPath)]
+    }
+    deriving (Eq, Ord, Show)
+
+instance Nil MidImports where
+    isNil = isNil . (.importDefs) &&& isNil . (.importBlobs)
+    nil = MidImports Nil Nil
+
+-- | A preprocessed but unresolved lexical import
+data MidUse
+    = MuNamespace
+        !(ATag LocalPath)
+    | MuType
+        !(Maybe (DefFixity, Prec)) !(ATag LocalRef)
+    | MuEffect
+        !(Maybe (DefFixity, Prec)) !(ATag LocalRef)
+    | MuValue
+        !(Maybe (DefFixity, Prec)) !(ATag LocalRef)
+    | MuUnresolved
+        !(Maybe (DefFixity, Prec)) !(ATag LocalRef)
+    deriving (Eq, Ord, Show)
 
 
 
@@ -546,7 +763,6 @@ instance Pretty ProtoEffectCase where
             (pPrint b)
 
 
-
 -- | A set of lexical imports
 data Use
     -- | Construct a Use from an optional base, an optional tree,
@@ -593,6 +809,20 @@ instance Pretty UseTree where
 
 
 -- Parsed ast types ------------------------------------------------------------
+
+-- | User type definition
+data TypeDef
+    = TdAlias !(ATag Type)
+    | TdProduct ![Field (ATag Type)]
+    | TdSum ![Field (ATag Type)]
+    deriving (Eq, Ord, Show)
+
+instance Pretty TypeDef where
+    pPrintPrec lvl _ = \case
+        TdAlias t -> pPrintPrec lvl 0 t
+        TdProduct ts -> parens $ sep $ punctuate "," (pPrintPrec lvl 0 <$> ts)
+        TdSum ts -> braces $ sep $ punctuate "|" (pPrintPrec lvl 0 <$> ts)
+
 
 
 -- | The type of a type
