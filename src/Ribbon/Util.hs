@@ -202,6 +202,9 @@ pattern Nil :: Nil m => m
 pattern Nil <- (isNil -> True) where
     Nil = nil
 
+{-# COMPLETE (Seq.:|>), Nil #-}
+{-# COMPLETE (Seq.:<|), Nil #-}
+{-# COMPLETE (:), Nil #-}
 
 
 -- | A semantic version specifier
