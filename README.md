@@ -37,6 +37,10 @@ some exposition on this situation
 
 ## Roadmap
 
+A high level overview of the planned grammar is [here](grammar). This is in an
+arbitrary format I came up with some time ago, but should be fairly easy to
+understand if you know ebnf.
+
 #### Implementation progress
 - 🟩 Lexical analysis
 - 🟨 Syntactic analysis (parsing)
