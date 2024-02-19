@@ -3,15 +3,16 @@ Name = identifier | operator | "`" (identifier | operator) "`"
 TypeHead = listSome<identifier (":" Kind)?> ("with" listSome<Type>)?
 
 DefName = Visibility? Specifier<ExactFixity>? Name where
-    ExactFixity = Fix sInt?
-    Fix = "infixl" | "infixr" | "infix" | "prefix" | "postfix" | "atom"
+    ExactFixity
+        = "infixl" | "infixr" | "infix" | "prefix" | "postfix" sInt?
+        | "atom"
 
 Specifier fixity
     = "namespace"
     | ("type" | "value") fixity?
     | fixity
 
-Field = Label "=" Expr where
+Field body = Label body where
     Label = uInt "\\" Name | uInt | Name
 
 Path
@@ -19,7 +20,7 @@ Path
     | SlashBase Component**"/"
     | Component++"/" where
     PlainBase = "module" Name | "file" string
-    Slashbase = "/" | "./" | "../"+
+    SlashBase = "/" | "./" | "../"+
     Component
         = "namespace" Name
         | ("type" | "value") Specifier<PartialFixity>? Name
@@ -41,8 +42,8 @@ ModuleHead = "module" string wsBlock<Meta> where
 
 Doc = Def*
 
-Def |=
-    Use = Visibility? "use" UseTree where
+Def = Visibility? (Use | Namespace | TypeDef | ValueDef) where
+    Use = "use" UseTree where
         UseTree = Path (("/" ("{" UseBranch "}" | "*")) | "as" Name)?
         UseBranch = listMany<UseTree>
 
@@ -67,26 +68,33 @@ Def |=
         ValueExpr = "=" wsBlock<Expr>
 
 Kind
-    = "type" | "layout" | "name" | "data" | "effect"
-    | "effects" | "constraint" | Kind "->" Kind
+    = "type"
+    | "layout" | "name"
+    | "data" | "effect"
+    | "effects"
+    | "class"
+    | Kind "->" Kind
+    | "(" Kind ")"
 
 Type |=
     Var = identifier
     Free = "_"
     Con = Path
     Unit = "(" ")"
-    Tuple = "(" listSome<Type> ")"
-    DataRow = "{" listMany<Field<Type>> "}" where
+    Group = "(" Type ")"
+    Tuple = "(" Type "," listMany<Type> ")"
+    DataRow = "{" listMany<Field<":" Type>> "}" where
     EffectRow = "[" listMany<Type> "]"
     App = Type Type
     QuantifiedInline = "'" identifier
-    ConstrainedInline
-        = "struct" DataRow
-        | "union" DataRow
-        | Type? "with" Type
-        | Type? "of" Kind
-        | Type "<|" Type?
-        | Type "<>" Type
+    ConstrainedInline |=
+        IsStruct = "struct" DataRow ("as" Type)?
+        IsUnion = "union" DataRow ("as" Type)?
+        HasClass = Type? "with" Type
+        HasKind = Type? "of" Kind
+        HasAssoc = Type? "has" Name ("=" Type)?
+        RowSub = Type "<" Type?
+        RowCat = Type "<>" Type ("=" Type)?
     User |=
         Infix = Type Path Type
         Prefix = Path Type
@@ -97,10 +105,12 @@ Expr |=
     Literal = literal
     Global = Path
     Unit = "(" ")"
-    Tuple = "(" listSome<Expr> ")"
-    Product = "{" listMany<Field<Expr>> "}"
-    AnySum = "+/" Name
+    Group = "(" Expr ")"
+    Tuple = "(" Expr "," listMany<Expr> ")"
+    Struct = "{" listMany<Field<"=" Expr>> "}"
+    AnyUnion = "+/" Name
     App = Expr Expr
+    Ann = Expr ":" Type
     Function = "fun" listSome<Patt> "=>" wsBlock<Expr>
     Match = "match" Expr wsBlock<some<Case>> where
         Case = ("|" Patt)+ "=>" wsBlock<Expr>
@@ -108,7 +118,7 @@ Expr |=
     Continue = "continue" Expr
     Return = "return" Expr
     Sequence = Expr ";" Expr
-    Handler = "with" Type wsBlock<some<Case>> "do" wsBlock<Expr> where
+    Handler = "with" Type "handler" wsBlock<some<Case>> "do" wsBlock<Expr> where
         Case
             = Name "|" listSome<Patt> "=>" wsBlock<Expr>
             | "return" Patt "=>" wsBlock<Expr>
@@ -121,7 +131,10 @@ Patt |=
     Var = identifier
     Literal = literal
     Unit = "(" ")"
-    Tuple = "(" listSome<Patt> ")"
-    Product = "{" listMany<Field<Patt>> ".."? "}"
+    Group = "(" Patt ")"
+    Tuple = "(" Patt "," listMany<Patt> ")"
+    Product = "{" listMany<Field<"=" Patt>> ".."? "}"
     AnySum = "+/" Name Patt?
     App = Path Patt?
+    Alias = Patt "as" identifier
+    Ann = Patt ":" Type
