@@ -1,19 +1,14 @@
 Name = identifier | operator | "`" (identifier | operator) "`"
 
-TypeHead = listSome<identifier (":" Kind)?> ("with" listSome<Type>)?
+TypeHead = listSome<identifier (":" Kind)?> ("where" listSome<Type>)?
 
-DefName = Visibility? Specifier<ExactFixity>? Name where
-    ExactFixity
-        = "infixl" | "infixr" | "infix" | "prefix" | "postfix" sInt?
-        | "atom"
-
-Specifier fixity
-    = "namespace"
-    | ("type" | "value") fixity?
-    | fixity
+PartialFixity = "infix" | "prefix" | "postfix" | "atom"
+ExactFixity
+    = ("infixl" | "infixr" | "infix" | "prefix" | "postfix") sInt?
+    | "atom"
 
 Field body = Label body where
-    Label = uInt "\\" Name | uInt | Name
+    Label = uInt ("\\" Name)? | Name
 
 Path
     = PlainBase ("/" Component++"/")?
@@ -23,9 +18,17 @@ Path
     SlashBase = "/" | "./" | "../"+
     Component
         = "namespace" Name
-        | ("type" | "value") Specifier<PartialFixity>? Name
-        | Specifier<PartialFixity>? Name
-    PartialFixity = "infix" | "prefix" | "postfix" | "atom"
+        | ("type" | "value" | "class") PartialFixity? Name
+        | PartialFixity? Name
+
+PathExt tail
+    = Path.PlainBase ("/" Path.Component++"/")? "/" tail
+    | Path.SlashBase (Path.Component++"/" "/" tail | tail)
+    | Path.Component++"/" "/" tail
+    | tail
+
+WsList sep elem = wsBlock<elem> | wsBlock<SepList> | SepList where
+    SepList = elem (sep elem)*
 
 
 
@@ -34,33 +37,40 @@ Module = ModuleHead Doc
 ModuleHead = "module" string wsBlock<Meta> where
     Meta
         = "version" Version
-        | "sources" wsBlock<listSome<String>>
-        | "dependencies" wsBlock<Dependency>
-        | identifier string
+        | "sources" WsList<",", string>
+        | "dependencies" WsList<",", Dependency>
+        | identifier WsList<",", string>
     Dependency = string "@" Version ("as" Name)?
     Version = uInt "." uInt "." uInt if $1 > 0 or $2 > 0 or $3 > 0
 
 Doc = Def*
 
-Def = Visibility? (Use | Namespace | TypeDef | ValueDef) where
+Def = Visibility? (Use | Instance | Namespace | TypeDef | ValueDef) where
+    DefName = ExactFixity? Name
     Use = "use" UseTree where
-        UseTree = Path (("/" ("{" UseBranch "}" | "*")) | "as" Name)?
-        UseBranch = listMany<UseTree>
+        UseTree = PathExt<"{" UseBranch "}" | "*"> ("as" Name)?
+        UseBranch = UseTree**","
+
+    Instance
+        = "instance" TypeHead? "for" Type "=>" WsList<",", InstanceDef>
+        where InstanceDef
+            = Name "=" wsBlock<Expr>
+            | DefName "=" "type" (TypeHead "=>"?) Type
 
     Namespace = Name "=" "namespace" wsBlock<Doc>
 
     TypeDef = DefName "=" TypeBody where
-        Dec = DefName ":" wsBlock<Type>
-        ClassDec = DefName ":" (("forall" TypeHead)? Type | Associate) where
-            Associate
-                = "typealias" TypeHead?
-                | "value" (TypeHead "=>")? wsBlock<Type>
+        Dec = Name ":" wsBlock<Type>
+        ClassDec
+            = DefName ":" ("forall" TypeHead "=>")? Type
+            | DefName ":" "type" TypeHead?
+            | Name ":" "value" wsBlock<Type>
         TypeBody
-            = "typealias" (TypeHead "=>")? wsBlock<Type>
-            | "struct" (TypeHead "=>")? wsBlock<Dec>
-            | "union" (TypeHead "=>")? wsBlock<Dec>
-            | "effect" (TypeHead "=>")? wsBlock<Dec>
-            | "class" (TypeHead "=>")? wsBlock<ClassDec>
+            = "type" (TypeHead "=>")? wsBlock<Type>
+            | "struct" (TypeHead "=>")? WsList<",", Dec>
+            | "union" (TypeHead "=>")? WsList<",", Dec>
+            | "effect" (TypeHead "=>")? WsList<",", Dec>
+            | "class" (TypeHead "=>")? WsList<",", ClassDec>
 
     ValueDef = DefName ValueBody where
         ValueBody = ValueType? ValueExpr | ValueType
@@ -68,10 +78,9 @@ Def = Visibility? (Use | Namespace | TypeDef | ValueDef) where
         ValueExpr = "=" wsBlock<Expr>
 
 Kind
-    = "type"
+    = "type" | "effect"
     | "layout" | "name"
-    | "data" | "effect"
-    | "effects"
+    | "data" | "effects"
     | "class"
     | Kind "->" Kind
     | "(" Kind ")"
@@ -82,19 +91,19 @@ Type |=
     Con = Path
     Unit = "(" ")"
     Group = "(" Type ")"
-    Tuple = "(" Type "," listMany<Type> ")"
-    DataRow = "{" listMany<Field<":" Type>> "}" where
-    EffectRow = "[" listMany<Type> "]"
+    Tuple = "(" Type "," Type**"," ")"
+    DataRow = "{" WsList<",", Field<":" Type>> "}"
+    EffectRow = "[" WsList<",", Type> "]"
     App = Type Type
-    QuantifiedInline = "'" identifier
-    ConstrainedInline |=
-        IsStruct = "struct" DataRow ("as" Type)?
-        IsUnion = "union" DataRow ("as" Type)?
+    QuantifiedInline = "'" identifier ("of" Kind)?
+    Constraint |=
+        IsStruct = "struct" Type ("as" Type)?
+        IsUnion = "union" Type ("as" Type)?
         HasClass = Type? "with" Type
-        HasKind = Type? "of" Kind
-        HasAssoc = Type? "has" Name ("=" Type)?
+        HasAssoc = Type? "has" (Name ("~" Type)? | "type" Name)
         RowSub = Type "<" Type?
-        RowCat = Type "<>" Type ("=" Type)?
+        RowCat = Type "<>" Type ("~" Type)?
+        Equality = Type "~" Type
     User |=
         Infix = Type Path Type
         Prefix = Path Type
@@ -106,35 +115,37 @@ Expr |=
     Global = Path
     Unit = "(" ")"
     Group = "(" Expr ")"
-    Tuple = "(" Expr "," listMany<Expr> ")"
-    Struct = "{" listMany<Field<"=" Expr>> "}"
+    Tuple = "(" Expr "," Expr**"," ")"
+    Struct = "{" WsList<",", Field<"=" Block>> "}"
     AnyUnion = "+/" Name
-    App = Expr Expr
-    Ann = Expr ":" Type
-    Function = "fun" listSome<Patt> "=>" wsBlock<Expr>
-    Match = "match" Expr wsBlock<some<Case>> where
-        Case = ("|" Patt)+ "=>" wsBlock<Expr>
-    Let = "let" listSome<Patt "=" Expr> "in" Expr
-    Continue = "continue" Expr
-    Return = "return" Expr
+    Select = Expr "." Name
+    App = Expr Block
+    Ann = Expr ":" wsBlock<Type>
+    Function = "fun" listSome<Patt> "=>" Block
+    Match = "match" Expr wsBlock<Case+>
+        where Case = ("|" Patt)+ "=>" Block
+    Let = "let" listSome<Patt "=" Block>
+    Continue = "continue" Block
+    Return = "return" Block
     Sequence = Expr ";" Expr
-    Handler = "with" Type "handler" wsBlock<some<Case>> "do" wsBlock<Expr> where
-        Case
-            = Name "|" listSome<Patt> "=>" wsBlock<Expr>
-            | "return" Patt "=>" wsBlock<Expr>
+    Handler = "with" Type "handler" wsBlock<Case+> "do" Block
+        where Case
+            = Name "|" listSome<Patt> "=>" Block
+            | "return" Patt "=>" Block
     User |=
         Infix = Expr Path Expr
         Prefix = Path Expr
         Postfix = Expr Path
+    where Block = WsList<";", Expr>
 
 Patt |=
     Var = identifier
     Literal = literal
     Unit = "(" ")"
     Group = "(" Patt ")"
-    Tuple = "(" Patt "," listMany<Patt> ")"
-    Product = "{" listMany<Field<"=" Patt>> ".."? "}"
-    AnySum = "+/" Name Patt?
+    Tuple = "(" Patt "," Patt**"," ")"
+    Struct = "{" WsList<",", Field<"=" WsBlock<Patt>>> ".."? "}"
+    AnyUnion = "+/" Name Patt?
     App = Path Patt?
     Alias = Patt "as" identifier
     Ann = Patt ":" Type
