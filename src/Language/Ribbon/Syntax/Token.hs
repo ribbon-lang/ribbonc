@@ -1,19 +1,17 @@
-module Ribbon.Syntax.Token where
+module Language.Ribbon.Syntax.Token where
 
 import Data.Functor
 import Data.Foldable
+import Data.Tag
+import Data.Attr
 
 import Data.Sequence (Seq)
 
-import Ribbon.Display
-import Ribbon.Source
-import Ribbon.Syntax.Literal
-import Ribbon.Syntax.Text
+import Text.Pretty
 
+import Language.Ribbon.Syntax.Literal
+import Language.Ribbon.Syntax.Version
 
-
--- | Encodes precedence levels
-type Prec = Int
 
 -- | An atom of syntax
 data Token
@@ -22,6 +20,8 @@ data Token
     = TSymbol !String
     -- | A token indicating a literal value, such as an int or string
     | TLiteral !Literal
+    -- | A token indicating a semantic version number
+    | TVersion !Version
     -- | End of file token
     | TEof
     deriving (Eq, Ord, Show)
@@ -30,6 +30,7 @@ instance Pretty Token where
     pPrint = \case
         TSymbol s -> text s
         TLiteral l -> pPrint l
+        TVersion v -> pPrint v
         TEof -> "{EOF}"
 
 instance Pretty (Seq (ATag Token)) where
@@ -37,17 +38,36 @@ instance Pretty (Seq (ATag Token)) where
         backticked t <+> "@" <+> pPrint a
 
 -- | Check if a token terminates expressions (ie @,@, @}@ etc)
-isSentinelToken :: Token -> Bool
-isSentinelToken = \case
+isSentinel :: Token -> Bool
+isSentinel = \case
     TEof -> True
-    TSymbol s -> isSentinel s
+    TSymbol s -> s `elem` [")", "]", "}", ",", "=", ":"]
     _ -> False
 
--- | Check if a string is a symbol token with the given value
-isSymbolToken :: String -> Token -> Bool
-isSymbolToken s = \case
+-- | Check if a token is a symbol with the given value
+isSymbol :: String -> Token -> Bool
+isSymbol s = \case
     TSymbol s' -> s == s'
     _ -> False
+
+-- | Check if a token has a reserved value; ie cannot be used as a Name
+isReserved :: Token -> Bool
+isReserved = \case
+    TSymbol s -> s `elem` reservedSymbols
+    _ -> True
+
+-- | Reserved identifiers
+reservedSymbols :: [String]
+reservedSymbols =
+    [ "type", "effect", "value", "forall", "fun"
+    , "infix", "infixl", "infixr", "prefix", "postfix", "atom"
+    , "module", "import", "use", "file", "pub", "namespace"
+    , "let", "in", "as"
+    , "match", "with"
+    , "if", "then", "else"
+    , "=", ":", "=>", ";", ",", ".", "..", "./", "../", ".*"
+    , "{", "}", "(", ")", "[", "]"
+    ]
 
 
 
@@ -57,6 +77,8 @@ data TokenSpec
     = TsSymbol !String
     -- | Expect a TLiteral with optional kind
     | TsLiteral !(Maybe LiteralKind)
+    -- | Expect a TVersion
+    | TsVersion
     -- | Expect an end of file token
     | TsEof
     deriving (Eq, Ord, Show)
@@ -67,4 +89,5 @@ instance Pretty TokenSpec where
         TsSymbol s -> text s
         TsLiteral Nothing -> "literal"
         TsLiteral (Just k) -> pPrint k
+        TsVersion -> "version"
         TsEof -> "eof"

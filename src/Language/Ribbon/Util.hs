@@ -1,29 +1,19 @@
-module Ribbon.Util where
+module Language.Ribbon.Util where
 
 import Data.Foldable
 
 import Control.Applicative
 import Control.Monad.Except
 
+import Data.List qualified as List
 import Data.Maybe qualified as Maybe
 import Data.Either qualified as Either
-
-import Data.Set (Set)
-import Data.Set qualified as Set
-
-import Data.Map (Map)
-import Data.Map qualified as Map
-
-import Data.Sequence (Seq)
-import Data.Sequence qualified as Seq
 
 import Data.ByteString.Lazy (ByteString)
 import Data.ByteString.Lazy qualified as ByteString
 
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text
-
-import Ribbon.Display
 
 
 
@@ -163,63 +153,14 @@ foldWithM :: (Foldable t, Monad m) => b -> t a -> (a -> b -> m b) -> m b
 foldWithM b as f = foldrM f b as
 
 
--- | For forcing a string to be a string under @OverloadedStrings@
+-- | Force a string literal to be a @String@ under @OverloadedStrings@
 pattern String :: String -> String
 pattern String s = s
 
 
--- | An extension class for monoids allowing the Nil pattern to function
-class Nil m where
-    -- | Check if a value is nil
-    isNil :: m -> Bool
+-- | Concatenate with a slash between the elements
+(</>) :: String -> String -> String
+(</>) a b
+    | "/" `List.isSuffixOf` a || "/" `List.isPrefixOf` b = a <> b
+    | otherwise = a <> "/" <> b
 
-    -- | The nil value for a type
-    nil :: m
-
-    default nil :: Monoid m => m
-    nil = mempty
-
-instance Nil () where
-    isNil = const True
-
-instance Nil [a] where
-    isNil = null
-
-instance Nil (Seq a) where
-    isNil = Seq.null
-
-instance Ord a => Nil (Set a) where
-    isNil = Set.null
-
-instance Ord a => Nil (Map a b) where
-    isNil = Map.null
-
-instance Semigroup a => Nil (Maybe a) where
-    isNil = Maybe.isNothing
-
--- | Pattern alias for types with a Nil instance
-pattern Nil :: Nil m => m
-pattern Nil <- (isNil -> True) where
-    Nil = nil
-
-{-# COMPLETE (Seq.:|>), Nil #-}
-{-# COMPLETE (Seq.:<|), Nil #-}
-{-# COMPLETE (:), Nil #-}
-
-
--- | A semantic version specifier
-data Version
-    = Version
-    { major :: !Word
-    , minor :: !Word
-    , patch :: !Word
-    }
-    deriving (Show, Eq, Ord)
-
-instance Pretty Version where
-    pPrintPrec _ _ (Version major minor patch) = do
-        shown major <> "." <> shown minor <> "." <> shown patch
-
-instance Nil Version where
-    nil = Version 0 0 0
-    isNil = (== Nil)

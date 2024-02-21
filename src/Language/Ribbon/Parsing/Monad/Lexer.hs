@@ -1,17 +1,22 @@
-module Ribbon.Syntax.LexerM where
+module Language.Ribbon.Parsing.Monad.Lexer where
 
 import Data.ByteString.Lazy (ByteString)
 import Data.ByteString.Lazy qualified as ByteString
 
-import Data.Word (Word8)
-import Data.Int (Int64)
+import Data.Word (Word8, Word32)
+
+import Data.Pos
+import Data.Tag
+import Data.Range
+import Data.Attr
 
 import Control.Monad.State.Class
 import Control.Monad
 
-import Ribbon.Util
-import Ribbon.Source
-import Ribbon.Display
+import Text.Pretty
+
+import Language.Ribbon.Util
+
 
 
 
@@ -46,6 +51,7 @@ data AlexInput
     { pos   :: !Pos
     -- | The remaining bytes to be lexed
     , bytes :: !ByteString
+    , startCode :: !Int
     }
     deriving Show
 
@@ -69,8 +75,15 @@ alexGetByte input@AlexInput {..} =
             in Just (byte, input')
         _ -> Nothing
     where
-        nextPos (Pos o l _) 0x0a = Pos (o + 1) (l + 1) 1
-        nextPos (Pos o l c) _ = Pos (o + 1) l $ c + 1
+        nextPos (Pos o l _ _) 0x0a =
+            Pos (o + 1) (l + 1) 1 0
+
+        nextPos (Pos o l c i) ch =
+            Pos (o + 1) l (c + 1)
+                if startCode == 0
+                -- NOTE: tab width should possibly be a compiler option
+                    then i + select (ch == 0x09) 4 1
+                    else i
 
 -- | Check if an input stream is at the end of the file
 isEof :: AlexInput -> Bool
@@ -89,10 +102,9 @@ excerpt AlexInput{..} offset len
 data LexerState
     = LexerState
     { input :: !AlexInput
-    , startCode :: !Int
     , stringAccumulator :: !String
     , stringStart :: !Pos
-    , file :: !File
+    , filePath :: !FilePath
     }
     deriving Show
 
@@ -120,7 +132,7 @@ instance Monad Lexer where
 
 instance MonadFail Lexer where
     fail msg = Lexer \s -> Left $ LexFailure
-        (msg :@: Attr s.file.path
+        (msg :@: Attr s.filePath
         (unitRange s.input.pos))
 
 instance MonadState LexerState Lexer where
@@ -142,20 +154,21 @@ unexpectedInput p = getFilePath >>=
     failWith . LexUnexpectedInput . (`Attr` unitRange p)
 
 -- | Get the current byte offset in the input stream
-getOffset :: Lexer Int64
+getOffset :: Lexer Word32
 getOffset = (.offset) <$> getPos
 
 -- | Get the current position in the input stream
 getPos :: Lexer Pos
 getPos = gets $ (.pos) . (.input)
 
--- | Get the current file being lexed
-getFile :: Lexer File
-getFile = gets (.file)
+-- | Set the current indentation level
+setIndent :: Word32 -> Lexer ()
+setIndent i = modify \s ->
+    s { input = s.input { pos = s.input.pos { indent = i } } }
 
 -- | Get the FilePath of the current file being lexed
 getFilePath :: Lexer FilePath
-getFilePath = (.path) <$> getFile
+getFilePath = gets (.filePath)
 
 -- | Create a range from the given position to the current one
 getRange :: Pos -> Lexer Range
@@ -194,12 +207,12 @@ setInput ai = modify \s ->
 
 -- | Get the current start code
 getStartCode :: Lexer Int
-getStartCode = (.startCode) <$> getState
+getStartCode = (.input.startCode) <$> getState
 
 -- | Set the current start code
 setStartCode :: Int -> Lexer ()
 setStartCode sc = modify \s ->
-    s { startCode = sc }
+    s { input = s.input { startCode = sc } }
 
 -- | Set the starting Pos for the string accumulator
 setStringStart :: Pos -> Lexer ()

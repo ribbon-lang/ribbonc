@@ -18,8 +18,7 @@ Path
     SlashBase = "/" | "./" | "../"+
     Component
         = "namespace" Name
-        | ("type" | "value" | "class") PartialFixity? Name
-        | PartialFixity? Name
+        | PartialFixity? ("type" | "value")? Name
 
 PathExt tail
     = Path.PlainBase ("/" Path.Component++"/")? "/" tail
@@ -27,25 +26,27 @@ PathExt tail
     | Path.Component++"/" "/" tail
     | tail
 
-WsList sep elem = wsBlock<elem> | wsBlock<SepList> | SepList where
-    SepList = elem (sep elem)*
+WsList sep elem = wsBlock<wsBlock<elem sep?>+ | elem (sep elem)*>
 
 
 
 Module = ModuleHead Doc
 
-ModuleHead = "module" string wsBlock<Meta> where
+ModuleHead = "module" string "@" version wsBlock<Meta> where
     Meta
-        = "version" Version
-        | "sources" WsList<",", string>
+        = "sources" WsList<",", string>
         | "dependencies" WsList<",", Dependency>
         | identifier WsList<",", string>
     Dependency = string "@" Version ("as" Name)?
-    Version = uInt "." uInt "." uInt if $1 > 0 or $2 > 0 or $3 > 0
+    Version
+        = $uInt "." $uInt "." $uInt
+        if $1 > 0 or $2 > 0 or $3 > 0
 
 Doc = Def*
 
-Def = Visibility? (Use | Instance | Namespace | TypeDef | ValueDef) where
+Def
+    = Instance
+    | Visibility? (Use | Namespace | TypeDef | ValueDef) where
     DefName = ExactFixity? Name
     Use = "use" UseTree where
         UseTree = PathExt<"{" UseBranch "}" | "*"> ("as" Name)?
@@ -62,9 +63,7 @@ Def = Visibility? (Use | Instance | Namespace | TypeDef | ValueDef) where
     TypeDef = DefName "=" TypeBody where
         Dec = Name ":" wsBlock<Type>
         ClassDec
-            = DefName ":" ("forall" TypeHead "=>")? Type
-            | DefName ":" "type" TypeHead?
-            | Name ":" "value" wsBlock<Type>
+            = DefName ":" (("forall" TypeHead "=>")? Type | "type" TypeHead?)
         TypeBody
             = "type" (TypeHead "=>")? wsBlock<Type>
             | "struct" (TypeHead "=>")? WsList<",", Dec>
@@ -92,8 +91,9 @@ Type |=
     Unit = "(" ")"
     Group = "(" Type ")"
     Tuple = "(" Type "," Type**"," ")"
-    DataRow = "{" WsList<",", Field<":" Type>> "}"
-    EffectRow = "[" WsList<",", Type> "]"
+    DataRow = "{" Field<":" Type>**"," "}"
+    EffectRow = "[" Type**"," "]"
+    Function = Type "->" Type ("in" Type)?
     App = Type Type
     QuantifiedInline = "'" identifier ("of" Kind)?
     Constraint |=
@@ -116,15 +116,16 @@ Expr |=
     Unit = "(" ")"
     Group = "(" Expr ")"
     Tuple = "(" Expr "," Expr**"," ")"
-    Struct = "{" WsList<",", Field<"=" Block>> "}"
+    Struct = "{" Field<"=" Block>**"," "}"
     AnyUnion = "+/" Name
     Select = Expr "." Name
+    Concat = Expr "<>" Expr
     App = Expr Block
     Ann = Expr ":" wsBlock<Type>
     Function = "fun" listSome<Patt> "=>" Block
     Match = "match" Expr wsBlock<Case+>
         where Case = ("|" Patt)+ "=>" Block
-    Let = "let" listSome<Patt "=" Block>
+    Let = "let" WsList<",", Patt "=" Block>
     Continue = "continue" Block
     Return = "return" Block
     Sequence = Expr ";" Expr
@@ -144,8 +145,8 @@ Patt |=
     Unit = "(" ")"
     Group = "(" Patt ")"
     Tuple = "(" Patt "," Patt**"," ")"
-    Struct = "{" WsList<",", Field<"=" WsBlock<Patt>>> ".."? "}"
+    Struct = "{" Field<"=" WsBlock<Patt>>**"," ".."? "}"
     AnyUnion = "+/" Name Patt?
     App = Path Patt?
     Alias = Patt "as" identifier
-    Ann = Patt ":" Type
+    Ann = Patt ":" wsBlock<Type>

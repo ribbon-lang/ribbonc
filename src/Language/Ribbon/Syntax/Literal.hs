@@ -1,6 +1,6 @@
-module Ribbon.Syntax.Literal where
+module Language.Ribbon.Syntax.Literal where
 
-import Ribbon.Display
+import Text.Pretty
 
 
 

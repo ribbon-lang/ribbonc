@@ -1,7 +1,6 @@
 {
-module Ribbon.Syntax.Lexer
-    ( lexFile
-    , lexString
+module Language.Ribbon.Parsing.Lexer
+    ( lexString
     , lexByteString
     ) where
 
@@ -9,13 +8,18 @@ import Data.ByteString.Lazy (ByteString)
 import Data.Sequence (Seq)
 import Data.Sequence qualified as Seq
 
-import Ribbon.Util
-import Ribbon.Display
-import Ribbon.Source
-import Ribbon.Syntax.Literal
-import Ribbon.Syntax.Text
-import Ribbon.Syntax.Token
-import Ribbon.Syntax.LexerM
+import Data.Nil
+import Data.Tag
+import Data.Attr
+
+import Text.Pretty
+
+import Language.Ribbon.Util
+import Language.Ribbon.Syntax.Literal
+import Language.Ribbon.Syntax.Token
+
+import Language.Ribbon.Parsing.Monad.Lexer
+import Language.Ribbon.Parsing.Text
 }
 
 
@@ -28,6 +32,7 @@ $alpha = [A-Za-z_]
 $alphanum = [A-Za-z0-9_]
 $punc = [\'\,\{\}\(\)\[\]]
 $backtick = [\`]
+$hWhite = $white # [\n]
 
 @reserved = let | in | as | match | with | do | fun | handler
           | module | import | use | file | pub | namespace
@@ -38,28 +43,43 @@ $backtick = [\`]
 @escape = \\ ([\\\'\"0nrt] | x $hex{2} | u \{ $hex+ \})
 
 tokens :-
-    <0> $white+;
-    <0> ";;" .* \n;
+    ";;" .* \n;
 
-    <0> \' (@escape | $printable # [\\\'] | $white) \' { char }
-    <0> $dec+ \. $dec+ (e [\+\-]? $dec+)?              { float }
-    <0> $dec+                                          { decInt }
-    <0> 0x $hex+                                       { hexInt }
-    <0> 0b $bin+                                       { binInt }
+    <0> $hWhite* { beginLine }
+    <line> \n    { endLine }
+    <line> $hWhite+;
 
-    <0>      \"                                        { beginString }
-    <string> @escape | $printable # [\\\"] | $white    { accumString }
-    <string> \"                                        { endString }
+    <line> \' (@escape | $printable # [\\\'] | $white) \' { char }
+    <line> $dec+ \. $dec+ \. $dec+                        { version }
+    <line> $dec+ \. $dec+ (e [\+\-]? $dec+)?              { float }
+    <line> $dec+                                          { decInt }
+    <line> 0x $hex+                                       { hexInt }
+    <line> 0b $bin+                                       { binInt }
 
-    <0> $backtick ($alpha $alphanum* | @operator) $backtick { escSymbol }
+    <line>   \"                                     { beginString }
+    <string> @escape | $printable # [\\\"] | $white { accumString }
+    <string> \"                                     { endString }
 
-    <0> @reserved         { symbol }
-    <0> @operator         { symbol }
-    <0> $alpha $alphanum* { symbol }
-    <0> $punc             { symbol }
+    <line> $backtick ($alpha $alphanum* | @operator) $backtick { escSymbol }
+
+    <line> @reserved         { symbol }
+    <line> @operator         { symbol }
+    <line> $alpha $alphanum* { symbol }
+    <line> $punc             { symbol }
 
 
 {
+beginLine :: AlexAction (ATag Token)
+beginLine _ _ = do
+    setStartCode line
+    next
+
+endLine :: AlexAction (ATag Token)
+endLine _ _ = do
+    setStartCode 0
+    setIndent 0
+    next
+
 escSymbol :: AlexAction (ATag Token)
 escSymbol input@AlexInput{..} len = do
     let x = excerpt input 1 (len - 1)
@@ -77,6 +97,14 @@ char input@AlexInput{..} len = do
         ("cannot parse character literal: " <> x)
         (parseChar x)
     TLiteral (LChar c) <@> getAttr pos
+
+version :: AlexAction (ATag Token)
+version input@AlexInput{..} len = do
+    let x = excerpt input 0 len
+    v <- maybeFail
+        ("cannot parse version literal: " <> x)
+        (parseVersion x)
+    TVersion v <@> getAttr pos
 
 float :: AlexAction (ATag Token)
 float input@AlexInput{..} len = do
@@ -128,7 +156,7 @@ accumString input len = do
 
 endString :: AlexAction (ATag Token)
 endString _ _ = do
-    setStartCode 0
+    setStartCode line
     pos <- getStringStart
     body <- popStringAccumulator
     TLiteral (LString body) <@> getAttr pos
@@ -141,7 +169,7 @@ next = do
     case alexScan input startCode of
         AlexEOF ->
             getStartCode >>= \case
-                0 -> TEof <@> getUnitAttr
+                n | n /= string -> TEof <@> getUnitAttr
                 _ -> unexpectedEof input.pos
         AlexError input' ->
             if isEof input'
@@ -159,35 +187,32 @@ loop = do
     token <- next
     case token of
         t@(T' TEof) -> return (Seq.singleton t)
-        _    -> (token Seq.:<|) <$> loop
+        _ -> (token Seq.:<|) <$> loop
 
--- | Perform lexical analysis on a File, yielding a sequence of tagged tokens
-lexFile :: File -> Either Doc (Seq (ATag Token))
-lexFile file =
+
+-- | Perform lexical analysis on a ByteString,
+--   yielding a sequence of tagged tokens
+lexByteString :: FilePath -> ByteString -> Either Doc (Seq (ATag Token))
+lexByteString filePath fileContent =
     case do {
         runLexer loop
             LexerState
             { input =
                 AlexInput
                 { pos = Nil
-                , bytes = file.content
+                , bytes = fileContent
+                , startCode = 0
                 }
-            , startCode = 0
             , stringAccumulator = ""
             , stringStart = Nil
-            , file  = file
+            , filePath  = filePath
             }
     } of
         Right (tokens, _) -> Right tokens
         Left e -> Left $ pPrint e
 
--- | Perform lexical analysis on a ByteString,
---   yielding a sequence of tagged tokens
-lexByteString :: FilePath -> ByteString -> Either Doc (Seq (ATag Token))
-lexByteString name input = lexFile (File "memory" name input)
-
 -- | Perform lexical analysis on a String,
 --   yielding a sequence of tagged tokens
 lexString :: FilePath -> String -> Either Doc (Seq (ATag Token))
-lexString name input = lexByteString name (fromString input)
+lexString filePath input = lexByteString filePath (fromString input)
 }

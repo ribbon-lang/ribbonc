@@ -1,24 +1,14 @@
-module Ribbon.Source where
-
-import Data.Int (Int64)
-
-import Data.ByteString.Lazy (ByteString)
-import Data.ByteString.Lazy qualified as ByteString
+module Data.Tag where
 
 import Data.Bifunctor
 
-import Control.Exception
-
-import Ribbon.Display
-import Ribbon.Util
-
-
+import Text.Pretty
 
 
 -- | Wrapper for objects, with attribute
 data Tag t a
     -- | Attaches an attribute to an object
-    = Tag !t !a
+    = Tag { tag :: !t, value :: !a }
     deriving (Functor, Foldable, Traversable)
 
 -- | Infix pattern alias for Tag
@@ -31,9 +21,6 @@ infixl 9 :@:
 pattern T' :: a -> Tag t a
 pattern T' a <- a :@: _
 {-# COMPLETE T' #-}
-
--- | Type alias for @Tag Attr@
-type ATag = Tag Attr
 
 instance {-# OVERLAPPABLE #-} (Show t, Show a) => Show (Tag t a) where
     show (a :@: t) = render $
@@ -57,7 +44,7 @@ instance Ord a => Ord (Tag t a) where
 -- | Lift @:\@:@ over a functor, ie @fmap (a :\@:) t@
 (<@>) :: Functor f => a -> f t -> f (Tag t a)
 a <@> t = (a :@:) <$> t
-infixl 4 <@>
+infixl 5 <@>
 
 -- | Compositional @untag@
 untagged :: (a -> b) -> (Tag t a -> b)
@@ -175,153 +162,3 @@ tagCon1 t f a = f (a :@: t) :@: t
 --  i.e. @_ t f a b = f (a :\@: t) (b :\@: t) :\@: t@
 tagCon2 :: t -> (Tag t a -> Tag t b -> c) -> a -> b -> Tag t c
 tagCon2 t f a b = f (a :@: t) (b :@: t) :@: t
-
-
-
-
--- | Codepoint-indexed position in a source file,
---   as well as its line and column numbers
-data Pos
-    = Pos
-    { offset :: !Int64
-    , line :: !Int64
-    , column :: !Int64
-    }
-
-instance Show Pos where
-    show = prettyShow
-
-instance Pretty Pos where
-    pPrintPrec lvl _ (Pos o l c) =
-        let s = pPrint l <> ":" <> pPrint c
-        in if lvl > PrettyNormal
-            then s <> parens (pPrint o)
-            else s
-
-instance Eq Pos where
-    a == b = a.offset == b.offset
-
-instance Ord Pos where
-    compare a b = compare a.offset b.offset
-
-instance Nil Pos where
-    isNil = (== Nil)
-    nil = Pos 0 1 1
-
--- | Determine if two @Pos@ are adjacent in terms of line and column
-posConnected :: Pos -> Pos -> Bool
-posConnected a b = a.line == b.line && a.column == b.column
-
-
--- | Range indicating the origin of a span of characters
-data Range
-    = Range
-    { start :: !Pos
-    , end :: !Pos
-    }
-    deriving (Eq, Ord)
-
-instance Show Range where
-    show = prettyShow
-
-instance Pretty Range where
-    pPrintPrec lvl _ (Range s e) =
-        let a = pPrintPrec lvl 0 s
-            b = pPrintPrec lvl 0 e
-        in if s == e
-            then a
-            else if s.line == e.line
-                then pPrint s <> "-" <> pPrint e.column
-                else pPrint s <> " to " <> pPrint b
-
-instance Semigroup Range where
-    a <> b = Range
-        (min a.start b.start)
-        (max a.end b.end)
-
-instance Monoid Range where
-    mempty = Range Nil Nil
-
-instance Nil Range where
-    isNil = (== mempty)
-
--- | Create a @Range@ from a single @Pos@
-unitRange :: Pos -> Range
-unitRange p = Range p p
-
--- | Determine if two @Range@s are adjacent in terms of line and column
-rangeConnected :: Range -> Range -> Bool
-rangeConnected a b
-     = posConnected a.end b.start
-    || posConnected b.end a.start
-
-
--- | Source attribution
-data Attr
-    -- | Source attribution for a range of characters in a file
-    = Attr
-    -- | FilePath of file containing the range of an Attr
-    { file :: !FilePath
-    -- | Offset, Line and Column Range for an Attr
-    , range :: !Range
-    }
-    deriving (Eq, Ord)
-
-instance Show Attr where
-    show (Attr f r) = f <> show r
-
-instance Pretty Attr where
-    pPrintPrec lvl prec (Attr f r) =
-        text f <> ":" <> pPrintPrec lvl prec r
-
-instance Semigroup Attr where
-    a <> b = assert (a.file == b.file) $
-        Attr a.file (a.range <> b.range)
-
-instance Monoid Attr where
-    mempty = Attr Nil mempty
-
-instance Nil Attr where
-    isNil = (== mempty)
-
--- | Determine if two @Attr@s are adjacent in terms of line and column
-attrConnected :: Attr -> Attr -> Bool
-attrConnected a b =
-    a.file == b.file && rangeConnected a.range b.range
-
-
-
--- | Source file
-data File
-    -- | Source file with name, text, and line and column database
-    = File
-    -- | The full path of a File
-    { path :: !FilePath
-    -- | The name of a File as it is referenced in a module
-    , name :: !FilePath
-    -- | Lazy ByteString of a File's textual content
-    , content :: !ByteString
-    }
-    deriving Show
-
-instance Pretty File where
-    pPrintPrec lvl _ = if lvl == PrettyVerbose
-        then \(File path name content) -> "{" <> do
-            (shown path <+> "\\" <+> text name) <> ":" $+$ do
-                vcat' . fmap (indent . text) . lines . bytesToString $ content
-        $+$ "}"
-        else text . (.name)
-
-instance Eq File where
-    a == b = a.name == b.name
-
-instance Ord File where
-    compare a b = compare a.name b.name
-
-instance Nil File where
-    isNil = (== Nil)
-    nil = File "" "" mempty
-
--- | Load a text file into a File object
-loadFile :: FilePath -> FilePath -> IO File
-loadFile fullPath name = File fullPath name <$> ByteString.readFile fullPath

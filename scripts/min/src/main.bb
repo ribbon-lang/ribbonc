@@ -1,6 +1,6 @@
 ;; comment
 
-pub type Foo = Int
+pub Foo = type Int
 use core/`/`
 use ../bar
 use module test
@@ -17,20 +17,20 @@ use ../{../../baz/.., qux/.., ..} as Qux
 lits = 'x'; '\x00'; "\"abc\""; "\0foo"; 1; 1.0
 
 
-namespace Baz =
+Baz = namespace
     type infixl 10 ~ = whatever
     infix + : (Int, Int) -> Int = whatever
 
-effect Bar =
+Bar = effect
     bar : Int -> Int
 
-effect Read =
-    read : () -> 'a
+Read = effect a =>
+    read : () -> a
 
-effect Write =
+Write = effect
     write : 'a -> ()
 
-type Mem =
+Wem = type
     [Read 'a, Write 'a]
 
 foo = fun x =>
@@ -40,7 +40,7 @@ bar =
     fun y =>
         y - 1
 
-value xyz : Int -> Int
+xyz : Int -> Int
 
 value atom baz : Int
     = foo (bar 5)

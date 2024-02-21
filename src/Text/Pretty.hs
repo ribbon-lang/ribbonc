@@ -1,6 +1,6 @@
 {-# OPTIONS_GHC -Wno-orphans #-}
 
-module Ribbon.Display
+module Text.Pretty
     ( module X
     , shown
     , vcat', vcatDouble
@@ -12,102 +12,40 @@ module Ribbon.Display
     , paren'd, maybeParen'd
     , braced, maybeBraced
     , bracketed, maybeBracketed
-    , Pretty(..)
-    , PrettyLevel(..)
-    , prettyShow, prettyShowLevel
-    , prettyPrint, prettyPrintLevel
+    , prettyShowLevel, prettyPrint, prettyPrintLevel
     , maybePPrint, maybePPrintPrec
+    , pattern PrettyNormal, pattern PrettyRich, pattern PrettyVerbose
     ) where
 
-import Text.PrettyPrint.HughesPJ qualified as X
-import Text.PrettyPrint.HughesPJ as X hiding
+import Text.PrettyPrint.HughesPJClass qualified as X
+import Text.PrettyPrint.HughesPJClass as X hiding
     ((<>), empty, ptext, char, hang
     , int, integer, float, double, rational
     , semi, comma, space, equals, lparen, rparen, lbrack, rbrack, lbrace, rbrace
     , first
     )
 
-import Data.Map (Map)
-import Data.Map qualified as Map
+import Data.Functor((<&>))
+import Data.Foldable qualified as Fold
+
+import Data.Word (Word8, Word32)
+
+import Data.Map.Lazy (Map)
+import Data.Map.Lazy qualified as Map
+
 import Data.Set (Set)
 import Data.Set qualified as Set
+
 import Data.Sequence (Seq)
-import Data.Word (Word8)
-
-import Data.Functor
-import Data.Foldable
 
 
 
 
--- | Designates a level of verbosity for pretty printing
-data PrettyLevel
-    -- | The default, base level of pretty printing
-    = PrettyNormal
-    -- | Attach more information to the pretty printed output
-    | PrettyRich
-    -- | Print the most information possible
-    | PrettyVerbose
-    deriving (Show, Eq, Ord, Enum, Bounded)
+instance Pretty Word8 where
+    pPrint = shown @Integer . fromIntegral
 
--- | Pretty printing class, similar to `Show`,
---   interfacing with `Text.PrettyPrint` `Doc`s
-class Pretty a where
-    -- | Pretty print a value with a given level of verbosity and precedence
-    pPrintPrec :: PrettyLevel -> Word8 -> a -> Doc
-    -- | Pretty print a value with the default level of verbosity and precedence
-    pPrint :: a -> Doc
-
-    pPrint = pPrintPrec PrettyNormal 0
-    pPrintPrec _ _ = pPrint
-
-instance {-# OVERLAPPABLE #-} Show a => Pretty a where
-    pPrint = shown
-
-instance Pretty Char where
-    pPrintPrec _ _ = shown
-
-instance Pretty String where
-    pPrintPrec _ _ = shown
-
-instance {-# OVERLAPPABLE #-} (Pretty a) => Pretty [a] where
-    pPrintPrec lvl _ = brackets . lsep . fmap (pPrintPrec lvl 0)
-
-instance {-# OVERLAPPABLE #-} (Pretty a, Pretty b) => Pretty (a, b) where
-    pPrintPrec lvl _ (a, b) = parens $ lsep
-        [ pPrintPrec lvl 0 a
-        , pPrintPrec lvl 0 b
-        ]
-
-instance {-# OVERLAPPABLE #-} (Pretty a, Pretty b, Pretty c) => Pretty (a, b, c) where
-    pPrintPrec lvl _ (a, b, c) = parens $ lsep
-        [ pPrintPrec lvl 0 a
-        , pPrintPrec lvl 0 b
-        , pPrintPrec lvl 0 c
-        ]
-
-instance {-# OVERLAPPABLE #-} (Pretty a, Pretty b, Pretty c, Pretty d)
-    => Pretty (a, b, c, d) where
-        pPrintPrec lvl _ (a, b, c, d) = parens $ lsep
-            [ pPrintPrec lvl 0 a
-            , pPrintPrec lvl 0 b
-            , pPrintPrec lvl 0 c
-            , pPrintPrec lvl 0 d
-            ]
-
-instance {-# OVERLAPPABLE #-} (Pretty a) => Pretty (Maybe a) where
-    pPrintPrec lvl prec = \case
-        Just a -> maybeParens (prec > 0) do
-            hang "Just"
-                (pPrintPrec lvl 0 a)
-        _ -> "Nothing"
-
-instance {-# OVERLAPPABLE #-} (Pretty a, Pretty b) => Pretty (Either a b) where
-    pPrintPrec lvl prec = maybeParens (prec > 0) . \case
-        Left a -> hang "Left"
-            (pPrintPrec lvl 0 a)
-        Right b -> hang "Right"
-            (pPrintPrec lvl 0 b)
+instance Pretty Word32 where
+    pPrint = shown @Integer . fromIntegral
 
 instance {-# OVERLAPPABLE #-} (Pretty k, Pretty v) => Pretty (Map k v) where
     pPrintPrec lvl _ m
@@ -123,14 +61,22 @@ instance {-# OVERLAPPABLE #-} (Pretty k) => Pretty (Set k) where
 instance {-# OVERLAPPABLE #-} (Pretty a) => Pretty (Seq a) where
     pPrintPrec lvl _ s
         = hashes . brackets . lsep
-        $ toList s <&> pPrintPrec lvl 0
+        $ Fold.toList s <&> pPrintPrec lvl 0
+
+-- | The default, base level of pretty printing
+pattern PrettyNormal :: PrettyLevel
+pattern PrettyNormal <- ((== prettyNormal) -> True)
+    where PrettyNormal = prettyNormal
+
+-- | Attach more information to the pretty printed output
+pattern PrettyRich :: PrettyLevel
+pattern PrettyRich = PrettyLevel 1
+
+-- | Print the most information possible
+pattern PrettyVerbose :: PrettyLevel
+pattern PrettyVerbose = PrettyLevel 2
 
 
-
--- | Pretty print a value with the default level of verbosity and precedence,
---   and convert the resulting @Doc@ to a @String@
-prettyShow :: Pretty a => a -> String
-prettyShow = prettyShowLevel PrettyNormal
 
 -- | Pretty print a value with a given level of verbosity and precedence,
 --   and convert the resulting @Doc@ to a @String@
@@ -153,7 +99,7 @@ maybePPrint = maybe mempty pPrint
 
 -- | Pretty print the value with a given level of verbosity and precedence,
 --   if it exists, otherwise print nothing
-maybePPrintPrec :: Pretty a => PrettyLevel -> Word8 -> Maybe a -> Doc
+maybePPrintPrec :: Pretty a => PrettyLevel -> Rational -> Maybe a -> Doc
 maybePPrintPrec lvl prec = maybe mempty (pPrintPrec lvl prec)
 
 -- | The usual `hang` with a consistent indentation of 4 spaces

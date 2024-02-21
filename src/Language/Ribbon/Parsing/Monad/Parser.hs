@@ -1,9 +1,10 @@
-module Ribbon.Syntax.ParserM where
+module Language.Ribbon.Parsing.Monad.Parser where
 
 import Data.Functor
 import Data.Foldable
 
 import Data.String (fromString)
+import Data.ByteString.Lazy (ByteString)
 
 import Data.Sequence (Seq)
 import Data.Sequence qualified as Seq
@@ -11,20 +12,25 @@ import Data.Sequence qualified as Seq
 import Data.Set (Set)
 import Data.Set qualified as Set
 
-import Data.ByteString.Lazy (ByteString)
+import Data.Nil
+import Data.Tag
+import Data.Pos
+import Data.Range
+import Data.Attr
+
+import Text.Pretty
 
 import Control.Applicative
 import Control.Monad.State
 import Control.Monad.Reader
 import Control.Monad.Except
 
-import Ribbon.Util
-import Ribbon.Source
-import Ribbon.Display
-import Ribbon.Syntax.Token
-import Ribbon.Syntax.Literal
-import Ribbon.Syntax.Lexer qualified as L
-import Ribbon.Syntax.Text
+import Language.Ribbon.Util
+
+import Language.Ribbon.Syntax.Token
+import Language.Ribbon.Syntax.Literal
+
+import Language.Ribbon.Parsing.Lexer qualified as L
 
 
 
@@ -34,9 +40,9 @@ data ParseStream
     -- | Create a new ParseStream
     = ParseStream
     -- | The input sequence of syntax objects to parse
-    { input :: Seq (ATag Token)
+    { input :: !(Seq (ATag Token))
     -- | The file associated with the input sequence
-    , file :: File
+    , filePath :: !FilePath
     }
     deriving Show
 
@@ -44,11 +50,11 @@ data ParseStream
 data ParseExcept
     -- | Indicates an unrecoverable error during parsing,
     --   with a message ascribed an Attr that describes the error
-    = ParseError (ATag Doc)
+    = ParseError !(ATag Doc)
     -- | Indicates a recoverable error during parsing
     --   with an offset in the ParseStream,
     --   and a set of expectations that were not met
-    | ParseFail Int (Set String)
+    | ParseFail !Int !(Set String)
     deriving Show
 
 instance Pretty ParseExcept where
@@ -172,8 +178,8 @@ getTokenSeq :: ParserMonad m => m (Seq (ATag Token))
 getTokenSeq = (.input) <$> getStream
 
 -- | Get the file associated with the current Parser action
-getFile :: ParserMonad m => m File
-getFile = (.file) <$> getStream
+getFilePath :: ParserMonad m => m FilePath
+getFilePath = (.filePath) <$> getStream
 
 -- | Get the current offset in the current Parser action
 modOffset :: ParserMonad m => (Int -> Int) -> m Int
@@ -488,10 +494,7 @@ expectAnySeq es = expectingMulti (prettyShow <$> es) (expectAnySeq' es)
 -- | Expect a list of `m a` separated by `m s`.
 --   The list must contain at least one element
 listSome :: ParserMonad m => m s -> m a -> m [a]
-listSome s p = do
-    a <- p
-    as <- many (s >> p)
-    pure (a:as)
+listSome s p = liftA2 (:) p (many $ s >> p)
 
 -- | Expect a list of `m a` separated by `m s`.
 --   The list may be empty
@@ -501,38 +504,39 @@ listMany s p = recoverWith (pure []) (listSome s p)
 -- | Use a predicate to grab a sequence of elements from the stream.
 --   Fails if the sequence is empty
 grabDomain :: ParserMonad m => (ATag Token -> Bool) -> m (Seq (ATag Token))
-grabDomain f = do
-    sq <- Seq.fromList <$> some (nextIfAttr f)
-    a <- attr
-    pure $ sq Seq.:|> Tag a TEof
+grabDomain f =
+    (Seq.:|>) . Seq.fromList <$> some (nextIfAttr f) <*> TEof <@> attr
 
 -- | Grab a sequence of elements from the stream,
---   delimited by their indentation level relative to a given Attr.
+--   delimited by their line/indentation relative to the last Attr.
 --   Fails if this results in an empty sequence
-grabWhitespaceDomain :: ParserMonad m => Attr -> m (Seq (ATag Token))
-grabWhitespaceDomain = grabDomain . wsDominated
+grabWhitespaceDomain :: ParserMonad m => m (Seq (ATag Token))
+grabWhitespaceDomain = lastAttr >>= grabWhitespaceDomainOf
 
--- | A predicate-builder for @grabDomain@ that matches tokens with
---   a higher indentation level than that of the given Attr
+-- | Grab a sequence of elements from the stream,
+--   delimited by their line/indentation relative to a given Attr.
+--   Fails if this results in an empty sequence
+grabWhitespaceDomainOf :: ParserMonad m => Attr -> m (Seq (ATag Token))
+grabWhitespaceDomainOf = grabDomain . wsDominated
+
+-- | A predicate-builder for @grabDomain@ that matches tokens
+--   on the same line or with a higher indentation level
+--   than that of the given Attr
 wsDominated :: Attr -> Tag Attr a -> Bool
 wsDominated l (_ :@: l') =
-    let Pos _ l1 c1 = l.range.start
-        Pos _ l2 c2 = l'.range.start
-    in (l1 <= l2 && c1 < c2)
-    || (l1 == l2 && c1 <= c2)
+    let Pos _ l1 _ i1 = l.range.start
+        Pos _ l2 _ i2 = l'.range.start
+    in l1 == l2 || i1 > i2
 
 
 
--- | Perform syntactic analysis on a File, using the given Parser
-parseFileWith :: Parser a -> File -> Either Doc a
-parseFileWith p file = do
-    toks <- L.lexFile file
-    evalParser p file toks
 
--- | Perform syntactic analysis on a string, using the given Parser,
+-- | Perform syntactic analysis on a bytestring, using the given Parser,
 --   with errors reported to be in a file with the given name
 parseByteStringWith :: Parser a -> FilePath -> ByteString -> Either Doc a
-parseByteStringWith p name content = parseFileWith p (File "memory" name content)
+parseByteStringWith p filePath fileContent = do
+    toks <- L.lexByteString filePath fileContent
+    evalParser p filePath toks
 
 -- | Perform syntactic analysis on a string, using the given Parser,
 --   with errors reported to be in a file with the given name
@@ -540,12 +544,12 @@ parseStringWith :: Parser a -> FilePath -> String -> Either Doc a
 parseStringWith p name = parseByteStringWith p name . fromString
 
 
--- | Evaluate a Parser on a given File, converting ParseErrors to Strings
-evalParser :: Parser a -> File -> Seq (ATag Token) -> Either Doc a
-evalParser px file toks =
+-- | Evaluate a Parser on a given sequence of tokens, converting ParseErrors to Strings
+evalParser :: Parser a -> FilePath ->  Seq (ATag Token) -> Either Doc a
+evalParser px filePath toks =
     case runParser
         (noFail $ consumesAll (px << eof))
-        (ParseStream toks file) 0 of
+        (ParseStream toks filePath) 0 of
             Left (ParseError (msg :@: l)) -> Left $
                 hang ("syntax error" <+> (pPrint l <> ":"))
                     msg
@@ -558,7 +562,7 @@ recurseParser :: ParserMonad m => m a -> Seq (ATag Token) -> m a
 recurseParser px toks = do
     p <- unliftP (noFail $ consumesAll (px << eof))
     liftP do
-        f <- getFile
+        f <- getFilePath
         case runParser p (ParseStream toks f) 0 of
             Left e -> liftP $ Parser \_ _ -> Left e
             Right (a, _) -> pure a
@@ -609,7 +613,7 @@ anySym = expecting "a symbol" $ nextMap \case
 -- | Expect a symbol token that is not reserved
 unreserved :: ParserMonad m => m String
 unreserved = expecting "an unreserved symbol" $ nextMap \case
-    TSymbol s | not (isReserved s) -> Just s
+    tk@(TSymbol s) | not (isReserved tk) -> Just s
     _ -> Nothing
 
 -- | Expect a symbol token with a specific value
@@ -660,7 +664,7 @@ brackets px = do
 --   Note that if this is used on the first token in an input it has no effect
 connected :: ParserMonad m => m a -> m a
 connected p = do
-    f <- getFile
+    f <- getFilePath
     px <- unliftP p
     liftP $ Parser \s i ->
         let a = psAttr s (i - 1)
@@ -673,3 +677,11 @@ connected p = do
                 ParseFail j Nil ->
                     (ParseFail j (Set.singleton "a connected token"))
                 err -> err
+
+lastAttr :: ParserMonad m => m Attr
+lastAttr = liftP $ Parser \s i -> Right
+    let a = psAttr s (i - 1)
+        a' = psAttr s i
+    in if i == 0
+        then (a', i)
+        else (a, i)

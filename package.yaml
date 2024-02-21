@@ -1,9 +1,9 @@
 name: ribbonc
 version: 0.1.0.0
 
-default-extensions:
-    - GHC2021
+language: GHC2021
 
+default-extensions:
     - LambdaCase
     - BlockArguments
     - MultiWayIf
