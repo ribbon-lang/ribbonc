@@ -27,8 +27,7 @@ import Control.Monad.Except
 
 import Language.Ribbon.Util
 
-import Language.Ribbon.Syntax.Token
-import Language.Ribbon.Syntax.Literal
+import Language.Ribbon.Lexical
 
 import Language.Ribbon.Parsing.Lexer qualified as L
 

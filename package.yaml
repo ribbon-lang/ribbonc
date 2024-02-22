@@ -39,6 +39,7 @@ dependencies:
     - directory
     - filepath
     - parallel-io
+    - optparse-applicative
 
 build-tools:
     - alex

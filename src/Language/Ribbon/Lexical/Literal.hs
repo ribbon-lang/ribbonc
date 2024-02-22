@@ -1,4 +1,4 @@
-module Language.Ribbon.Syntax.Literal where
+module Language.Ribbon.Lexical.Literal where
 
 import Text.Pretty
 

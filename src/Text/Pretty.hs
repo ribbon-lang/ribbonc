@@ -3,8 +3,8 @@
 module Text.Pretty
     ( module X
     , shown
-    , vcat', vcatDouble
-    , hang, indent, lsep
+    , vcat', vcatDouble, ($++$), with, joinWith, spaceWith, linesWith
+    , hang, qual, qual', qualH, indent, lsep
     , backticks, backticked, maybeBackticks, maybeBackticked
     , hashes, hashed, maybeHashes, maybeHashed
     , quoted, maybeQuoted
@@ -30,15 +30,20 @@ import Data.Foldable qualified as Fold
 
 import Data.Word (Word8, Word32)
 
-import Data.Map.Lazy (Map)
-import Data.Map.Lazy qualified as Map
+import Data.Map.Strict (Map)
+import Data.Map.Strict qualified as Map
 
 import Data.Set (Set)
 import Data.Set qualified as Set
 
 import Data.Sequence (Seq)
 
+import Data.Nil
 
+
+instance Nil Doc where
+    nil = mempty
+    isNil = isEmpty
 
 
 instance Pretty Word8 where
@@ -95,16 +100,31 @@ prettyPrintLevel lvl = putStrLn . prettyShowLevel lvl
 
 -- | Pretty print the value if it exists, otherwise print nothing
 maybePPrint :: Pretty a => Maybe a -> Doc
-maybePPrint = maybe mempty pPrint
+maybePPrint = maybe Nil pPrint
 
 -- | Pretty print the value with a given level of verbosity and precedence,
 --   if it exists, otherwise print nothing
 maybePPrintPrec :: Pretty a => PrettyLevel -> Rational -> Maybe a -> Doc
-maybePPrintPrec lvl prec = maybe mempty (pPrintPrec lvl prec)
+maybePPrintPrec lvl prec = maybe Nil (pPrintPrec lvl prec)
 
 -- | The usual `hang` with a consistent indentation of 4 spaces
 hang :: Doc -> Doc -> Doc
 hang a = X.hang a 4
+
+-- | `<+>` where the first document is removed if the second is empty
+qual :: Doc -> Doc -> Doc
+qual _ Nil = Nil
+qual a b = a <+> b
+
+-- | `<+>` where the second document is removed if the first is empty
+qual' :: Doc -> Doc -> Doc
+qual' Nil _ = Nil
+qual' a b = a <+> b
+
+-- | `hang` where the first document is removed if the second is empty
+qualH :: Doc -> Doc -> Doc
+qualH _ Nil = Nil
+qualH a b = hang a b
 
 -- | The usual `nest` with a consistent indentation of 4 spaces
 indent :: Doc -> Doc
@@ -116,14 +136,32 @@ shown = text . show
 
 -- | list version of @($+$)@
 vcat' :: [Doc] -> Doc
-vcat' = foldr ($+$) mempty
+vcat' = foldr ($+$) Nil
+
+-- | Concatenate two documents with double new lines between them
+($++$) :: Doc -> Doc -> Doc
+($++$) = linesWith (zeroWidthText "")
+
+with :: (Doc -> Doc -> Doc) -> Doc -> Doc -> Doc -> Doc
+with _ _ a Nil = a
+with _ _ Nil b = b
+with f s a b = a `f` s `f` b
+
+-- | Join two documents together with new lines and a doc, if they are not empty
+linesWith :: Doc -> Doc -> Doc -> Doc
+linesWith = with ($+$)
+
+-- | Join two documents together with spaces and a doc, if they are not empty
+spaceWith :: Doc -> Doc -> Doc -> Doc
+spaceWith = with (<+>)
+
+-- | Join two documents together with a doc, if they are not empty
+joinWith :: Doc -> Doc -> Doc -> Doc
+joinWith = with (<>)
 
 -- | Concatenate a list with double new lines between elements
 vcatDouble :: [Doc] -> Doc
-vcatDouble = (`foldr` mempty) \a ->
-    \case
-        (isEmpty -> True) -> a
-        b -> a $+$ zeroWidthText "" $+$ b
+vcatDouble = foldr ($++$) Nil
 
 -- | @sep . punctuate ","@
 lsep :: [Doc] -> Doc

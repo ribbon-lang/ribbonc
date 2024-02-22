@@ -15,8 +15,8 @@ import Data.Attr
 import Text.Pretty
 
 import Language.Ribbon.Util
-import Language.Ribbon.Syntax.Literal
-import Language.Ribbon.Syntax.Token
+
+import Language.Ribbon.Lexical
 
 import Language.Ribbon.Parsing.Monad.Lexer
 import Language.Ribbon.Parsing.Text

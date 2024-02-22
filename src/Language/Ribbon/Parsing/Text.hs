@@ -10,7 +10,7 @@ import Data.Nil
 
 import Language.Ribbon.Util
 
-import Language.Ribbon.Syntax.Version
+import Language.Ribbon.Lexical
 
 
 

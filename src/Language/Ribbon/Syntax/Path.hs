@@ -11,14 +11,15 @@ import Data.Attr
 import Text.Pretty
 
 import Language.Ribbon.Syntax.Fixity
+import Language.Ribbon.Syntax.Category
+
+
 
 
 -- | A definition name, without qualification.
 --   Either a symbol or an identifier; never a reserved character sequence
 newtype Name
-    -- | Construct a @Name@ from a @String@
     = Name
-    -- | The @String@ value of a @Name@
     { value :: String }
     deriving (Eq, Ord, Show)
 
@@ -27,123 +28,78 @@ instance Pretty Name where
 
 
 
--- | Marker class for paths, allowing to check if they need a slash separator
---   between themselves and a following component
-class IsPath b where
-    -- | Determine if a path base requires a @\/@ separator
-    --   to connect it to components
-    pathRequiresSlash :: b -> Bool
-
-
-
--- | A locally-qualified path to a definition,
---   with optional specifiers on names
-type LocalPath = Path LocalPathBase LocalPathComponent
-
--- | A path with its base resolved to an absolute location,
---   with fully resolved specifiers on names
-type AbsPath = Path AbsPathBase AbsPathComponent
-
 -- | A path to a definition, with a base to start resolving from,
---   and (depending on instantiation, optionally) specifiers on names
-data Path b c
-    -- | Construct a @Path@ from a base and a sequence of components
+--   and specifiers on names
+data Path
     = Path
-    { base :: !(ATag b)
-    , components :: !(Seq (ATag c))
+    { base :: !(ATag PathBase)
+    , components :: !(Seq (ATag PathComponent))
     }
     deriving (Eq, Ord, Show)
 
-instance (IsPath b, Pretty b, Pretty c) => Pretty (Path b c) where
-    pPrintPrec lvl _ (Path b cs) =
+instance Pretty Path where
+    pPrintPrec lvl _ p@(Path b cs) =
         let csd = hcat $ punctuate "/" (pPrintPrec lvl 0 <$> Fold.toList cs)
-        in if pathRequiresSlash b.value && not (Seq.null cs)
+        in if pathRequiresSlash p
             then pPrintPrec lvl 0 b <> "/" <> csd
             else pPrintPrec lvl 0 b <> csd
 
-instance IsPath b => IsPath (Path b c) where
-    pathRequiresSlash lp
-         = not (Seq.null lp.components)
-        || pathRequiresSlash lp.base.value
+pathRequiresSlash :: Path -> Bool
+pathRequiresSlash lp
+        = not (Seq.null lp.components)
+    || pathBaseRequiresSlash lp.base.value
+
+instance CatOverloaded Path where
+    overloadCategory (Path _ (_ Seq.:|> c)) = overloadCategory c.value
+    overloadCategory _ = ONamespace
+
+instance FixOverloaded Path where
+    overloadFixity (Path _ (_ Seq.:|> c)) = overloadFixity c.value
+    overloadFixity _ = OAtomPrefix
 
 
--- | The root component of an @AbsPath@,
+-- | The base component of a @Path@,
 --   specifying where to begin looking up components
-data AbsPathBase
-    = ApRoot
-    -- | Start in a given module
-    | ApModule !Name
-    -- | Start in a given file
-    | ApFile !FilePath
-    deriving (Eq, Ord, Show)
-
-instance Pretty AbsPathBase where
-    pPrint = \case
-        ApRoot -> "/"
-        ApModule n -> "module" <+> pPrint n
-        ApFile f -> "file" <+> shown f
-
-instance IsPath AbsPathBase where
-    pathRequiresSlash = \case
-        ApRoot -> False
-        _ -> True
-
-
--- | The root component of a @LocalPath@,
---   specifying where to begin looking up components
-data LocalPathBase
-    = LpAbs AbsPathBase
-    -- | Start in a given number of levels above the current namespace
-    | LpUp !Int
+data PathBase
+    -- | Start at the root of the active module
+    = PbRoot
     -- | Start in the current namespace
-    | LpThis
+    | PbThis
+    -- | Start in a given module
+    | PbModule !Name
+    -- | Start in a given file
+    | PbFile !FilePath
+    -- | Start in a given number of levels above the current namespace
+    | PbUp !Int
     deriving (Eq, Ord, Show)
 
-instance Pretty LocalPathBase where
+instance Pretty PathBase where
     pPrint = \case
-        LpAbs ab -> pPrint ab
-        LpUp i -> text (concat $ replicate i "../")
-        LpThis -> "./"
+        PbRoot -> "/"
+        PbThis -> "./"
+        PbModule n -> "module" <+> pPrint n
+        PbFile f -> "file" <+> shown f
+        PbUp i -> text (concat $ replicate i "../")
 
-instance IsPath LocalPathBase where
-    pathRequiresSlash = \case
-        LpAbs ab -> pathRequiresSlash ab
-        _ -> False
-
-
--- | A component of a @LocalPath@
-type LocalPathComponent
-    = PathComponent (Maybe PartialFixity) (Maybe ItemDefKind)
-
--- | A component of an @AbsPath@
-type AbsPathComponent
-    = PathComponent PartialFixity ItemDefKind
+pathBaseRequiresSlash :: PathBase -> Bool
+pathBaseRequiresSlash = \case
+    PbModule _ -> True
+    PbFile _ -> True
+    _ -> False
 
 -- | A component of a @Path@, specifying a name to look up, with a specifier
-data PathComponent f k
-    -- | Specifies a namespace definition
-    = PcNamespace !Name
+data PathComponent
     -- | Specifies a non-namespace definition that may have
-    --   a specific fixity and/or a def kind
-    | PcItem !f !k !Name
+    --   a specific fixity and/or a category
+    = PcItem !OverloadFixity !OverloadCategory !Name
     deriving (Eq, Ord, Show)
 
-instance (Pretty f, Pretty k) => Pretty (PathComponent f k) where
+instance Pretty PathComponent where
     pPrint = \case
-        PcNamespace n -> "namespace" <+> pPrint n
         PcItem f k n -> pPrint f <+> pPrint k <+> pPrint n
 
+instance CatOverloaded PathComponent where
+    overloadCategory (PcItem _ k _) = k
 
--- | A specification for the kind of item definition to look up
-data ItemDefKind
-    -- | Look up a type definition,
-    --   ie either a data type, class, or effect
-    = IDefType
-    -- | Look up a value definition
-    | IDefValue
-    deriving (Eq, Ord, Show, Enum, Bounded)
-
-instance Pretty ItemDefKind where
-    pPrint = \case
-        IDefType -> "type"
-        IDefValue -> "value"
+instance FixOverloaded PathComponent where
+    overloadFixity (PcItem f _ _) = f

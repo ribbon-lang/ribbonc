@@ -3,54 +3,50 @@ module Language.Ribbon.Syntax.Fixity where
 import Text.Pretty
 
 
-
-
--- | A specification for the broad fixity
---   category of the item definition to look up
-data PartialFixity
-    -- | Look up an infix operator, with unspecified associativity
-    = PInfix
-    -- | Look up a prefix operator
-    | PPrefix
-    -- | Look up a postfix operator
-    | PPostfix
-    -- | Look up an atomic symbol
-    | PAtom
-    deriving (Eq, Ord, Show, Enum, Bounded)
-
-instance Pretty PartialFixity where
-    pPrint = \case
-        PInfix -> "infix"
-        PPrefix -> "prefix"
-        PPostfix -> "postfix"
-        PAtom -> "atom"
+-- | A class for types that can have a fixity,
+--   in the context of an overloaded name
+class FixOverloaded a where
+    -- | Get the @OverloadFixity@ of a value
+    overloadFixity :: a -> OverloadFixity
 
 
 -- | A specification for the exact fixity of a definition
 data ExactFixity
     -- | An infix operator with left associativity
-    = EInfixL
+    = InfixL
     -- | An infix operator with right associativity
-    | EInfixR
+    | InfixR
     -- | An infix operator with no associativity
-    | EInfix
+    | Infix
     -- | A prefix operator
-    | EPrefix
+    | Prefix
     -- | A postfix operator
-    | EPostfix
+    | Postfix
     -- | An atomic symbol
-    | EAtom
+    | Atom
     deriving (Eq, Ord, Show, Enum, Bounded)
 
 instance Pretty ExactFixity where
     pPrint = \case
-        EInfixL -> "infixl"
-        EInfixR -> "infixr"
-        EInfix -> "infix"
-        EPrefix -> "prefix"
-        EPostfix -> "postfix"
-        EAtom -> "atom"
+        InfixL -> "infixl"
+        InfixR -> "infixr"
+        Infix -> "infix"
+        Prefix -> "prefix"
+        Postfix -> "postfix"
+        Atom -> "atom"
 
+instance FixOverloaded ExactFixity where
+    overloadFixity = exactFixityToOverload
+
+-- | Convert an @ExactFixity@ to an @OverloadFixity@
+exactFixityToOverload :: ExactFixity -> OverloadFixity
+exactFixityToOverload = \case
+    InfixL -> OInfix
+    InfixR -> OInfix
+    Infix -> OInfix
+    Prefix -> OAtomPrefix
+    Postfix -> OPostfix
+    Atom -> OAtomPrefix
 
 -- | A fixity specification used by definitions to determine
 --   overload compatibility
@@ -61,6 +57,8 @@ data OverloadFixity
     | OPostfix
     -- | An atomic symbol or prefix operator
     | OAtomPrefix
+    -- | An unspecified fixity
+    | OUnspecified
     deriving (Eq, Ord, Show, Enum, Bounded)
 
 instance Pretty OverloadFixity where
@@ -68,13 +66,7 @@ instance Pretty OverloadFixity where
         OInfix -> "infix"
         OPostfix -> "postfix"
         OAtomPrefix -> "atom or prefix"
+        OUnspecified -> "unspecified fixity"
 
--- | Convert an @ExactFixity@ to an @OverloadFixity@
-exactFixityToOverload :: ExactFixity -> OverloadFixity
-exactFixityToOverload = \case
-    EInfixL -> OInfix
-    EInfixR -> OInfix
-    EInfix -> OInfix
-    EPrefix -> OAtomPrefix
-    EPostfix -> OPostfix
-    EAtom -> OAtomPrefix
+instance FixOverloaded OverloadFixity where
+    overloadFixity = id

@@ -10,14 +10,14 @@ import Data.Sequence (Seq)
 
 import Data.Attr
 
-import Text.Pretty
+import Text.Pretty as Pretty
 
 import Language.Ribbon.Util
 
 import Language.Ribbon.Syntax
-import Language.Ribbon.Syntax.Token
+import Language.Ribbon.Lexical
 
-import Language.Ribbon.Parsing.Lexer
+import Language.Ribbon.Parsing.Lexer as L
 
 import Language.Ribbon.Parsing.Parser as P
 import Language.Ribbon.Parsing.Monad.Parser as P

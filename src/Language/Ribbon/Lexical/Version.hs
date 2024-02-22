@@ -1,4 +1,4 @@
-module Language.Ribbon.Syntax.Version where
+module Language.Ribbon.Lexical.Version where
 
 import Data.Nil
 

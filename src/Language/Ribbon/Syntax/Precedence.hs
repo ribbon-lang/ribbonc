@@ -7,17 +7,17 @@ import Language.Ribbon.Syntax.Fixity
 
 
 
--- | Encodes precedence levels
+-- | Encodes precedence levels of operators
 type Precedence = Word8
 
 
--- FIXME: these values are completely random
+
 -- | The default @Precedence@ of a given fixity
 defaultPrecedence :: ExactFixity -> Precedence
-defaultPrecedence = \case
-    EInfixL -> 7
-    EInfixR -> 7
-    EInfix -> 7
-    EPrefix -> 8
-    EPostfix -> 0
-    EAtom -> 0
+defaultPrecedence = \case -- FIXME: placeholder, gives random values
+    InfixL -> 7
+    InfixR -> 7
+    Infix -> 7
+    Prefix -> 8
+    Postfix -> 0
+    Atom -> 0

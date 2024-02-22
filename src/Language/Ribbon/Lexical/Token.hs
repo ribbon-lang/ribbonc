@@ -1,4 +1,4 @@
-module Language.Ribbon.Syntax.Token where
+module Language.Ribbon.Lexical.Token where
 
 import Data.Functor
 import Data.Foldable
@@ -9,8 +9,8 @@ import Data.Sequence (Seq)
 
 import Text.Pretty
 
-import Language.Ribbon.Syntax.Literal
-import Language.Ribbon.Syntax.Version
+import Language.Ribbon.Lexical.Literal
+import Language.Ribbon.Lexical.Version
 
 
 -- | An atom of syntax

@@ -1,11 +1,4 @@
-module "test"
-    version 1.0.0
-    author "noxabellus"
-    license "MIT"
-    sources "./src", "./tests"
-    dependencies
-        "core" @ 1.0.0
-        "tag" @ 0.1.0
+pub foo = 1 + 1
 
 pub quux = namespace
     use module core/{list/{./, List}, ops/{+, -, infix < as lt}}

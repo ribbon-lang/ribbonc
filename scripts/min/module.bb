@@ -10,5 +10,5 @@ module "min" @ 0.1.0
     dependencies
         "core" @ 0.1.0 as core
 
-
+pub foo = 1.1
 pub use file "./main.bb"/..
