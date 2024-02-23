@@ -2,7 +2,10 @@ module Data.Tag where
 
 import Data.Bifunctor
 
+import Data.Nil
+
 import Text.Pretty
+import Control.Applicative
 
 
 -- | Wrapper for objects, with attribute
@@ -32,19 +35,35 @@ instance {-# OVERLAPPABLE #-} (Pretty t, Pretty a) => Pretty (Tag t a) where
             then parens (pPrintPrec l 0 a) <> "@" <> brackets (pPrintPrec l 0 t)
             else pPrintPrec l p a
 
-instance Bifunctor Tag where
+instance {-# OVERLAPPABLE #-} Bifunctor Tag where
     bimap f g (a :@: t) = g a :@: f t
 
-instance Eq a => Eq (Tag t a) where
+instance {-# OVERLAPPABLE #-} Eq a => Eq (Tag t a) where
     a == b = untag a == untag b
 
-instance Ord a => Ord (Tag t a) where
+instance {-# OVERLAPPABLE #-} Ord a => Ord (Tag t a) where
     compare a b = compare (untag a) (untag b)-- | @(a :\@:) <$> t@
+
+instance {-# OVERLAPPABLE #-} (Semigroup t, Semigroup a) => Semigroup (Tag t a) where
+    Tag t1 a1 <> Tag t2 a2 = Tag (t1 <> t2) (a1 <> a2)
+
+instance {-# OVERLAPPABLE #-} (Monoid t, Monoid a) => Monoid (Tag t a) where
+    mempty = Tag mempty mempty
+
+instance {-# OVERLAPPABLE #-} (Nil t, Nil a) => Nil (Tag t a) where
+    isNil (Tag t a) = isNil t && isNil a
+    nil = Tag Nil Nil
 
 -- | Lift @:\@:@ over a functor, ie @fmap (a :\@:) t@
 (<@>) :: Functor f => a -> f t -> f (Tag t a)
 a <@> t = (a :@:) <$> t
 infixl 5 <@>
+
+-- | Lift @:\@:@ over an applicative, ie @liftA2 (:\@:) a t@
+(<*@*>) :: Applicative f => f a -> f t -> f (Tag t a)
+a <*@*> t = liftA2 (:@:) a t
+infixl 4 <*@*>
+
 
 -- | Compositional @untag@
 untagged :: (a -> b) -> (Tag t a -> b)

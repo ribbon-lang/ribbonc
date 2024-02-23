@@ -9,9 +9,10 @@ import Language.Ribbon.Syntax.Precedence
 
 
 
--- | Binds an overloaded name to a value, either a @Ref@ or a @Path@,
---   depending on compilation phase. The @Fixity@ and @Precedence@ of
---   this usage of the overload are stored here as well
+-- | Binds an overloaded name to a value; either a @Ref@ or a @Path@,
+--   depending on compilation phase. The @ExactFixity@ and @Precedence@ of
+--   this usage of the overload are stored here as well. The element @e@ must
+--   instance @CatOverloaded@ for @Binding e@ to be usable in @Set@s as intended
 data Binding e
     = Binding
     { fixity :: !ExactFixity

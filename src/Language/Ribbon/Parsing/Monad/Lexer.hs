@@ -3,7 +3,7 @@ module Language.Ribbon.Parsing.Monad.Lexer where
 import Data.ByteString.Lazy (ByteString)
 import Data.ByteString.Lazy qualified as ByteString
 
-import Data.Word (Word8, Word32)
+import Data.Word (Word32)
 
 import Data.Pos
 import Data.Tag
@@ -54,36 +54,6 @@ data AlexInput
     , startCode :: !Int
     }
     deriving Show
-
--- | Placeholder required by alex; there are no patterns with a left context
-alexInputPrevChar :: AlexInput -> Char
-alexInputPrevChar =
-    -- No patterns with a left context
-    undefined
-
--- | Get the next byte from an input stream, updating the position
-alexGetByte :: AlexInput -> Maybe (Word8, AlexInput)
-alexGetByte input@AlexInput {..} =
-    case ByteString.uncons bytes of
-        Just (byte, bytes') ->
-            let pos' = nextPos pos byte
-                input' =
-                    input
-                    { pos   = pos'
-                    , bytes = bytes'
-                    }
-            in Just (byte, input')
-        _ -> Nothing
-    where
-        nextPos (Pos o l _ _) 0x0a =
-            Pos (o + 1) (l + 1) 1 0
-
-        nextPos (Pos o l c i) ch =
-            Pos (o + 1) l (c + 1)
-                if startCode == 0
-                -- NOTE: tab width should possibly be a compiler option
-                    then i + select (ch == 0x09) 4 1
-                    else i
 
 -- | Check if an input stream is at the end of the file
 isEof :: AlexInput -> Bool

@@ -9,8 +9,7 @@ import Data.ByteString.Lazy (ByteString)
 import Data.Sequence (Seq)
 import Data.Sequence qualified as Seq
 
-import Data.Set (Set)
-import Data.Set qualified as Set
+import Data.List qualified as List
 
 import Data.Nil
 import Data.Tag
@@ -30,69 +29,106 @@ import Language.Ribbon.Util
 import Language.Ribbon.Lexical
 
 import Language.Ribbon.Parsing.Lexer qualified as L
+import Debug.Trace (traceM)
 
 
 
 
 -- | Input type for Parser
 data ParseStream
-    -- | Create a new ParseStream
     = ParseStream
-    -- | The input sequence of syntax objects to parse
     { input :: !(Seq (ATag Token))
-    -- | The file associated with the input sequence
     , filePath :: !FilePath
     }
     deriving Show
 
--- | Parser error type
-data ParseExcept
-    -- | Indicates an unrecoverable error during parsing,
-    --   with a message ascribed an Attr that describes the error
-    = ParseError !(ATag Doc)
-    -- | Indicates a recoverable error during parsing
-    --   with an offset in the ParseStream,
-    --   and a set of expectations that were not met
-    | ParseFail !Int !(Set String)
+-- | Wrapper for all errors triggered in a @Parser@,
+--   with the specific @ParseFail@ tagged with an @Attr@,
+--   and a flag indicating whether the error is recoverable
+data ParseError
+    = ParseError
+    { isRecoverable :: Bool
+    , failure :: !(ATag ParseFail)
+    }
     deriving Show
 
-instance Pretty ParseExcept where
+instance Pretty ParseError where
     pPrint = \case
-        (ParseError (msg :@: x)) ->
-            hang ("error at" <+> pPrint x <+> ":")
-                msg
-        (ParseFail x msgs) ->
-            hang ("unhandled failure at offset" <+> pPrint x <+> ":")
-                (formatExpected msgs)
+        (ParseError recoverable (f :@: x)) ->
+            hang ((if recoverable
+                then "recoverable"
+                else "unrecoverable")
+            <+> "syntax error at" <+> (pPrint x <> ":")) do
+                formatFailure [x] f
 
--- | Composition class for monads wrapping Parser
-class ( Monad m, Alternative m, MonadFail m, MonadError Doc m
-      , MonadReader ParseStream m, MonadState Int m
-      )
-    => ParserMonad m where
-    -- | Lift a Parser action into the current monad
-    liftP :: Parser a -> m a
-    unliftP :: m a -> m (Parser a)
-    -- | Catch a ParseExcept in a Parser action embedded in the current monad
-    catchParseExcept :: m a -> (ParseExcept -> m a) -> m a
+instance Semigroup ParseError where
+    ea <> eb = ParseError
+        (ea.isRecoverable && eb.isRecoverable)
+        (ea.failure <> eb.failure)
 
 
-instance ParserMonad Parser where
-    liftP = id
-    unliftP = pure
+-- | Specific type of failure for a @ParseError@
+data ParseFail
+    = EofFailure
+    | UnexpectedFailure Token
+    | SingleFailure !Doc
+    | ExpectationFailure !Doc !(ATag ParseFail)
+    | AlternativeFailure ![ATag ParseFail]
+    deriving (Eq, Show)
 
-    catchParseExcept (Parser a) f = Parser \s i ->
-        case a s i of
-            Left e -> runParser (f e) s i
-            x -> x
+instance Pretty ParseFail where
+    pPrint = formatFailure []
+
+instance Pretty (ATag ParseFail) where
+    pPrint (f :@: x) = hang ("at" <+> (pPrint x <> ":")) (formatFailure [x] f)
+
+instance Semigroup (ATag ParseFail) where
+    (<>) ta@(a :@: xa) tb@(b :@: xb) = Tag (xa <> xb) case (a, b) of
+        (UnexpectedFailure _, UnexpectedFailure _) | xa == xb -> a
+        (AlternativeFailure as, AlternativeFailure bs) ->
+            AlternativeFailure (as `List.union` bs)
+        (AlternativeFailure as, _) -> AlternativeFailure (as `List.union` [tb])
+        (_, AlternativeFailure bs) -> AlternativeFailure ([ta] `List.union` bs)
+        _ -> case List.nub [ta, tb] of
+            [e] -> e.value
+            es -> AlternativeFailure es
+
+-- | Format a @ParseFail@ into a @Doc@, discarding any @Attr@s
+--   that have already been printed in the given tree
+formatFailure :: [Attr] -> ParseFail -> Doc
+formatFailure ignore = \case
+        EofFailure -> "unexpected end of input"
+        UnexpectedFailure tok ->
+            "unexpected token" <+> backticked tok
+        SingleFailure doc -> doc
+        ExpectationFailure msg incite ->
+            hang (hang "expected" (msg <> ":")) do
+                go ignore incite
+        AlternativeFailure [sub] -> go ignore sub
+        AlternativeFailure subs ->
+            hang "all alternatives failed:" do
+                vcat' (go ignore <$> subs)
+    where
+    go ig (f :@: x) =
+        if x `elem` ig
+            then formatFailure ig f
+            else hang ("at" <+> (pPrint x <> ":")) do
+                formatFailure (x : ig) f
+
+-- | Create a @ParseFail@ from a @ParseStream@ and an offset into it;
+--   Either an @UnexpectedFailure currentToken@ or @EofFailure@
+formatInput :: ParseStream -> Int -> ATag ParseFail
+formatInput ps i = Tag (psAttr ps i) case psToken ps i of
+    Just t -> UnexpectedFailure t
+    _ -> EofFailure
 
 -- | Parsing monad
 newtype Parser a
-    -- | Wrap a function into a Parser action
-    = Parser (ParseStream -> Int -> Either ParseExcept (a, Int))
+    = Parser (ParseStream -> Int -> Either ParseError (a, Int))
     deriving Functor
 
-runParser :: Parser a -> ParseStream -> Int -> Either ParseExcept (a, Int)
+-- | Unwrap a @Parser a@ to a function
+runParser :: Parser a -> ParseStream -> Int -> Either ParseError (a, Int)
 runParser (Parser m) = m
 
 instance Applicative Parser where
@@ -108,23 +144,25 @@ instance Monad Parser where
         runParser (f a') s i'
 
 instance Alternative Parser where
-    empty = Parser \_ i -> Left (ParseFail i Set.empty)
+    empty = Parser \s i -> Left $ ParseError True $ formatInput s i
     Parser a <|> Parser b = Parser \s i ->
         case a s i of
-            Left (ParseFail ia mas) -> case b s i of
-                Left (ParseFail ib mbs) ->
-                    Left (ParseFail (min ia ib) (mas <> mbs))
+            Left (ParseError True fa) -> case b s i of
+                Left (ParseError r fb) -> Left
+                    if r then ParseError True (fa <> fb)
+                    else ParseError False fb
                 x -> x
             x -> x
 
 instance MonadFail Parser where
-    fail msg = Parser \_ i -> Left (ParseFail i (Set.singleton msg))
+    fail msg = Parser \s i -> Left $ ParseError True $
+        SingleFailure (text msg) :@: psAttr s i
 
-instance MonadError Doc Parser where
-    throwError msg = Parser \s i -> Left (ParseError (msg :@: psAttr s i))
+instance MonadError ParseError Parser where
+    throwError e = Parser \_ _ -> Left e
     catchError (Parser a) f = Parser \s i ->
         case a s i of
-            Left (ParseError (msg :@: _)) -> runParser (f msg) s i
+            Left e -> runParser (f e) s i
             x -> x
 
 instance MonadReader ParseStream Parser where
@@ -136,333 +174,241 @@ instance MonadState Int Parser where
     get = Parser \_ i -> Right (i, i)
     put i = Parser \_ _ -> Right ((), i)
 
--- | Get the Attr for a particular offset in a ParseStream
+-- | Get the @Attr@ for a particular offset in a @ParseStream@,
+--   or the end of the input, if the offset is out of bounds
 psAttr :: ParseStream -> Int -> Attr
 psAttr ps i = case Seq.lookup i ps.input of
     Just (_ :@: x) -> x
-    _ -> error "psAttr: invalid offset"
+    _ -> case Seq.lookup (psLength ps - 1) ps.input of
+        Just (_ :@: x) -> x
+        _ -> Attr ps.filePath Nil
 
--- | Get the syntax object for a particular offset in a ParseStream
-psValue :: ParseStream -> Int -> Maybe Token
-psValue ps i = untag <$> Seq.lookup i ps.input
+-- | Get the @Token@ for a particular offset in a @ParseStream@
+psToken :: ParseStream -> Int -> Maybe Token
+psToken ps i = untag <$> Seq.lookup i ps.input
 
--- | Get the length of a ParseStream
+-- | Get the length of a @ParseStream@
 psLength :: ParseStream -> Int
 psLength = Seq.length . (.input)
 
--- | Throw a custom parser error in the current monad.
---   Note that you would normally use
---  `fail`, `empty`, in combination `expecting`, etc
-throwParseExcept :: ParserMonad m => ParseExcept -> m a
-throwParseExcept e = liftP $ Parser \_ _ -> Left e
 
--- | Catch a ParseFail in the current monad.
-catchParseFail :: ParserMonad m => m a -> (Int -> Set String -> m a) -> m a
-catchParseFail m f = m `catchParseExcept` \case
-    ParseFail i msgs -> f i msgs
-    e -> throwParseExcept e
 
--- | Catch a ParseError in the current monad.
-catchParseError :: ParserMonad m => m a -> (Attr -> Doc -> m a) -> m a
-catchParseError m f = m `catchParseExcept` \case
-    ParseError (msg :@: ie) -> f ie msg
-    e -> throwParseExcept e
+-- | Get the @ParseStream@ associated with the current @Parser@ action
+getStream :: Parser ParseStream
+getStream = Parser (curry Right)
 
--- | Get the stream associated with the current Parser action
-getStream :: ParserMonad m => m ParseStream
-getStream = liftP $ Parser (curry Right)
-
--- | Get the token sequence associated with the current Parser action
-getTokenSeq :: ParserMonad m => m (Seq (ATag Token))
+-- | Get the @Seq (ATag Token)@ associated with the current @Parser@ action
+getTokenSeq :: Parser (Seq (ATag Token))
 getTokenSeq = (.input) <$> getStream
 
--- | Get the file associated with the current Parser action
-getFilePath :: ParserMonad m => m FilePath
+-- | Get the @FilePath@ associated with the current @Parser@ action
+getFilePath :: Parser FilePath
 getFilePath = (.filePath) <$> getStream
 
--- | Get the current offset in the current Parser action
-modOffset :: ParserMonad m => (Int -> Int) -> m Int
-modOffset f = liftP $ Parser \_ i -> let i' = f i in Right (i, i')
+-- | Get the offset associated with the current @Parser@ action
+modOffset :: (Int -> Int) -> Parser Int
+modOffset f = Parser \_ i -> let i' = f i in Right (i, i')
 
--- | Run a Parser action with an alternative for failure.
---   Note that this discards the expectations
---   of the first action, unlike `(<|>)`
-recoverWith :: ParserMonad m => m a -> m a -> m a
-recoverWith m1 m2 = m2 `catchParseFail` \_ _ -> m1
 
--- | Trigger a parser failure with a set of expected values
-parseFail :: ParserMonad m => Set String -> m a
-parseFail msgs = liftP $ Parser \_ i -> Left (ParseFail i msgs)
 
--- | Trigger a parser error with a message
-parseError :: ParserMonad m => Doc -> m a
-parseError msg = liftP $ Parser \s i -> Left (ParseError (msg :@: psAttr s i))
 
--- | Trigger a parser failure at a given offset with a set of expected values.
---   Note that you would normally use `fail`, `empty`,
---   in combination with `expecting`, etc
-parseFail' :: ParserMonad m => Int -> Set String -> m a
-parseFail' i msgs = liftP $ Parser \_ _ -> Left (ParseFail i msgs)
+-- | Run a @Parser@, and if it fails, make the @ParseError@ unrecoverable
+noFail :: Parser a -> Parser a
+noFail m = m `catchError` \(ParseError _ f) -> Parser \_ _ ->
+    Left $ ParseError False f
 
--- | Trigger a parser error at a given Attr with a message.
---   Note that you would normally use `throwError`
-parseError' :: ParserMonad m => Attr -> Doc -> m a
-parseError' a msg = liftP $ Parser \_ _ -> Left (ParseError (msg :@: a))
-
--- | Trigger a parser failure at the current offset
---   with a set of expected values.
-failMulti :: ParserMonad m => [String] -> m a
-failMulti msgs = liftP $ Parser \_ i -> Left (ParseFail i (Set.fromList msgs))
-
--- | Trigger a parser failure at the current offset
---   with a set of expected values.
-failAtMulti :: ParserMonad m => Int -> [String] -> m a
-failAtMulti i msgs = liftP $ Parser \_ _ ->
-    Left (ParseFail i (Set.fromList msgs))
-
--- | Trigger a parser failure at a given offset with a single expectation
-failAt :: ParserMonad m => Int -> String -> m a
-failAt i msg = liftP $ Parser \_ _ -> Left (ParseFail i (Set.singleton msg))
-
--- | Trigger a parser error at a given Attr with a message
-throwErrorAt :: ParserMonad m => Attr -> Doc -> m a
-throwErrorAt a m = liftP $ Parser \_ _ -> Left (ParseError (m :@: a))
-
--- | If the given parser fails,
---   replace its expectation set with the given message
-expecting :: ParserMonad m => String -> m a -> m a
-expecting msg p = catchParseFail p \_ _ -> fail msg
-
--- | If the given parser fails,
---   replace its expectation set and error location with those provided
-expectingAt :: ParserMonad m => Int -> String -> m a -> m a
-expectingAt msgLoc msg p = catchParseFail p \_ _ -> failAt msgLoc msg
-
--- | If the given parser fails, as does not provide expectations,
---   replace its expectation set with the given message
-expectingDefault :: ParserMonad m => String -> m a -> m a
-expectingDefault msg p = catchParseFail p \i -> \case
-    Nil -> failAt i msg
-    msgs -> liftP $ Parser \_ _ -> Left (ParseFail i msgs)
-
--- | If the given parser fails,
---   extend its expectation set with the given message
-expecting' :: ParserMonad m => String -> m a -> m a
-expecting' msg p = catchParseFail p \_ msgs ->
-    failMulti (msg : Set.toList msgs)
-
--- | If the given parser fails,
---   replace its expectation set with the given one
-expectingMulti :: ParserMonad m => [String] -> m a -> m a
-expectingMulti msgs m = m `catchParseFail` \_ _ -> failMulti msgs
-
--- | If the given parser fails,
---   extend its expectation set with the given one
-expectingMulti' :: ParserMonad m => [String] -> m a -> m a
-expectingMulti' msgs m = m `catchParseFail` \_ msgs' ->
-    failMulti (msgs <> Set.toList msgs')
-
--- | Formatting function for unexpected input, or expected input at EOF
-formatInput :: ParseStream -> Int -> Doc
-formatInput s ie = case psValue s ie of
-    Just t -> "unexpected token" <+> backticked t
-    _ -> "expected additional input"
-
--- | Formatting function for expected input
-formatExpected :: Set String -> Doc
-formatExpected Nil = "expected additional input"
-formatExpected msgs = "expected" <+> lsep (text <$> Set.toList msgs)
-
--- | Formatting function used by `noFail` to produce an error message,
---   given either a set of expectations from the failure,
---   or a `formatInput` message
-format :: ParseStream -> Int -> Set String -> Doc
-format s i msgs =
-    if Set.null msgs
-        then formatInput s i
-        else formatExpected msgs
-
--- | Run a parser, and if it fails, convert the failure to a parse error
-noFail :: ParserMonad m => m a -> m a
-noFail m = m `catchParseFail` \i msgs -> do
-    s <- getStream
-    parseError' (psAttr s i) (format s i msgs)
-
--- | Run a parser, and if it fails, convert the failure to a parse error;
---   unless the stream is at its end, in which case the failure is kept
-noFailBeforeEof :: ParserMonad m => m a -> m a
-noFailBeforeEof m =
-    peek >>= \case
-        TEof -> m
-        _ -> noFail m
-
--- | Ensure that the parser consumes the remaining ParseStream
-consumesAll :: ParserMonad m => m a -> m a
+-- | Ensure that the given @Parser@ action consumes the remaining @ParseStream@
+consumesAll :: Parser a -> Parser a
 consumesAll m = do
     a <- m
     s <- getStream
     i <- getOffset
     if i >= psLength s
         then pure a
-        else parseError' (psAttr s i) (formatInput s i)
+        else let Tag x failure = formatInput s i
+        in throwError $ ParseError False $ failure :@: x
 
--- | Fail with an expectation message if the condition is false
-guardFail :: ParserMonad m => Bool -> String -> m ()
-guardFail p expStr = if p then pure () else fail expStr
+-- | Trigger an unrecoverable @ParseError@
+--   with a message at the current location
+parseError :: Doc -> Parser a
+parseError msg = attr >>= flip parseErrorAt msg
 
--- | Fail with an expectation set if the condition is false
-guardMulti :: ParserMonad m => Bool -> [String] -> m ()
-guardMulti p expStrs = if p then pure () else failMulti expStrs
+-- | Trigger an unrecoverable @ParseError@
+--   with a message at the given @Attr@
+parseErrorAt :: Attr -> Doc -> Parser a
+parseErrorAt x msg =
+    throwError $ ParseError False $ SingleFailure msg :@: x
 
--- | Fail at the given offset with an expectation set if the condition is false
-guardMultiAt :: ParserMonad m => Bool -> Int -> Set String -> m ()
-guardMultiAt p i expStrs = if p then pure () else parseFail' i expStrs
 
--- | Error with a message if the condition is false
-assert :: ParserMonad m => Bool -> Doc -> m ()
-assert p expStr = if p then pure () else throwError expStr
+-- | Trigger an unrecoverable @ParseError@
+--   with a message at the current location,
+--   if the given condition is false
+assert :: Bool -> Doc -> Parser ()
+assert p expStr = unless p (parseError expStr)
 
--- | Error with a message at the given Attr if the condition is false
-assertAt :: ParserMonad m => Bool -> Attr -> Doc -> m ()
-assertAt p a expStr = if p then pure () else throwErrorAt a expStr
+-- | Trigger an unrecoverable @ParseError@
+--   with a message at the given @Attr@,
+--   if the condition is false
+assertAt :: Bool -> Attr -> Doc -> Parser ()
+assertAt p x expStr = unless p (parseErrorAt x expStr)
 
--- | Get the current offset in the current parser monad
-getOffset :: ParserMonad m => m Int
+-- | Get the current offset in the current @Parser@ action
+getOffset :: Parser Int
 getOffset = modOffset id
 
--- | Set the current offset in the current parser monad
-setOffset :: ParserMonad m => Int -> m ()
+-- | Set the current offset in the current @Parser@ action
+setOffset :: Int -> Parser ()
 setOffset i = void $ modOffset (const i)
 
 
--- | Advance the offset in the current parser monad
-advance :: ParserMonad m => m ()
-advance = liftP $ Parser \_ i -> Right ((), i + 1)
+-- | Advance the offset in the current @Parser@ action
+advance :: Parser ()
+advance = Parser \_ i -> Right ((), i + 1)
 
--- | Get the currently selected element in the parse stream
-peek :: ParserMonad m => m Token
-peek = liftP $ Parser \s i ->
-    case psValue s i of
+-- | Get the currently selected @Token@ in the @Parser@ action
+peek :: Parser Token
+peek = Parser \s i ->
+    case psToken s i of
         Just a -> Right (a, i)
-        _ -> Left (ParseFail i (Set.singleton "additional input"))
+        _ -> Left $ ParseError True $ EofFailure :@: psAttr s i
 
--- | Get the currently selected element in the parse stream,
---   returning Nothing if the stream is empty
-tryPeek :: ParserMonad m => m (Maybe Token)
-tryPeek = liftP $ Parser \s i ->
-    case psValue s i of
+-- | Get the currently selected @Token@ in the @Parser@ action,
+--   returning @Nothing@ if the stream is empty
+tryPeek :: Parser (Maybe Token)
+tryPeek = Parser \s i ->
+    case psToken s i of
         Just a -> Right (Just a, i)
         _ -> Right (Nothing, i)
 
--- | Get a location Attr for the current position in the ParseStream
-attr :: ParserMonad m => m Attr
-attr = liftP $ Parser \s i -> Right (psAttr s i, i)
+-- | Get a location @Attr@ for the selected position in the @Parser@ action
+attr :: Parser Attr
+attr = Parser \s i -> Right (psAttr s i, i)
 
--- | Get a location Attr for the current position in the ParseStream,
---   and advance the stream offset
-attrNext :: ParserMonad m => m Attr
-attrNext = attr << optional advance
+-- | Get the @Attr@ of the last @Token@ consumed,
+--   or the current one if none have been consumed
+lastAttr :: Parser Attr
+lastAttr = Parser \s i -> Right
+    if i == 0
+        then (psAttr s i, i)
+        else (psAttr s (i - 1), i)
 
--- | Wraps the output of a parser in a Tag with an Attr for the range consumed
-tag :: (ParserMonad m) => m a -> m (ATag a)
+
+-- | Wraps the output of a @Parser@ in an @ATag@ for the range consumed
+tag :: Parser a -> Parser (ATag a)
 tag p = do
     i1 <- getOffset
     a <- p
     i2 <- getOffset
     (a :@:) <$> buildAttr i1 i2
 
-buildAttr :: ParserMonad m => Int -> Int -> m Attr
+-- | Build an @Attr@ representing a segment of the @Parser@'s @ParseStream@
+buildAttr :: Int -> Int -> Parser Attr
 buildAttr i1 i2 = do
     s <- getStream
     pure (psAttr s i1 <> psAttr s (i2 - 1))
 
--- | Execute @tag@ and discard the result, keeping only the Attr generated
-attrOf :: ParserMonad m => m a -> m Attr
+-- | Execute @tag@ and discard the result, keeping only the @Attr@ generated
+attrOf :: Parser a -> Parser Attr
 attrOf = fmap tagOf . tag
 
 -- | Execute @tag@ and discard the result,
---   keeping only the first Pos of the Attr generated
-posOf :: ParserMonad m => m a -> m Pos
+--   keeping only the first @Pos@ of the @Attr@ generated
+posOf :: Parser a -> Parser Pos
 posOf = fmap ((.start) . (.range)) . attrOf
 
--- | Get the offset of the currently selected element in the parse stream
---   then execute the given parser, returning only the offset
-offsetOf :: ParserMonad m => m a -> m Int
+-- | Get the offset of the currently selected @Token@ in the @Parser@ action,
+--   then execute the given @Parser@, returning only the offset
+offsetOf :: Parser a -> Parser Int
 offsetOf = (getOffset <<)
 
--- | Get the currently selected element in the parse stream,
+-- | Get the currently selected @Token@ in the @Parser@ action,
 --   and advance the stream offset
-next :: ParserMonad m => m Token
+next :: Parser Token
 next = peek << advance
 
--- | Get the currently selected element's Attr in the parse stream
-peekAttr :: ParserMonad m => m (ATag Token)
-peekAttr = flip (:@:) <$> attr <*> peek
+-- | Get the currently selected @Token@'s @Attr@ in the @Parser@ action
+peekAttr :: Parser (ATag Token)
+peekAttr = peek <*@*> attr
 
--- | Get the currently selected element's Attr in the parse stream,
---   and wrap it around the current element using Syn,
+-- | Get the currently selected @Token@'s @Attr@ in the @Parser@ action,
+--   and wrap it around the current @Token@ using @Tag@,
 --   then advance the stream offset
-nextAttr :: ParserMonad m => m (ATag Token)
-nextAttr = flip (:@:) <$> attr <*> next
+nextAttr :: Parser (ATag Token)
+nextAttr = tag next
 
--- | Advance the stream offset if the current element satisfies the predicate,
---   returning the matched element
-nextIf :: ParserMonad m => (Token -> Bool) -> m Token
+-- | Advance the @Parser@ stream offset,
+--   if the current @Token@ satisfies the predicate;
+--   returning the matched @Token@
+nextIf :: (Token -> Bool) -> Parser Token
 nextIf p = do
     a <- peek
     if p a
         then a <$ advance
         else empty
 
--- | Advance the stream offset if the current element satisfies the predicate,
---   returning the matched element along with its Attr
-nextIfAttr :: ParserMonad m => (ATag Token -> Bool) -> m (ATag Token)
+-- | Advance the @Parser@ stream offset,
+--   if the current @Token@ satisfies the predicate;
+--   returning the matched @Token@ along with its @Attr@
+nextIfAttr :: (ATag Token -> Bool) -> Parser (ATag Token)
 nextIfAttr p = do
     t <- peekAttr
     if p t
         then t <$ advance
         else empty
 
--- | Advance the stream offset if the current element satisfies the predicate,
---   discarding the matched element
-nextIf_ :: ParserMonad m => (Token -> Bool) -> m ()
+-- | Advance the @Parser@ stream offset,
+--   if the current @Token@ satisfies the predicate;
+--   discarding the matched @Token@
+nextIf_ :: (Token -> Bool) -> Parser ()
 nextIf_ p = do
     a <- peek
     if p a
         then advance
         else empty
 
--- | Advance the stream offset as long as
---   the current element satisfies the predicate,
---   returning the matched elements as a list
-nextWhile :: ParserMonad m => (Token -> Bool) -> m [Token]
+-- | Advance the @Parser@ stream offset,
+--   as long as the current @Token@ satisfies the predicate;
+--   returning the matched @Token@s as a list
+nextWhile :: (Token -> Bool) -> Parser [Token]
 nextWhile p = some (nextIf p)
 
--- | Advance the stream offset as long as
---   the current element satisfies the predicate,
---   discarding the matched elements
-nextWhile_ :: ParserMonad m => (Token -> Bool) -> m ()
+-- | Advance the @Parser@ stream offset,
+--   as long as the current @Token@ satisfies the predicate;
+--   discarding the matched @Token@s
+nextWhile_ :: (Token -> Bool) -> Parser ()
 nextWhile_ p = some_ (nextIf_ p)
 
--- | Advance the stream offset if the current element
---   satisfies a mapping predicate, returning the mapped value
-nextMap :: ParserMonad m => (Token -> Maybe a) -> m a
+-- | Advance the @Parser@ stream offset,
+--   if the current @Token@ satisfies a mapping predicate;
+--   returning the mapped value
+nextMap :: (Token -> Maybe a) -> Parser a
 nextMap p = do
     a <- peek
     case p a of
         Just a' -> a' <$ advance
         _ -> empty
 
+-- | Wrap the @ParseError@s of a given @Parser@
+--   in an explanation of the expectation that was had of it
+expecting :: Doc -> Parser a -> Parser a
+expecting msg px = px `catchError` \(ParseError r f) -> Parser \s i ->
+    Left $ ParseError r $ ExpectationFailure msg f :@: psAttr s i
+
+-- | Wrap the @ParseError@s of a given @Parser@
+--   in an explanation of the expectations that were had of it
+expectingMulti :: [Doc] -> Parser a -> Parser a
+expectingMulti = expecting . lsep
+
 -- | @nextIf_ (== e)@
-expect' :: ParserMonad m => Token -> m ()
+expect' :: Token -> Parser ()
 expect' e = nextIf_ (== e)
 
 -- | @nextIf (`elem` es)@
-expectAny' :: ParserMonad m => [Token] -> m Token
+expectAny' :: [Token] -> Parser Token
 expectAny' es = nextIf (`elem` es)
 
 -- | Consume an expected sequence of inputs
-expectSeq' :: ParserMonad m => [Token] -> m ()
+expectSeq' :: [Token] -> Parser ()
 expectSeq' = traverse_ \e -> do
     a <- peek
     if a == e
@@ -470,217 +416,228 @@ expectSeq' = traverse_ \e -> do
         else empty
 
 -- | Consume one of any expected sequences of inputs
-expectAnySeq' :: ParserMonad m => [[Token]] -> m [Token]
+expectAnySeq' :: [[Token]] -> Parser [Token]
 expectAnySeq' es = do
     asum (es <&> \e -> e <$ expectSeq' e)
 
--- | @expecting (prettyShow e) (expect' e)@
-expect :: ParserMonad m => Token -> m ()
-expect e = expecting (prettyShow e) (expect' e)
+-- | @expecting (pPrint e) (expect' e)@
+expect :: Token -> Parser ()
+expect e = expecting (pPrint e) (expect' e)
 
--- | @expectingMulti (prettyShow <$> es) (expectAny' es)@
-expectAny :: ParserMonad m => [Token] -> m Token
-expectAny es = expectingMulti (prettyShow <$> es) (expectAny' es)
+-- | @expectingMulti (pPrint <$> es) (expectAny' es)@
+expectAny :: [Token] -> Parser Token
+expectAny es = expectingMulti (pPrint <$> es) (expectAny' es)
 
--- | @expecting (prettyShow e) (expectSeq' e)@
-expectSeq :: ParserMonad m => [Token] -> m ()
-expectSeq e = expecting (prettyShow e) (expectSeq' e)
+-- | @expecting (pPrint e) (expectSeq' e)@
+expectSeq :: [Token] -> Parser ()
+expectSeq e = expecting (pPrint e) (expectSeq' e)
 
--- | @expectingMulti (prettyShow <$> es) (expectAnySeq' es)@
-expectAnySeq :: ParserMonad m => [[Token]] -> m [Token]
-expectAnySeq es = expectingMulti (prettyShow <$> es) (expectAnySeq' es)
+-- | @expectingMulti (pPrint <$> es) (expectAnySeq' es)@
+expectAnySeq :: [[Token]] -> Parser [Token]
+expectAnySeq es = expectingMulti (pPrint <$> es) (expectAnySeq' es)
 
--- | Expect a list of `m a` separated by `m s`.
---   The list must contain at least one element
-listSome :: ParserMonad m => m s -> m a -> m [a]
+-- | Expect a list of @Parser a@ separated by @Parser s@.
+--   The list must contain at least one @Token@
+listSome :: Parser s -> Parser a -> Parser [a]
 listSome s p = liftA2 (:) p (many $ s >> p)
 
--- | Expect a list of `m a` separated by `m s`.
+-- | Expect a list of @Parser a@ separated by @Parser s@.
 --   The list may be empty
-listMany :: ParserMonad m => m s -> m a -> m [a]
-listMany s p = recoverWith (pure []) (listSome s p)
+listMany :: Parser s -> Parser a -> Parser [a]
+listMany s p = option [] (listSome s p)
 
--- | Use a predicate to grab a sequence of elements from the stream.
---   Fails if the sequence is empty
-grabDomain :: ParserMonad m => (ATag Token -> Bool) -> m (Seq (ATag Token))
-grabDomain f =
-    (Seq.:|>) . Seq.fromList <$> some (nextIfAttr f) <*> TEof <@> attr
-
--- | Grab a sequence of elements from the stream,
---   delimited by their line/indentation relative to the last Attr.
+-- | Use a predicate to grab a sequence of @Token@s from the @Parser@ stream.
 --   Fails if this results in an empty sequence
-grabWhitespaceDomain :: ParserMonad m => m (Seq (ATag Token))
+grabDomain :: (ATag Token -> Bool) -> Parser (Seq (ATag Token))
+grabDomain f = do
+    toks <- Seq.fromList <$> some (nextIfAttr $ f &&& notEOF)
+    end <- mapTag attrFlattenToEnd <$> TEof <@> lastAttr
+    pure (toks Seq.:|> end)
+    where notEOF = \case T' TEof -> False; _ -> True
+
+-- | Grab a sequence of @Token@s from the @Parser@ stream,
+--   delimited by their line/indentation relative to the last @Attr@.
+--   Fails if this results in an empty sequence
+grabWhitespaceDomain :: Parser (Seq (ATag Token))
 grabWhitespaceDomain = lastAttr >>= grabWhitespaceDomainOf
 
--- | Grab a sequence of elements from the stream,
---   delimited by their line/indentation relative to a given Attr.
+-- | Grab a sequence of @Token@s from the @Parser@ stream,
+--   delimited by their line/indentation relative to a given @Attr@.
 --   Fails if this results in an empty sequence
-grabWhitespaceDomainOf :: ParserMonad m => Attr -> m (Seq (ATag Token))
+grabWhitespaceDomainOf :: Attr -> Parser (Seq (ATag Token))
 grabWhitespaceDomainOf = grabDomain . wsDominated
 
--- | A predicate-builder for @grabDomain@ that matches tokens
+-- | A predicate-builder for @grabDomain@ that matches @ATag Token@s
 --   on the same line or with a higher indentation level
---   than that of the given Attr
-wsDominated :: Attr -> Tag Attr a -> Bool
-wsDominated l (_ :@: l') =
-    let Pos _ l1 _ i1 = l.range.start
-        Pos _ l2 _ i2 = l'.range.start
-    in l1 == l2 || i1 > i2
+--   than that of the given @Attr@
+wsDominated :: Attr -> ATag Token -> Bool
+wsDominated a1 (_ :@: a2) =
+    let Pos _ l1 _ i1 = a1.range.start
+        Pos _ l2 _ i2 = a2.range.start
+    in l1 == l2 || i1 < i2
+
+-- | Grammatically,
+--   @WsList sep elem = wsBlock<wsBlock<elem>++(sep?) | elem (sep elem)*>@
+wsList :: Parser sep -> Parser a -> Parser [a]
+wsList ms ma = do
+    toks <- grabWhitespaceDomain
+    traceM $ "wsList: " <> prettyShow toks
+    recurseParser (block <|> inline) toks
+    where
+    inline = traceM "inline" >> listSome ms ma
+    block = traceM "block" >> some (attr >>= grabWhitespaceDomainOf)
+        >>= foldWithM' mempty \toks as ->
+            (: as) <$> recurseParser
+                do if null as
+                    then ma
+                    else ma << optional ms
+                toks
 
 
-
-
--- | Perform syntactic analysis on a bytestring, using the given Parser,
---   with errors reported to be in a file with the given name
+-- | Perform syntactic analysis on a @ByteString@ using the given @Parser@,
+--   with errors reported to be in the provided @FilePath@
 parseByteStringWith :: Parser a -> FilePath -> ByteString -> Either Doc a
 parseByteStringWith p filePath fileContent = do
     toks <- L.lexByteString filePath fileContent
     evalParser p filePath toks
 
--- | Perform syntactic analysis on a string, using the given Parser,
---   with errors reported to be in a file with the given name
+-- | Perform syntactic analysis on a @String@ using the given @Parser@,
+--   with errors reported to be in the provided @FilePath@
 parseStringWith :: Parser a -> FilePath -> String -> Either Doc a
 parseStringWith p name = parseByteStringWith p name . fromString
 
 
--- | Evaluate a Parser on a given sequence of tokens, converting ParseErrors to Strings
-evalParser :: Parser a -> FilePath ->  Seq (ATag Token) -> Either Doc a
+-- | Evaluate a @Parser@ on a given @Seq (ATag Token)@,
+--   converting @ParseError@s to @Doc@s and discarding the final offset,
+--   after ensuring that all input was consumed
+evalParser :: Parser a -> FilePath -> Seq (ATag Token) -> Either Doc a
 evalParser px filePath toks =
     case runParser
         (noFail $ consumesAll (px << eof))
         (ParseStream toks filePath) 0 of
-            Left (ParseError (msg :@: l)) -> Left $
-                hang ("syntax error" <+> (pPrint l <> ":"))
-                    msg
-            Left _ -> undefined
+            Left e -> Left $ pPrint e
             Right (a, _) -> Right a
 
--- | Evaluate a Parser on a sub-stream of Tokens.
---   The parser must consume all tokens (except eof)
-recurseParser :: ParserMonad m => m a -> Seq (ATag Token) -> m a
+-- | Evaluate a @Parser@ on a sub-stream of @Tokens@.
+--   The parser must consume all tokens (except eof), or fail
+recurseParser :: Parser a -> Seq (ATag Token) -> Parser a
 recurseParser px toks = do
-    p <- unliftP (noFail $ consumesAll (px << eof))
-    liftP do
-        f <- getFilePath
-        case runParser p (ParseStream toks f) 0 of
-            Left e -> liftP $ Parser \_ _ -> Left e
-            Right (a, _) -> pure a
+    f <- getFilePath
+    case runParser (consumesAll (px << eof)) (ParseStream toks f) 0 of
+        Left e -> Parser \_ _ -> Left e
+        Right (a, _) -> pure a
 
 
--- | Expect a Literal
-literal :: ParserMonad m => m Literal
-literal = expecting "literal" $ nextMap \case
-    TLiteral lit -> Just lit
-    _ -> Nothing
-
--- | Expect a Literal of Char
-char :: ParserMonad m => m Char
-char = expecting "character literal" $ nextMap \case
-    TLiteral (LChar c) -> Just c
-    _ -> Nothing
-
--- | Expect the Eof token
-eof :: ParserMonad m => m ()
+-- | Expect the @Eof@ token
+eof :: Parser ()
 eof = nextMap \case
     TEof -> Just ()
     _ -> Nothing
 
--- | Expect a Literal of Int
-int :: ParserMonad m => m Int
+-- | Expect a @Version@
+version :: Parser Version
+version = expecting "a version" $ nextMap \case
+    TVersion v -> Just v
+    _ -> Nothing
+
+-- | Expect a @Literal@
+literal :: Parser Literal
+literal = expecting "literal" $ nextMap \case
+    TLiteral lit -> Just lit
+    _ -> Nothing
+
+-- | Expect a @Literal@ of @Char@
+char :: Parser Char
+char = expecting "character literal" $ nextMap \case
+    TLiteral (LChar c) -> Just c
+    _ -> Nothing
+
+-- | Expect a @Literal@ of @Int@
+int :: Parser Int
 int = expecting "integer literal" $ nextMap \case
     TLiteral (LInt i) -> Just i
     _ -> Nothing
 
--- | Expect a Literal of Float
-float :: ParserMonad m => m Float
+-- | Expect a @Literal@ of @Float@
+float :: Parser Float
 float = expecting "float literal" $ nextMap \case
     TLiteral (LFloat f) -> Just f
     _ -> Nothing
 
--- | Expect a Literal of String
-string :: ParserMonad m => m String
+-- | Expect a @Literal@ of @String@
+string :: Parser String
 string = expecting "string literal" $ nextMap \case
     TLiteral (LString s) -> Just s
     _ -> Nothing
 
--- | Expect any symbol token
-anySym :: ParserMonad m => m String
+-- | Expect any symbol @Token@
+anySym :: Parser String
 anySym = expecting "a symbol" $ nextMap \case
     TSymbol s -> Just s
     _ -> Nothing
 
--- | Expect a symbol token that is not reserved
-unreserved :: ParserMonad m => m String
+-- | Expect a symbol @Token@ that is not reserved
+unreserved :: Parser String
 unreserved = expecting "an unreserved symbol" $ nextMap \case
     tk@(TSymbol s) | not (isReserved tk) -> Just s
     _ -> Nothing
 
--- | Expect a symbol token with a specific value
-sym :: ParserMonad m => String -> m ()
-sym s = expecting s $ nextMap \case
+-- | Expect a symbol @Token@ with a specific value
+sym :: String -> Parser ()
+sym s = expecting (text s) $ nextMap \case
     TSymbol s' | s == s' -> Just ()
     _ -> Nothing
 
--- | Expect a symbol token with a specific value from a given set
-symOf :: ParserMonad m => [String] -> m String
-symOf ss = expectingMulti ss $ nextMap \case
+-- | Expect a symbol @Token@ with a specific value from a given set
+symOf :: [String] -> Parser String
+symOf ss = expectingMulti (text <$> ss) $ nextMap \case
     TSymbol s | s `elem` ss -> Just s
     _ -> Nothing
 
--- | Try and parse a symbol, returning a boolean indicating success
-trySym :: ParserMonad m => String -> m Bool
+-- | Try and parse a symbol @Token@, returning a boolean indicating success
+trySym :: String -> Parser Bool
 trySym s = peek >>= \case
     TSymbol s' | s == s' -> True <$ advance
     _ -> pure False
 
 
--- | Expect a given Parser to be surrounded with parentheses
-parens :: ParserMonad m => m a -> m a
+-- | Expect a given @Parser@ to be surrounded with parentheses
+parens :: Parser a -> Parser a
 parens px = do
     a <- attrOf (sym "(")
     noFail do
-        px << expecting (") to close ( at " <> prettyShow a) do
+        px << expecting (") to close ( at " <> pPrint a) do
             sym ")"
 
--- | Expect a given Parser to be surrounded with braces
-braces :: ParserMonad m => m a -> m a
+-- | Expect a given @Parser@ to be surrounded with braces
+braces :: Parser a -> Parser a
 braces px = do
     a <- attrOf (sym "{")
     noFail do
-        px << expecting ("} to close { at " <> prettyShow a) do
+        px << expecting ("} to close { at " <> pPrint a) do
             sym "}"
 
--- | Expect a given Parser to be surrounded with brackets
-brackets :: ParserMonad m => m a -> m a
+-- | Expect a given @Parser@ to be surrounded with brackets
+brackets :: Parser a -> Parser a
 brackets px = do
     a <- attrOf (sym "[")
     noFail do
-        px << expecting ("] to close [ at " <> prettyShow a) do
+        px << expecting ("] to close [ at " <> pPrint a) do
             sym "]"
 
--- | Expect a given Parser's first input token to be directly adjacent,
---   in terms of line and column position, to the previous token consumed.
+-- | Expect a given @Parser@'s first input @Token@ to be directly adjacent,
+--   in terms of line and column position, to the previous @Token@ consumed.
 --   Note that if this is used on the first token in an input it has no effect
-connected :: ParserMonad m => m a -> m a
-connected p = do
+connected :: Parser a -> Parser a
+connected px = do
     f <- getFilePath
-    px <- unliftP p
-    liftP $ Parser \s i ->
+    Parser \s i ->
         let a = psAttr s (i - 1)
             a' = psAttr s i
         in if
         | i == 0 -> runParser px s i
         | attrConnected a a' -> runParser px s i
-        | otherwise -> runParser px (ParseStream mempty f) i `catchError` do
-            Left . \case
-                ParseFail j Nil ->
-                    (ParseFail j (Set.singleton "a connected token"))
-                err -> err
-
-lastAttr :: ParserMonad m => m Attr
-lastAttr = liftP $ Parser \s i -> Right
-    let a = psAttr s (i - 1)
-        a' = psAttr s i
-    in if i == 0
-        then (a', i)
-        else (a, i)
+        | otherwise -> runParser
+            (expecting (text "a connected token") px)
+            (ParseStream (Seq.fromList [Tag a' TEof]) f)
+            0

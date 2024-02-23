@@ -5,11 +5,14 @@ module Language.Ribbon.Parsing.Lexer
     ) where
 
 import Data.ByteString.Lazy (ByteString)
+import Data.ByteString.Lazy qualified as ByteString
 import Data.Sequence (Seq)
 import Data.Sequence qualified as Seq
+import Data.Word(Word8)
 
 import Data.Nil
 import Data.Tag
+import Data.Pos
 import Data.Attr
 
 import Text.Pretty
@@ -45,38 +48,38 @@ $hWhite = $white # [\n]
 tokens :-
     ";;" .* \n;
 
-    <0> $hWhite* { beginLine }
-    <line> \n    { endLine }
-    <line> $hWhite+;
+    <src> $hWhite* { beginLine srcLine }
+    <srcLine> \n   { endLine src }
+    <srcLine> $hWhite+;
 
-    <line> \' (@escape | $printable # [\\\'] | $white) \' { char }
-    <line> $dec+ \. $dec+ \. $dec+                        { version }
-    <line> $dec+ \. $dec+ (e [\+\-]? $dec+)?              { float }
-    <line> $dec+                                          { decInt }
-    <line> 0x $hex+                                       { hexInt }
-    <line> 0b $bin+                                       { binInt }
+    <srcLine> \' (@escape | $printable # [\\\'] | $white) \' { char }
+    <srcLine> $dec+ \. $dec+ \. $dec+                        { version }
+    <srcLine> $dec+ \. $dec+ (e [\+\-]? $dec+)?              { float }
+    <srcLine> $dec+                                          { decInt }
+    <srcLine> 0x $hex+                                       { hexInt }
+    <srcLine> 0b $bin+                                       { binInt }
 
-    <line>   \"                                     { beginString }
-    <string> @escape | $printable # [\\\"] | $white { accumString }
-    <string> \"                                     { endString }
+    <srcLine>   \"                                     { beginString srcString }
+    <srcString> @escape | $printable # [\\\"] | $white { accumString }
+    <srcString> \"                                     { endString srcLine }
 
-    <line> $backtick ($alpha $alphanum* | @operator) $backtick { escSymbol }
+    <srcLine> $backtick ($alpha $alphanum* | @operator) $backtick { escSymbol }
 
-    <line> @reserved         { symbol }
-    <line> @operator         { symbol }
-    <line> $alpha $alphanum* { symbol }
-    <line> $punc             { symbol }
+    <srcLine> @reserved         { symbol }
+    <srcLine> @operator         { symbol }
+    <srcLine> $alpha $alphanum* { symbol }
+    <srcLine> $punc             { symbol }
 
 
 {
-beginLine :: AlexAction (ATag Token)
-beginLine _ _ = do
-    setStartCode line
+beginLine :: Int -> AlexAction (ATag Token)
+beginLine sc _ _ = do
+    setStartCode sc
     next
 
-endLine :: AlexAction (ATag Token)
-endLine _ _ = do
-    setStartCode 0
+endLine :: Int -> AlexAction (ATag Token)
+endLine sc _ _ = do
+    setStartCode sc
     setIndent 0
     next
 
@@ -139,9 +142,9 @@ binInt input@AlexInput{..} len = do
     TLiteral (LInt i) <@> getAttr pos
 
 
-beginString :: AlexAction (ATag Token)
-beginString AlexInput{..} _ = do
-    setStartCode string
+beginString :: Int -> AlexAction (ATag Token)
+beginString sc AlexInput{..} _ = do
+    setStartCode sc
     setStringStart pos
     next
 
@@ -154,9 +157,9 @@ accumString input len = do
     pushStringAccumulator [c]
     next
 
-endString :: AlexAction (ATag Token)
-endString _ _ = do
-    setStartCode line
+endString :: Int -> AlexAction (ATag Token)
+endString sc _ _ = do
+    setStartCode sc
     pos <- getStringStart
     body <- popStringAccumulator
     TLiteral (LString body) <@> getAttr pos
@@ -169,7 +172,7 @@ next = do
     case alexScan input startCode of
         AlexEOF ->
             getStartCode >>= \case
-                n | n /= string -> TEof <@> getUnitAttr
+                n | n /= srcString -> TEof <@> getUnitAttr
                 _ -> unexpectedEof input.pos
         AlexError input' ->
             if isEof input'
@@ -201,7 +204,7 @@ lexByteString filePath fileContent =
                 AlexInput
                 { pos = Nil
                 , bytes = fileContent
-                , startCode = 0
+                , startCode = src
                 }
             , stringAccumulator = ""
             , stringStart = Nil
@@ -215,4 +218,36 @@ lexByteString filePath fileContent =
 --   yielding a sequence of tagged tokens
 lexString :: FilePath -> String -> Either Doc (Seq (ATag Token))
 lexString filePath input = lexByteString filePath (fromString input)
+
+
+
+-- | Placeholder required by alex; there are no patterns with a left context
+alexInputPrevChar :: AlexInput -> Char
+alexInputPrevChar =
+    -- No patterns with a left context
+    undefined
+
+-- | Get the next byte from an input stream, updating the position
+alexGetByte :: AlexInput -> Maybe (Word8, AlexInput)
+alexGetByte input@AlexInput{..} =
+    case ByteString.uncons bytes of
+        Just (byte, bytes') ->
+            let pos' = nextPos pos byte
+                input' =
+                    input
+                    { pos   = pos'
+                    , bytes = bytes'
+                    }
+            in Just (byte, input')
+        _ -> Nothing
+    where
+        nextPos (Pos o l _ _) 0x0a =
+            Pos (o + 1) (l + 1) 1 0
+
+        nextPos (Pos o l c i) ch =
+            Pos (o + 1) l (c + 1)
+                if startCode == src
+                -- NOTE: tab width should possibly be a compiler option
+                    then i + select (ch == 0x09) 4 1
+                    else i
 }

@@ -87,19 +87,22 @@ pathBaseRequiresSlash = \case
     PbFile _ -> True
     _ -> False
 
--- | A component of a @Path@, specifying a name to look up, with a specifier
+-- | A component of a @Path@,
+--   specifying a name to look up, at a particular fixity and category
 data PathComponent
-    -- | Specifies a non-namespace definition that may have
-    --   a specific fixity and/or a category
-    = PcItem !OverloadFixity !OverloadCategory !Name
+    = PathComponent
+    { fixity :: !OverloadFixity
+    , category :: !OverloadCategory
+    , name :: !Name
+    }
     deriving (Eq, Ord, Show)
 
 instance Pretty PathComponent where
     pPrint = \case
-        PcItem f k n -> pPrint f <+> pPrint k <+> pPrint n
+        PathComponent f k n -> pPrint f <+> pPrint k <+> pPrint n
 
 instance CatOverloaded PathComponent where
-    overloadCategory (PcItem _ k _) = k
+    overloadCategory (PathComponent _ k _) = k
 
 instance FixOverloaded PathComponent where
-    overloadFixity (PcItem f _ _) = f
+    overloadFixity (PathComponent f _ _) = f

@@ -26,7 +26,7 @@ PathExt tail
     | Path.Component++"/" "/" tail
     | tail
 
-WsList sep elem = wsBlock<wsBlock<elem sep?>+ | elem (sep elem)*>
+WsList sep elem = wsBlock<wsBlock<elem>++(sep?) | elem (sep elem)*>
 
 
 
@@ -37,7 +37,7 @@ ModuleHead = "module" string "@" version wsBlock<Meta> where
         = "sources" WsList<",", string>
         | "dependencies" WsList<",", Dependency>
         | identifier WsList<",", string>
-    Dependency = string "@" Version ("as" Name)?
+    Dependency = string "@" version ("as" Name)?
     Version
         = $uInt "." $uInt "." $uInt
         if $1 > 0 or $2 > 0 or $3 > 0
@@ -65,7 +65,7 @@ Def
             | "union" (TypeHead "=>")? WsList<",", Dec>
             | "effect" (TypeHead "=>")? WsList<",", Dec>
             | "class" (TypeHead "=>")? WsList<",", ClassDec>
-            "instance" TypeHead? "for" Type "=>" WsList<",", InstanceDef>
+            | "instance" TypeHead? "for" Type "=>" WsList<",", InstanceDef>
 
     ValueDef = DefName ValueBody where
         ValueBody = ValueType? ValueExpr | ValueType

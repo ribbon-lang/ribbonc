@@ -49,3 +49,11 @@ rangeConnected :: Range -> Range -> Bool
 rangeConnected a b
      = posConnected a.end b.start
     || posConnected b.end a.start
+
+-- | Get a new @Range@ that represents only the start of the given @Range@
+rangeFlattenToStart :: Range -> Range
+rangeFlattenToStart = unitRange . (.start)
+
+-- | Get a new @Range@ that represents only the end of the given @Range@
+rangeFlattenToEnd :: Range -> Range
+rangeFlattenToEnd = unitRange . (.end)

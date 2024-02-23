@@ -15,6 +15,8 @@ import Data.ByteString.Lazy qualified as ByteString
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text
 
+import Text.Pretty
+
 
 
 
@@ -143,19 +145,33 @@ liftA4 :: Applicative m =>
     (a -> b -> c -> d -> e) -> m a -> m b -> m c -> m d -> m e
 liftA4 f ma mb mc md = liftA3 f ma mb mc <*> md
 
+-- | Fail with an expectation message if the condition is false
+guardFail :: MonadFail m => Bool -> String -> m ()
+guardFail p expStr = if p then pure () else fail expStr
 
 -- | `foldr` with the function taken last
 foldWith :: Foldable t => b -> t a -> (a -> b -> b) -> b
 foldWith b as f = foldr f b as
 
+-- | `foldr` with the function taken second
+foldWith' :: Foldable t => b -> (a -> b -> b) -> t a -> b
+foldWith' = flip foldr
+
 -- | `foldrM` with the function taken last
 foldWithM :: (Foldable t, Monad m) => b -> t a -> (a -> b -> m b) -> m b
 foldWithM b as f = foldrM f b as
 
+-- | `foldrM` with the function taken second
+foldWithM' :: (Foldable t, Monad m) => b -> (a -> b -> m b) -> t a -> m b
+foldWithM' = flip foldrM
 
 -- | Force a string literal to be a @String@ under @OverloadedStrings@
 pattern String :: String -> String
 pattern String s = s
+
+-- | Force a string literal to be a @Doc@ under @OverloadedStrings@
+pattern Doc :: Doc -> Doc
+pattern Doc s = s
 
 
 -- | Concatenate with a slash between the elements

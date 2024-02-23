@@ -52,6 +52,9 @@ instance Pretty Word8 where
 instance Pretty Word32 where
     pPrint = shown @Integer . fromIntegral
 
+instance Pretty Doc where
+    pPrint = id
+
 instance {-# OVERLAPPABLE #-} (Pretty k, Pretty v) => Pretty (Map k v) where
     pPrintPrec lvl _ m
         = braces . lsep
