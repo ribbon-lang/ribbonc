@@ -30,11 +30,11 @@ moduleHead = expecting "a valid module header" do
     moduleName <- sym "module" >> tag string
     validateName moduleName
     moduleVersion <- sym "@" >> tag version
-    toks <- option mempty grabWhitespaceDomain
-    traceM (prettyShow toks)
-    pairs <- recurseParser keyPairs toks
-    traceM (prettyShow pairs)
-    (sources, dependencies, meta) <- processPairs pairs
+
+    (sources, dependencies, meta) <- do
+        option mempty grabWhitespaceDomain
+            >>= recurseParser keyPairs
+            >>= processPairs
 
     pure ModuleHead
         { name = moduleName
@@ -63,19 +63,19 @@ moduleHead = expecting "a valid module header" do
                 _ -> (sources, dependencies, ) <$> processMeta k meta toks
 
     processSources at existing toks = do
-        assertAt (null existing.value) at do
+        assertAt at (null existing.value) $
             hang "multiple `sources` fields in module head"
                 $ "original is here:" <+> pPrint (tagOf existing)
         recurseParser (wsList (sym ",") (tag string)) toks
 
     processDependencies at existing toks = do
-        assertAt (null existing.value) at do
+        assertAt at (null existing.value) $
             hang "multiple `dependencies` fields in module head"
                 $ "original is here:" <+> pPrint (tagOf existing)
         recurseParser (wsList (sym ",") dependency) toks
 
     processMeta key meta toks = do
-        assertAt (Map.notMember key meta) key.tag do
+        assertAt key.tag (Map.notMember key meta) $
             hang ("multiple" <+> backticked key <+> "fields in module head")
                 $ "original is here:" <+> do
                     pPrint $ tagOf $ Maybe.fromJust $
@@ -90,7 +90,7 @@ moduleHead = expecting "a valid module header" do
         pure (moduleName, moduleVersion, alias)
 
     validateName s =
-        assertAt ('@' `notElem` s.value) s.tag do
+        assertAt s.tag ('@' `notElem` s.value) $
             "module name" <+> shown s.value <+> "is invalid,"
                 <+> "cannot contain `@` symbol"
 

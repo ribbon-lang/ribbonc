@@ -29,41 +29,45 @@ import Language.Ribbon.Util
 import Language.Ribbon.Lexical
 
 import Language.Ribbon.Parsing.Lexer qualified as L
-import Debug.Trace (traceM)
 
 
 
-
--- | Input type for Parser
-data ParseStream
-    = ParseStream
-    { input :: !(Seq (ATag Token))
-    , filePath :: !FilePath
-    }
-    deriving Show
 
 -- | Wrapper for all errors triggered in a @Parser@,
 --   with the specific @ParseFail@ tagged with an @Attr@,
 --   and a flag indicating whether the error is recoverable
 data ParseError
     = ParseError
-    { isRecoverable :: Bool
+    { recoverability :: !Recoverability
     , failure :: !(ATag ParseFail)
     }
     deriving Show
 
-instance Pretty ParseError where
+-- | Indicates whether a @ParseError@ can be recovered
+--   by the @Alternative Parser@ instance
+data Recoverability
+    = Recoverable
+    | Unrecoverable
+    deriving (Eq, Ord, Show, Enum, Bounded)
+
+instance Semigroup Recoverability where
+    Recoverable <> Recoverable = Recoverable
+    _ <> _ = Unrecoverable
+
+instance Pretty Recoverability where
     pPrint = \case
-        (ParseError recoverable (f :@: x)) ->
-            hang ((if recoverable
-                then "recoverable"
-                else "unrecoverable")
-            <+> "syntax error at" <+> (pPrint x <> ":")) do
-                formatFailure [x] f
+        Recoverable -> "recoverable"
+        Unrecoverable -> "unrecoverable"
+
+instance Pretty ParseError where
+    pPrintPrec lvl _ (ParseError r (f :@: x)) =
+        let rd = select (lvl > PrettyNormal) (pPrint r) mempty
+        in hang (rd <+> "syntax error at" <+> (pPrint x <> ":")) do
+            formatFailure [x] f
 
 instance Semigroup ParseError where
     ea <> eb = ParseError
-        (ea.isRecoverable && eb.isRecoverable)
+        (ea.recoverability <> eb.recoverability)
         (ea.failure <> eb.failure)
 
 
@@ -115,12 +119,24 @@ formatFailure ignore = \case
             else hang ("at" <+> (pPrint x <> ":")) do
                 formatFailure (x : ig) f
 
+
+
+-- | Input type for Parser
+data ParseStream
+    = ParseStream
+    { input :: !(Seq (ATag Token))
+    , filePath :: !FilePath
+    }
+    deriving Show
+
 -- | Create a @ParseFail@ from a @ParseStream@ and an offset into it;
 --   Either an @UnexpectedFailure currentToken@ or @EofFailure@
 formatInput :: ParseStream -> Int -> ATag ParseFail
 formatInput ps i = Tag (psAttr ps i) case psToken ps i of
     Just t -> UnexpectedFailure t
     _ -> EofFailure
+
+
 
 -- | Parsing monad
 newtype Parser a
@@ -144,18 +160,18 @@ instance Monad Parser where
         runParser (f a') s i'
 
 instance Alternative Parser where
-    empty = Parser \s i -> Left $ ParseError True $ formatInput s i
+    empty = Parser \s i -> Left $ ParseError Recoverable $ formatInput s i
     Parser a <|> Parser b = Parser \s i ->
         case a s i of
-            Left (ParseError True fa) -> case b s i of
-                Left (ParseError r fb) -> Left
-                    if r then ParseError True (fa <> fb)
-                    else ParseError False fb
+            Left (ParseError Recoverable fa) -> case b s i of
+                Left (ParseError r fb)
+                    | Recoverable <- r -> Left $ ParseError r (fa <> fb)
+                    | otherwise -> Left $ ParseError r fb
                 x -> x
             x -> x
 
 instance MonadFail Parser where
-    fail msg = Parser \s i -> Left $ ParseError True $
+    fail msg = Parser \s i -> Left $ ParseError Recoverable $
         SingleFailure (text msg) :@: psAttr s i
 
 instance MonadError ParseError Parser where
@@ -215,7 +231,7 @@ modOffset f = Parser \_ i -> let i' = f i in Right (i, i')
 -- | Run a @Parser@, and if it fails, make the @ParseError@ unrecoverable
 noFail :: Parser a -> Parser a
 noFail m = m `catchError` \(ParseError _ f) -> Parser \_ _ ->
-    Left $ ParseError False f
+    Left $ ParseError Unrecoverable f
 
 -- | Ensure that the given @Parser@ action consumes the remaining @ParseStream@
 consumesAll :: Parser a -> Parser a
@@ -226,18 +242,19 @@ consumesAll m = do
     if i >= psLength s
         then pure a
         else let Tag x failure = formatInput s i
-        in throwError $ ParseError False $ failure :@: x
+        in throwError $ ParseError Recoverable $ failure :@: x
+
 
 -- | Trigger an unrecoverable @ParseError@
 --   with a message at the current location
 parseError :: Doc -> Parser a
-parseError msg = attr >>= flip parseErrorAt msg
+parseError msg = attr >>= (`parseErrorAt` msg)
 
 -- | Trigger an unrecoverable @ParseError@
 --   with a message at the given @Attr@
 parseErrorAt :: Attr -> Doc -> Parser a
 parseErrorAt x msg =
-    throwError $ ParseError False $ SingleFailure msg :@: x
+    throwError $ ParseError Unrecoverable $ SingleFailure msg :@: x
 
 
 -- | Trigger an unrecoverable @ParseError@
@@ -249,8 +266,9 @@ assert p expStr = unless p (parseError expStr)
 -- | Trigger an unrecoverable @ParseError@
 --   with a message at the given @Attr@,
 --   if the condition is false
-assertAt :: Bool -> Attr -> Doc -> Parser ()
-assertAt p x expStr = unless p (parseErrorAt x expStr)
+assertAt :: Attr -> Bool -> Doc -> Parser ()
+assertAt x p expStr = unless p (parseErrorAt x expStr)
+
 
 -- | Get the current offset in the current @Parser@ action
 getOffset :: Parser Int
@@ -270,7 +288,7 @@ peek :: Parser Token
 peek = Parser \s i ->
     case psToken s i of
         Just a -> Right (a, i)
-        _ -> Left $ ParseError True $ EofFailure :@: psAttr s i
+        _ -> Left $ ParseError Recoverable $ EofFailure :@: psAttr s i
 
 -- | Get the currently selected @Token@ in the @Parser@ action,
 --   returning @Nothing@ if the stream is empty
@@ -388,6 +406,7 @@ nextMap p = do
         Just a' -> a' <$ advance
         _ -> empty
 
+
 -- | Wrap the @ParseError@s of a given @Parser@
 --   in an explanation of the expectation that was had of it
 expecting :: Doc -> Parser a -> Parser a
@@ -398,6 +417,7 @@ expecting msg px = px `catchError` \(ParseError r f) -> Parser \s i ->
 --   in an explanation of the expectations that were had of it
 expectingMulti :: [Doc] -> Parser a -> Parser a
 expectingMulti = expecting . lsep
+
 
 -- | @nextIf_ (== e)@
 expect' :: Token -> Parser ()
@@ -479,13 +499,9 @@ wsDominated a1 (_ :@: a2) =
 -- | Grammatically,
 --   @WsList sep elem = wsBlock<wsBlock<elem>++(sep?) | elem (sep elem)*>@
 wsList :: Parser sep -> Parser a -> Parser [a]
-wsList ms ma = do
-    toks <- grabWhitespaceDomain
-    traceM $ "wsList: " <> prettyShow toks
-    recurseParser (block <|> inline) toks
-    where
-    inline = traceM "inline" >> listSome ms ma
-    block = traceM "block" >> some (attr >>= grabWhitespaceDomainOf)
+wsList ms ma = grabWhitespaceDomain >>= recurseParser (block <|> inline) where
+    inline = listSome ms ma
+    block = some (attr >>= grabWhitespaceDomainOf)
         >>= foldWithM' mempty \toks as ->
             (: as) <$> recurseParser
                 do if null as
@@ -513,7 +529,7 @@ parseStringWith p name = parseByteStringWith p name . fromString
 evalParser :: Parser a -> FilePath -> Seq (ATag Token) -> Either Doc a
 evalParser px filePath toks =
     case runParser
-        (noFail $ consumesAll (px << eof))
+        (consumesAll (px << eof))
         (ParseStream toks filePath) 0 of
             Left e -> Left $ pPrint e
             Right (a, _) -> Right a
@@ -606,24 +622,21 @@ parens :: Parser a -> Parser a
 parens px = do
     a <- attrOf (sym "(")
     noFail do
-        px << expecting (") to close ( at " <> pPrint a) do
-            sym ")"
+        px << expecting (") to close ( at " <> pPrint a) do sym ")"
 
 -- | Expect a given @Parser@ to be surrounded with braces
 braces :: Parser a -> Parser a
 braces px = do
     a <- attrOf (sym "{")
     noFail do
-        px << expecting ("} to close { at " <> pPrint a) do
-            sym "}"
+        px << expecting ("} to close { at " <> pPrint a) do sym "}"
 
 -- | Expect a given @Parser@ to be surrounded with brackets
 brackets :: Parser a -> Parser a
 brackets px = do
     a <- attrOf (sym "[")
     noFail do
-        px << expecting ("] to close [ at " <> pPrint a) do
-            sym "]"
+        px << expecting ("] to close [ at " <> pPrint a) do sym "]"
 
 -- | Expect a given @Parser@'s first input @Token@ to be directly adjacent,
 --   in terms of line and column position, to the previous @Token@ consumed.
