@@ -8,7 +8,7 @@ import Text.Pretty
 --  in the context of an overloaded name
 class CatOverloaded e where
     -- | Get the @OverloadCategory@ of a value
-    overloadCategory :: e -> OverloadCategory
+    overloadedCategory :: e -> OverloadCategory
 
 
 -- | An exact category of a @Binding@, @Ref@, or definition;
@@ -56,7 +56,7 @@ instance Pretty ExactCategory where
         Injection -> "injection"
 
 instance CatOverloaded ExactCategory where
-    overloadCategory = \case
+    overloadedCategory = \case
         Namespace -> ONamespace
         Instance -> OInstance
         Value -> OValue
@@ -82,12 +82,12 @@ data OverloadCategory
     deriving (Eq, Ord, Show, Enum, Bounded)
 
 instance Pretty OverloadCategory where
-    pPrint = \case
+    pPrintPrec lvl _ = \case
         ONamespace -> "namespace"
         OInstance -> "instance"
         OType -> "type"
         OValue -> "value"
-        OUnresolved -> "unresolved"
+        OUnresolved -> if lvl > PrettyNormal then "unresolved" else mempty
 
 instance CatOverloaded OverloadCategory where
-    overloadCategory = id
+    overloadedCategory = id

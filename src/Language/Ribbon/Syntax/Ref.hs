@@ -43,7 +43,7 @@ data Ref
 type RefMap = Map Ref
 
 instance CatOverloaded Ref where
-    overloadCategory = overloadCategory . (.category)
+    overloadedCategory = overloadedCategory . (.category)
 
 instance Pretty Ref where
     pPrintPrec _ _ (Ref k m e) =

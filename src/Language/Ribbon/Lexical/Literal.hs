@@ -1,14 +1,15 @@
 module Language.Ribbon.Lexical.Literal where
 
-import Text.Pretty
+import Data.Word(Word32)
 
+import Text.Pretty
 
 
 
 -- | Source-literal values such as numbers, strings
 data Literal
-    -- | 32-bit signed integer
-    = LInt !Int
+    -- | 32-bit unsigned integer
+    = LInt !Word32
     -- | 32-bit floating point number
     | LFloat !Float
     -- | UTF-32 codepoint

@@ -24,10 +24,9 @@ instance Pretty Range where
             b = pPrintPrec lvl 0 e
         in if s == e
             then a
-            else --if s.line == e.line
-                --then a <> "-" <> pPrint e.column
-                --else
-                    a <> " to " <> b
+            else if s.line == e.line
+                then a <> "-" <> pPrint e.column
+                else a <+> "to" <+> b
 
 instance Semigroup Range where
     a <> b = Range

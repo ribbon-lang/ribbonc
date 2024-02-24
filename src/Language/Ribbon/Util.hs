@@ -56,6 +56,16 @@ many_ a = many_v where
     many_v = option () some_v
     some_v = a *> many_v
 
+-- | equivalent of Applicative.many (zero or more) with indexing
+manyN :: (Num n, Alternative f) => (n -> f a) -> f [a]
+manyN f = many_v 0 where
+    many_v n = option [] (liftA2 (:) (f n) (many_v (n + 1)))
+
+-- | equivalent of Applicative.some (one or more) with indexing
+someN :: (Num n, Alternative f) => (n -> f a) -> f [a]
+someN f = liftA2 (:) (f 0) (many_v 1) where
+    many_v n = option [] (liftA2 (:) (f n) (many_v (n + 1)))
+
 -- | equivalent of Applicative.some (one or more) with base value
 someWith :: Alternative f => [a] -> f a -> f [a]
 someWith base a = some_v where
@@ -72,13 +82,21 @@ manyWith base a = many_v where
 option :: Alternative f => a -> f a -> f a
 option a fa = fa <|> pure a
 
--- | The reverse of (.)
+-- | The reverse of @(.)@
 compose :: (a -> b) -> (b -> c) -> (a -> c)
 compose f g a = g (f a)
 
 -- | Compose a list of functions
 composeAll :: [a -> a] -> a -> a
 composeAll = foldr compose id
+
+-- | Compose a binary function
+(.:) :: (c -> d) -> (a -> b -> c) -> a -> b -> d
+(.:) = (.) . (.)
+
+-- | The reverse of @(.:)@
+compose2 :: (a -> b -> c) -> (c -> d) -> a -> b -> d
+compose2 = flip (.:)
 
 -- | Split a list into multiple sub-lists
 --   at each element that satisfies a predicate
@@ -173,10 +191,18 @@ pattern String s = s
 pattern Doc :: Doc -> Doc
 pattern Doc s = s
 
+-- | Utility class for the (</>) slash-connection concatenation operator
+class SlashConnect a where
+    -- | Concatenate with a slash between the elements
+    (</>) :: a -> a -> a
+    infixr 6 </>
 
--- | Concatenate with a slash between the elements
-(</>) :: String -> String -> String
-(</>) a b
-    | "/" `List.isSuffixOf` a || "/" `List.isPrefixOf` b = a <> b
-    | otherwise = a <> "/" <> b
+
+instance SlashConnect String where
+    (</>) a b
+        | "/" `List.isSuffixOf` a || "/" `List.isPrefixOf` b = a <> b
+        | otherwise = a <> "/" <> b
+
+instance SlashConnect Doc where
+    (</>) a b = a <> "/" <> b
 

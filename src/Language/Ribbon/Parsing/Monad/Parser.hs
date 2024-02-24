@@ -11,6 +11,8 @@ import Data.Sequence qualified as Seq
 
 import Data.List qualified as List
 
+import Data.Word (Word32)
+
 import Data.Nil
 import Data.Tag
 import Data.Pos
@@ -76,7 +78,7 @@ data ParseFail
     = EofFailure
     | UnexpectedFailure Token
     | SingleFailure !Doc
-    | ExpectationFailure !Doc !(ATag ParseFail)
+    | ExpectationFailure ![Doc] !(ATag ParseFail)
     | AlternativeFailure ![ATag ParseFail]
     deriving (Eq, Show)
 
@@ -87,8 +89,29 @@ instance Pretty (ATag ParseFail) where
     pPrint (f :@: x) = hang ("at" <+> (pPrint x <> ":")) (formatFailure [x] f)
 
 instance Semigroup (ATag ParseFail) where
+    (<>) ta tb | Just merge <- joinExpectation ta tb = merge where
+        joinExpectation (a :@: xa) (b :@: xb) = case (a, b) of
+            (ExpectationFailure m1 i1, ExpectationFailure m2 i2)
+                | xa == xb, i1 == i2 ->
+                    Just (ExpectationFailure (m1 `List.union` m2) i1 :@: xa)
+            (ExpectationFailure{}, AlternativeFailure bs)
+                | Just merge <- joinExpectationFold ta bs ->
+                    Just (AlternativeFailure merge :@: xb)
+            (AlternativeFailure as, ExpectationFailure{})
+                | Just merge <- joinExpectationFold tb as ->
+                    Just (AlternativeFailure merge :@: xa)
+            _ -> Nothing
+        joinExpectationFold _ [] = Nothing
+        joinExpectationFold eb (ea : as) = case joinExpectation ea eb of
+            Just a' -> Just (a' : as)
+            _ -> (ea :) <$> joinExpectationFold eb as
     (<>) ta@(a :@: xa) tb@(b :@: xb) = Tag (xa <> xb) case (a, b) of
         (UnexpectedFailure _, UnexpectedFailure _) | xa == xb -> a
+        (EofFailure, EofFailure) -> EofFailure
+        (_, UnexpectedFailure _) -> a
+        (UnexpectedFailure _, _) -> b
+        (_, EofFailure) -> a
+        (EofFailure, _) -> b
         (AlternativeFailure as, AlternativeFailure bs) ->
             AlternativeFailure (as `List.union` bs)
         (AlternativeFailure as, _) -> AlternativeFailure (as `List.union` [tb])
@@ -106,7 +129,7 @@ formatFailure ignore = \case
             "unexpected token" <+> backticked tok
         SingleFailure doc -> doc
         ExpectationFailure msg incite ->
-            hang (hang "expected" (msg <> ":")) do
+            hang ("expected" <+> (lsep msg <> ":")) do
                 go ignore incite
         AlternativeFailure [sub] -> go ignore sub
         AlternativeFailure subs ->
@@ -124,7 +147,7 @@ formatFailure ignore = \case
 -- | Input type for Parser
 data ParseStream
     = ParseStream
-    { input :: !(Seq (ATag Token))
+    { input :: !TokenSeq
     , filePath :: !FilePath
     }
     deriving Show
@@ -133,7 +156,7 @@ data ParseStream
 --   Either an @UnexpectedFailure currentToken@ or @EofFailure@
 formatInput :: ParseStream -> Int -> ATag ParseFail
 formatInput ps i = Tag (psAttr ps i) case psToken ps i of
-    Just t -> UnexpectedFailure t
+    Just t | not (isEof t) -> UnexpectedFailure t
     _ -> EofFailure
 
 
@@ -214,7 +237,7 @@ getStream :: Parser ParseStream
 getStream = Parser (curry Right)
 
 -- | Get the @Seq (ATag Token)@ associated with the current @Parser@ action
-getTokenSeq :: Parser (Seq (ATag Token))
+getTokenSeq :: Parser TokenSeq
 getTokenSeq = (.input) <$> getStream
 
 -- | Get the @FilePath@ associated with the current @Parser@ action
@@ -232,6 +255,11 @@ modOffset f = Parser \_ i -> let i' = f i in Right (i, i')
 noFail :: Parser a -> Parser a
 noFail m = m `catchError` \(ParseError _ f) -> Parser \_ _ ->
     Left $ ParseError Unrecoverable f
+
+-- | Run a @Parser@, and if it fails, make the @ParseError@ unrecoverable
+--   when the given condition is @True@
+noFailIf :: Bool -> Parser a -> Parser a
+noFailIf p m = if p then noFail m else m
 
 -- | Ensure that the given @Parser@ action consumes the remaining @ParseStream@
 consumesAll :: Parser a -> Parser a
@@ -392,6 +420,12 @@ nextWhile p = some (nextIf p)
 
 -- | Advance the @Parser@ stream offset,
 --   as long as the current @Token@ satisfies the predicate;
+--   returning the matched @Token@s as a list
+nextWhileAttr :: (ATag Token -> Bool) -> Parser [ATag Token]
+nextWhileAttr p = some (nextIfAttr p)
+
+-- | Advance the @Parser@ stream offset,
+--   as long as the current @Token@ satisfies the predicate;
 --   discarding the matched @Token@s
 nextWhile_ :: (Token -> Bool) -> Parser ()
 nextWhile_ p = some_ (nextIf_ p)
@@ -411,12 +445,24 @@ nextMap p = do
 --   in an explanation of the expectation that was had of it
 expecting :: Doc -> Parser a -> Parser a
 expecting msg px = px `catchError` \(ParseError r f) -> Parser \s i ->
-    Left $ ParseError r $ ExpectationFailure msg f :@: psAttr s i
+    Left $ ParseError r $ ExpectationFailure [msg] f :@: psAttr s i
 
 -- | Wrap the @ParseError@s of a given @Parser@
 --   in an explanation of the expectations that were had of it
 expectingMulti :: [Doc] -> Parser a -> Parser a
 expectingMulti = expecting . lsep
+
+
+-- | Wrap the @ParseError@s of a given @Parser@
+--   in an explanation of the expectation that was had of it
+expectingAt :: Attr -> Doc -> Parser a -> Parser a
+expectingAt at msg px = px `catchError` \(ParseError r f) -> Parser \_ _ ->
+    Left $ ParseError r $ ExpectationFailure [msg] f :@: at
+
+-- | Wrap the @ParseError@s of a given @Parser@
+--   in an explanation of the expectations that were had of it
+expectingMultiAt :: Attr -> [Doc] -> Parser a -> Parser a
+expectingMultiAt at = expectingAt at . lsep
 
 
 -- | @nextIf_ (== e)@
@@ -468,7 +514,7 @@ listMany s p = option [] (listSome s p)
 
 -- | Use a predicate to grab a sequence of @Token@s from the @Parser@ stream.
 --   Fails if this results in an empty sequence
-grabDomain :: (ATag Token -> Bool) -> Parser (Seq (ATag Token))
+grabDomain :: (ATag Token -> Bool) -> Parser TokenSeq
 grabDomain f = do
     toks <- Seq.fromList <$> some (nextIfAttr $ f &&& notEOF)
     end <- mapTag attrFlattenToEnd <$> TEof <@> lastAttr
@@ -478,13 +524,13 @@ grabDomain f = do
 -- | Grab a sequence of @Token@s from the @Parser@ stream,
 --   delimited by their line/indentation relative to the last @Attr@.
 --   Fails if this results in an empty sequence
-grabWhitespaceDomain :: Parser (Seq (ATag Token))
+grabWhitespaceDomain :: Parser TokenSeq
 grabWhitespaceDomain = lastAttr >>= grabWhitespaceDomainOf
 
 -- | Grab a sequence of @Token@s from the @Parser@ stream,
 --   delimited by their line/indentation relative to a given @Attr@.
 --   Fails if this results in an empty sequence
-grabWhitespaceDomainOf :: Attr -> Parser (Seq (ATag Token))
+grabWhitespaceDomainOf :: Attr -> Parser TokenSeq
 grabWhitespaceDomainOf = grabDomain . wsDominated
 
 -- | A predicate-builder for @grabDomain@ that matches @ATag Token@s
@@ -569,7 +615,7 @@ char = expecting "character literal" $ nextMap \case
     _ -> Nothing
 
 -- | Expect a @Literal@ of @Int@
-int :: Parser Int
+int :: Parser Word32
 int = expecting "integer literal" $ nextMap \case
     TLiteral (LInt i) -> Just i
     _ -> Nothing
@@ -600,13 +646,13 @@ unreserved = expecting "an unreserved symbol" $ nextMap \case
 
 -- | Expect a symbol @Token@ with a specific value
 sym :: String -> Parser ()
-sym s = expecting (text s) $ nextMap \case
+sym s = expecting (backticks $ text s) $ nextMap \case
     TSymbol s' | s == s' -> Just ()
     _ -> Nothing
 
 -- | Expect a symbol @Token@ with a specific value from a given set
 symOf :: [String] -> Parser String
-symOf ss = expectingMulti (text <$> ss) $ nextMap \case
+symOf ss = expectingMulti (backticks . text <$> ss) $ nextMap \case
     TSymbol s | s `elem` ss -> Just s
     _ -> Nothing
 
@@ -620,23 +666,23 @@ trySym s = peek >>= \case
 -- | Expect a given @Parser@ to be surrounded with parentheses
 parens :: Parser a -> Parser a
 parens px = do
-    a <- attrOf (sym "(")
+    at <- attrOf (sym "(")
     noFail do
-        px << expecting (") to close ( at " <> pPrint a) do sym ")"
+        px << expectingAt at "to close (" (sym ")")
 
 -- | Expect a given @Parser@ to be surrounded with braces
 braces :: Parser a -> Parser a
 braces px = do
-    a <- attrOf (sym "{")
+    at <- attrOf (sym "{")
     noFail do
-        px << expecting ("} to close { at " <> pPrint a) do sym "}"
+        px << expectingAt at "to close {" (sym "}")
 
 -- | Expect a given @Parser@ to be surrounded with brackets
 brackets :: Parser a -> Parser a
 brackets px = do
-    a <- attrOf (sym "[")
+    at <- attrOf (sym "[")
     noFail do
-        px << expecting ("] to close [ at " <> pPrint a) do sym "]"
+        px << expectingAt at "to close [" (sym "]")
 
 -- | Expect a given @Parser@'s first input @Token@ to be directly adjacent,
 --   in terms of line and column position, to the previous @Token@ consumed.

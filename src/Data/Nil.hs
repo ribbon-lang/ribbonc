@@ -43,6 +43,18 @@ instance Ord a => Nil (Map a b) where
 instance Semigroup a => Nil (Maybe a) where
     isNil = Maybe.isNothing
 
+instance (Nil a, Nil b) => Nil (a, b) where
+    isNil (a, b) = isNil a && isNil b
+    nil = (nil, nil)
+
+instance (Nil a, Nil b, Nil c) => Nil (a, b, c) where
+    isNil (a, b, c) = isNil a && isNil b && isNil c
+    nil = (nil, nil, nil)
+
+instance (Nil a, Nil b, Nil c, Nil d) => Nil (a, b, c, d) where
+    isNil (a, b, c, d) = isNil a && isNil b && isNil c && isNil d
+    nil = (nil, nil, nil, nil)
+
 -- | Pattern alias for types with a Nil instance
 pattern Nil :: Nil m => m
 pattern Nil <- (isNil -> True) where

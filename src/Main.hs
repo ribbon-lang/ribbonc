@@ -1,6 +1,6 @@
 {-# OPTIONS_GHC -Wno-unused-imports #-}
 
-module Main(main, lexFile, parseFile) where
+module Main(main, lexFile, parseFileWith) where
 
 import Data.Functor
 import Control.Applicative
@@ -28,11 +28,8 @@ import Language.Ribbon.Parsing.Monad.Parser as P
 main :: IO ()
 main = putStrLn "Hello, Ribbon!"
 
-lexFile :: FilePath -> IO (Either Doc (Seq (ATag Token)))
-lexFile path = ByteString.readFile path <&> lexByteString path
+lexFile :: FilePath -> IO (Either Doc TokenSeq)
+lexFile p = ByteString.readFile p <&> lexByteString p
 
-
-
-parseFile :: Pretty a => FilePath -> Parser a -> IO ()
-parseFile path px = ByteString.readFile path >>=
-    prettyPrint . parseByteStringWith px path
+parseFileWith :: Parser a -> FilePath -> IO (Either Doc a)
+parseFileWith px p = ByteString.readFile p <&> parseByteStringWith px p

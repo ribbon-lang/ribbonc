@@ -9,7 +9,9 @@ import Language.Ribbon.Syntax.Kind as X
 import Language.Ribbon.Syntax.Module as X
 import Language.Ribbon.Syntax.Path as X
 import Language.Ribbon.Syntax.Precedence as X
+import Language.Ribbon.Syntax.Raw as X
 import Language.Ribbon.Syntax.Ref as X
 import Language.Ribbon.Syntax.Scheme as X
 import Language.Ribbon.Syntax.Type as X
 import Language.Ribbon.Syntax.Value as X
+import Language.Ribbon.Syntax.Visibility as X

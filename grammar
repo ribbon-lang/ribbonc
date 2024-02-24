@@ -45,10 +45,10 @@ ModuleHead = "module" string "@" version wsBlock<Meta> where
 Doc = Def*
 
 Def
-    = Visibility? (Use | Namespace | TypeDef | ValueDef) where
+    = Use | Visibility? (Namespace | TypeDef | ValueDef) where
     DefName = ExactFixity? Name
     Use = "use" UseTree where
-        UseTree = PathExt<"{" UseBranch "}" | "*"> ("as" Name)?
+        UseTree = (Path | PathExt<"{" UseBranch "}" | "..">) ("as" Visibility? Name)?
         UseBranch = UseTree**","
 
     Namespace = Name "=" "namespace" wsBlock<Doc>

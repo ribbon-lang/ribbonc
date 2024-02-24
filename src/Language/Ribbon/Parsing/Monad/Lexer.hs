@@ -56,8 +56,8 @@ data AlexInput
     deriving Show
 
 -- | Check if an input stream is at the end of the file
-isEof :: AlexInput -> Bool
-isEof = ByteString.null . (.bytes)
+isAlexEof :: AlexInput -> Bool
+isAlexEof = ByteString.null . (.bytes)
 
 -- | Convert a subsection of the input's byte string to a string
 excerpt :: AlexInput -> Int -> Int -> String

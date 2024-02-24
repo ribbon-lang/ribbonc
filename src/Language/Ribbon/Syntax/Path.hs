@@ -5,10 +5,14 @@ import Data.Foldable qualified as Fold
 import Data.Sequence (Seq)
 import Data.Sequence qualified as Seq
 
+import Data.Char qualified as Char
+
 import Data.Tag
 import Data.Attr
 
 import Text.Pretty
+
+import Language.Ribbon.Util
 
 import Language.Ribbon.Syntax.Fixity
 import Language.Ribbon.Syntax.Category
@@ -26,6 +30,8 @@ newtype Name
 instance Pretty Name where
     pPrint (Name n) = text n
 
+nameNeedsEscape :: Name -> Bool
+nameNeedsEscape (Name n) = not $ all Char.isAlphaNum n
 
 
 -- | A path to a definition, with a base to start resolving from,
@@ -38,10 +44,10 @@ data Path
     deriving (Eq, Ord, Show)
 
 instance Pretty Path where
-    pPrintPrec lvl _ p@(Path b cs) =
+    pPrintPrec lvl _ (Path b cs) =
         let csd = hcat $ punctuate "/" (pPrintPrec lvl 0 <$> Fold.toList cs)
-        in if pathRequiresSlash p
-            then pPrintPrec lvl 0 b <> "/" <> csd
+        in if pathBaseRequiresSlash b.value
+            then pPrintPrec lvl 0 b </> csd
             else pPrintPrec lvl 0 b <> csd
 
 pathRequiresSlash :: Path -> Bool
@@ -50,12 +56,12 @@ pathRequiresSlash lp
     || pathBaseRequiresSlash lp.base.value
 
 instance CatOverloaded Path where
-    overloadCategory (Path _ (_ Seq.:|> c)) = overloadCategory c.value
-    overloadCategory _ = ONamespace
+    overloadedCategory (Path _ (_ Seq.:|> c)) = overloadedCategory c.value
+    overloadedCategory _ = ONamespace
 
 instance FixOverloaded Path where
-    overloadFixity (Path _ (_ Seq.:|> c)) = overloadFixity c.value
-    overloadFixity _ = OAtomPrefix
+    overloadedFixity (Path _ (_ Seq.:|> c)) = overloadedFixity c.value
+    overloadedFixity _ = OAtomPrefix
 
 
 -- | The base component of a @Path@,
@@ -99,10 +105,14 @@ data PathComponent
 
 instance Pretty PathComponent where
     pPrint = \case
-        PathComponent f k n -> pPrint f <+> pPrint k <+> pPrint n
+        PathComponent f k n -> hsep
+            [ pPrint f
+            , pPrint k
+            , maybeBackticked (nameNeedsEscape n) n
+            ]
 
 instance CatOverloaded PathComponent where
-    overloadCategory (PathComponent _ k _) = k
+    overloadedCategory (PathComponent _ k _) = k
 
 instance FixOverloaded PathComponent where
-    overloadFixity (PathComponent f _ _) = f
+    overloadedFixity (PathComponent f _ _) = f

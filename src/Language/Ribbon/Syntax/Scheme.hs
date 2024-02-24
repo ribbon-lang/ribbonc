@@ -35,7 +35,7 @@ infix 9 `Of`
 newtype Quantifier
     = Quantifier
     { params :: [ATag TypeBinder] }
-    deriving (Eq, Ord, Show)
+    deriving (Eq, Ord, Semigroup, Monoid, Nil, Show)
 
 instance Pretty Quantifier where
     pPrintPrec lvl _ (Quantifier xs)
@@ -47,7 +47,7 @@ instance Pretty Quantifier where
 newtype Qualifier t
     = Qualifier
     { constraints :: [ATag t] }
-    deriving (Eq, Ord, Show)
+    deriving (Eq, Ord, Semigroup, Monoid, Nil, Show)
 
 instance Pretty t => Pretty (Qualifier t) where
     pPrintPrec lvl _ (Qualifier xs) = qualH "where" do

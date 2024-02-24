@@ -6,7 +6,6 @@ module Language.Ribbon.Parsing.Lexer
 
 import Data.ByteString.Lazy (ByteString)
 import Data.ByteString.Lazy qualified as ByteString
-import Data.Sequence (Seq)
 import Data.Sequence qualified as Seq
 import Data.Word(Word8)
 
@@ -175,7 +174,7 @@ next = do
                 n | n /= srcString -> TEof <@> getUnitAttr
                 _ -> unexpectedEof input.pos
         AlexError input' ->
-            if isEof input'
+            if isAlexEof input'
                 then unexpectedEof input'.pos
                 else unexpectedInput input'.pos
         AlexSkip input' _ -> do
@@ -185,7 +184,7 @@ next = do
             setInput input'
             action input len
 
-loop :: Lexer (Seq (ATag Token))
+loop :: Lexer TokenSeq
 loop = do
     token <- next
     case token of
@@ -195,7 +194,7 @@ loop = do
 
 -- | Perform lexical analysis on a ByteString,
 --   yielding a sequence of tagged tokens
-lexByteString :: FilePath -> ByteString -> Either Doc (Seq (ATag Token))
+lexByteString :: FilePath -> ByteString -> Either Doc TokenSeq
 lexByteString filePath fileContent =
     case do {
         runLexer loop
@@ -216,7 +215,7 @@ lexByteString filePath fileContent =
 
 -- | Perform lexical analysis on a String,
 --   yielding a sequence of tagged tokens
-lexString :: FilePath -> String -> Either Doc (Seq (ATag Token))
+lexString :: FilePath -> String -> Either Doc TokenSeq
 lexString filePath input = lexByteString filePath (fromString input)
 
 

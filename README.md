@@ -44,7 +44,7 @@ understand if you know ebnf.
 #### Implementation progress
 - 🟩 Lexical analysis
 - 🟨 Syntactic analysis (parsing)
-- 🟥 Semantic analysis (graph of module, etc)
+- 🟨 Semantic analysis (graph of module, etc)
 - 🟥 Type inference
 - 🟥 Code generation
 - 🟥 Driver CLI
@@ -137,8 +137,9 @@ play with features implemented thus far, the best way to do that is via
 `stack repl`
 
 Currently you can:
-- Play with the lexer,
-using `lexString`/`lexByteString`
+- Play with the lexer, using `lexString`/`lexByteString`
+- Play with the parser, using `moduleHead`/`file`
+in combination with `parseByteStringWith`/`parseStringWith`/`parseFileWith`
 
 
 ## Discussion

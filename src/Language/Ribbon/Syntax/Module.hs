@@ -2,19 +2,16 @@ module Language.Ribbon.Syntax.Module where
 
 import Data.Sequence (Seq)
 import Data.Map.Strict (Map)
-import Data.Map.Strict qualified as Map
-
-import Data.Functor ((<&>))
 
 import Data.Attr
 
-import Text.Pretty
+-- FIXME: implement pretty printer once PrettyGraph is ready
+-- import Text.Pretty
 
 import Language.Ribbon.Lexical
 
 import Language.Ribbon.Syntax.Ref
 import Language.Ribbon.Syntax.Group
-    ( Group, ResolvedBlobs, UnresolvedImports )
 import Language.Ribbon.Syntax.Path
 import Language.Ribbon.Syntax.Data
 import Language.Ribbon.Syntax.Scheme
@@ -33,6 +30,7 @@ data ModuleContext
     }
     deriving Show
 
+
 -- | A module that has been fully parsed
 type FinalModule
     = Module
@@ -49,9 +47,6 @@ type ProtoModule
 
 -- | A map from arbitrary keys to arbitrary lists of values
 type MetaData = Map (ATag Name) (ATag String)
-
--- | A map from locally-appropriate names to module strings and versions
-type RawDependencies = [(ATag String, ATag Version, Maybe (ATag Name))]
 
 
 -- | Parametric type storing all the elements of a module,
@@ -76,27 +71,3 @@ data Module t v i
     , meta :: !MetaData
     }
     deriving Show
-
-
--- | Raw output from a parser of a head section of a module
-data ModuleHead
-    = ModuleHead
-    { name :: !(ATag String)
-    , version :: !(ATag Version)
-    , sources :: ![ATag FilePath]
-    , dependencies :: !RawDependencies
-    , meta :: !MetaData
-    }
-    deriving Show
-
-instance Pretty ModuleHead where
-    pPrintPrec lvl _ ModuleHead{..} =
-        "module" <+> pPrintPrec lvl 0 name <+> "@"
-                 <+> pPrintPrec lvl 0 version $+$ do
-            vcat' $ fmap indent $
-                [ hang "sources" $ pPrintPrec lvl 0 sources
-                , hang "dependencies" $ pPrintPrec lvl 0 dependencies
-                ]
-                <> do Map.toList meta <&> \(k, v) ->
-                        hang (pPrintPrec lvl 0 k) $
-                            pPrintPrec lvl 0 v

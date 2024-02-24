@@ -12,6 +12,8 @@ import Text.Pretty
 import Language.Ribbon.Lexical.Literal
 import Language.Ribbon.Lexical.Version
 
+-- | A lexical sequence of @Token@s ready for parsing
+type TokenSeq = Seq (ATag Token)
 
 -- | An atom of syntax
 data Token
@@ -33,9 +35,15 @@ instance Pretty Token where
         TVersion v -> pPrint v
         TEof -> "{EOF}"
 
-instance Pretty (Seq (ATag Token)) where
+instance Pretty TokenSeq where
     pPrint ts = brackets $ vcat' $ toList ts <&> \(t :@: a) ->
         backticked t <+> "@" <+> pPrint a
+
+-- | Check if a token is Eof
+isEof :: Token -> Bool
+isEof = \case
+    TEof -> True
+    _ -> False
 
 -- | Check if a token terminates expressions (ie @,@, @}@ etc)
 isSentinel :: Token -> Bool

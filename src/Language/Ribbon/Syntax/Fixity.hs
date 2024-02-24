@@ -7,7 +7,7 @@ import Text.Pretty
 --   in the context of an overloaded name
 class FixOverloaded a where
     -- | Get the @OverloadFixity@ of a value
-    overloadFixity :: a -> OverloadFixity
+    overloadedFixity :: a -> OverloadFixity
 
 
 -- | A specification for the exact fixity of a definition
@@ -36,7 +36,7 @@ instance Pretty ExactFixity where
         Atom -> "atom"
 
 instance FixOverloaded ExactFixity where
-    overloadFixity = exactFixityToOverload
+    overloadedFixity = exactFixityToOverload
 
 -- | Convert an @ExactFixity@ to an @OverloadFixity@
 exactFixityToOverload :: ExactFixity -> OverloadFixity
@@ -62,11 +62,11 @@ data OverloadFixity
     deriving (Eq, Ord, Show, Enum, Bounded)
 
 instance Pretty OverloadFixity where
-    pPrint = \case
+    pPrintPrec lvl _ = \case
         OInfix -> "infix"
         OPostfix -> "postfix"
-        OAtomPrefix -> "atom or prefix"
-        OUnspecified -> "unspecified fixity"
+        OAtomPrefix -> "atom/prefix"
+        OUnspecified -> if lvl > PrettyNormal then "unspecified" else mempty
 
 instance FixOverloaded OverloadFixity where
-    overloadFixity = id
+    overloadedFixity = id

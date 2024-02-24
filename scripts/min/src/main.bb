@@ -18,7 +18,7 @@ lits = 'x'; '\x00'; "\"abc\""; "\0foo"; 1; 1.0
 
 
 Baz = namespace
-    type infixl 10 ~ = whatever
+    infixl 10 ~ = type whatever
     infix + : (Int, Int) -> Int = whatever
 
 Bar = effect
@@ -42,5 +42,5 @@ bar =
 
 xyz : Int -> Int
 
-value atom baz : Int
+atom baz : Int
     = foo (bar 5)
