@@ -13,6 +13,7 @@ import Text.Pretty
 
 import Language.Ribbon.Lexical
 
+import Language.Ribbon.Syntax.Name
 import Language.Ribbon.Syntax.Path
 import Language.Ribbon.Syntax.Scheme
 import Language.Ribbon.Syntax.Visibility
@@ -23,7 +24,7 @@ import Language.Ribbon.Util
 
 
 -- | A map from locally-appropriate names to module strings and versions
-type RawDependencies = [(ATag String, ATag Version, Maybe (ATag Name))]
+type RawDependencies = [(ATag String, ATag Version, Maybe (ATag SimpleName))]
 
 -- | A qualifier with its body not yet fully parsed
 type RawQualifier = Qualifier Token
@@ -69,9 +70,9 @@ type RawFile = RawNamespace RawItem
 data RawItem
     = RawDefItem
     { visibility :: !Visibility
-    , fixity :: !ExactFixity
+    , fixity :: !Fixity
     , precedence :: !Precedence
-    , name :: !(ATag Name)
+    , name :: !(ATag SimpleName)
     , val :: !RawDef
     }
     | RawUseItem !RawUse
@@ -92,9 +93,9 @@ instance Pretty RawItem where
 -- | Raw output from a parser of an item in the body of an effect
 data RawEffectItem
     = RawEffectItem
-    { fixity :: !ExactFixity
+    { fixity :: !Fixity
     , precedence :: !Precedence
-    , name :: !(ATag Name)
+    , name :: !(ATag SimpleName)
     , ty :: !TokenSeq
     }
     deriving (Eq, Ord, Show)
@@ -110,16 +111,16 @@ instance Pretty RawEffectItem where
 -- | Raw output from a parser of an item in the body of a class
 data RawClassItem
     = RawClassAssociate
-    { fixity :: !ExactFixity
+    { fixity :: !Fixity
     , precedence :: !Precedence
-    , name :: !(ATag Name)
+    , name :: !(ATag SimpleName)
     , quantifier :: !Quantifier
     , qualifier :: !RawQualifier
     }
     | RawClassValue
-    { fixity :: !ExactFixity
+    { fixity :: !Fixity
     , precedence :: !Precedence
-    , name :: !(ATag Name)
+    , name :: !(ATag SimpleName)
     , quantifier :: !Quantifier
     , qualifier :: !RawQualifier
     , ty :: !TokenSeq
@@ -148,16 +149,16 @@ instance Pretty RawClassItem where
 -- | Raw output from a parser of an item in the body of an instance
 data RawInstanceItem
     = RawInstanceAssociate
-    { fixity :: !ExactFixity
+    { fixity :: !Fixity
     , precedence :: !Precedence
-    , name :: !(ATag Name)
+    , name :: !(ATag SimpleName)
     , quantifier :: !Quantifier
     , ty :: !TokenSeq
     }
     | RawInstanceValue
-    { fixity :: !ExactFixity
+    { fixity :: !Fixity
     , precedence :: !Precedence
-    , name :: !(ATag Name)
+    , name :: !(ATag SimpleName)
     , val :: !TokenSeq
     }
     deriving (Eq, Ord, Show)
@@ -183,7 +184,7 @@ instance Pretty RawInstanceItem where
 data RawField
     = RawField
     { offset :: !(ATag Word32)
-    , name :: !(ATag Name)
+    , name :: !(ATag SimpleName)
     , ty :: !TokenSeq
     }
     deriving (Eq, Ord, Show)
@@ -287,9 +288,9 @@ instance Pretty RawDef where
 data RawRebind
     = RawRebind
     { visibility :: !Visibility
-    , fixity :: !ExactFixity
+    , fixity :: !Fixity
     , precedence :: !Precedence
-    , name :: !(ATag Name)
+    , name :: !(ATag SimpleName)
     }
     deriving (Eq, Ord, Show)
 

@@ -5,8 +5,6 @@ import Data.Foldable qualified as Fold
 import Data.Sequence (Seq)
 import Data.Sequence qualified as Seq
 
-import Data.Char qualified as Char
-
 import Data.Tag
 import Data.Attr
 
@@ -16,22 +14,9 @@ import Language.Ribbon.Util
 
 import Language.Ribbon.Syntax.Fixity
 import Language.Ribbon.Syntax.Category
+import Language.Ribbon.Syntax.Name
 
 
-
-
--- | A definition name, without qualification.
---   Either a symbol or an identifier; never a reserved character sequence
-newtype Name
-    = Name
-    { value :: String }
-    deriving (Eq, Ord, Show)
-
-instance Pretty Name where
-    pPrint (Name n) = text n
-
-nameNeedsEscape :: Name -> Bool
-nameNeedsEscape (Name n) = not $ all Char.isAlphaNum n
 
 
 -- | A path to a definition, with a base to start resolving from,
@@ -59,9 +44,9 @@ instance CatOverloaded Path where
     overloadedCategory (Path _ (_ Seq.:|> c)) = overloadedCategory c.value
     overloadedCategory _ = ONamespace
 
-instance FixOverloaded Path where
-    overloadedFixity (Path _ (_ Seq.:|> c)) = overloadedFixity c.value
-    overloadedFixity _ = OAtomPrefix
+instance HasFixity Path where
+    getFixity (Path _ (_ Seq.:|> c)) = getFixity c.value
+    getFixity _ = Atom
 
 
 -- | The base component of a @Path@,
@@ -72,10 +57,10 @@ data PathBase
     -- | Start in the current namespace
     | PbThis
     -- | Start in a given module
-    | PbModule !Name
+    | PbModule !SimpleName
     -- | Start in a given file
     | PbFile !FilePath
-    -- | Start in a given number of levels above the current namespace
+    -- | Start a given number of levels above the current namespace
     | PbUp !Int
     deriving (Eq, Ord, Show)
 
@@ -97,22 +82,20 @@ pathBaseRequiresSlash = \case
 --   specifying a name to look up, at a particular fixity and category
 data PathComponent
     = PathComponent
-    { fixity :: !OverloadFixity
-    , category :: !OverloadCategory
-    , name :: !Name
+    { category :: !OverloadCategory
+    , name :: !FixName
     }
     deriving (Eq, Ord, Show)
 
 instance Pretty PathComponent where
     pPrint = \case
-        PathComponent f k n -> hsep
-            [ pPrint f
-            , pPrint k
-            , maybeBackticked (nameNeedsEscape n) n
+        PathComponent k n -> hsep
+            [ pPrint k
+            , maybeBackticked (needsEscape n) n
             ]
 
 instance CatOverloaded PathComponent where
-    overloadedCategory (PathComponent _ k _) = k
+    overloadedCategory (PathComponent k _) = k
 
-instance FixOverloaded PathComponent where
-    overloadedFixity (PathComponent f _ _) = f
+instance HasFixity PathComponent where
+    getFixity (PathComponent _ n) = getFixity n

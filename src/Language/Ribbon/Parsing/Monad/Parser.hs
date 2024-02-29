@@ -19,7 +19,7 @@ import Data.Pos
 import Data.Range
 import Data.Attr
 
-import Text.Pretty
+import Text.Pretty as Pretty
 
 import Control.Applicative
 import Control.Monad.State
@@ -31,6 +31,8 @@ import Language.Ribbon.Util
 import Language.Ribbon.Lexical
 
 import Language.Ribbon.Parsing.Lexer qualified as L
+import Data.Function ((&))
+import Debug.Trace (traceM)
 
 
 
@@ -542,18 +544,23 @@ wsDominated a1 (_ :@: a2) =
         Pos _ l2 _ i2 = a2.range.start
     in l1 == l2 || i1 < i2
 
--- | Grammatically,
---   @WsList sep elem = wsBlock<wsBlock<elem>++(sep?) | elem (sep elem)*>@
+-- | @wsBlock<wsBlock<elem>++(sep?) | elem (sep elem)*>@
 wsList :: Parser sep -> Parser a -> Parser [a]
-wsList ms ma = grabWhitespaceDomain >>= recurseParser (block <|> inline) where
+wsList ms ma = grabWhitespaceDomain >>= recurseParser (wsListBody ms ma)
+
+-- | @wsBlock<elem>++(sep?) | elem (sep elem)*@
+wsListBody :: Parser sep -> Parser a -> Parser [a]
+wsListBody ms ma = asum [block, inline] where
     inline = listSome ms ma
-    block = some (attr >>= grabWhitespaceDomainOf)
-        >>= foldWithM' mempty \toks as ->
-            (: as) <$> recurseParser
-                do if null as
-                    then ma
-                    else ma << optional ms
-                toks
+    block = do
+        lns <- some (attr >>= grabWhitespaceDomainOf)
+        noFailIf (length lns > 1) do
+            lns & foldWithM' mempty \toks as ->
+                    (: as) <$> recurseParser
+                        do if null as
+                            then ma
+                            else ma << optional ms
+                        toks
 
 
 -- | Perform syntactic analysis on a @ByteString@ using the given @Parser@,
@@ -646,13 +653,13 @@ unreserved = expecting "an unreserved symbol" $ nextMap \case
 
 -- | Expect a symbol @Token@ with a specific value
 sym :: String -> Parser ()
-sym s = expecting (backticks $ text s) $ nextMap \case
+sym s = expecting (Pretty.backticks $ text s) $ nextMap \case
     TSymbol s' | s == s' -> Just ()
     _ -> Nothing
 
 -- | Expect a symbol @Token@ with a specific value from a given set
 symOf :: [String] -> Parser String
-symOf ss = expectingMulti (backticks . text <$> ss) $ nextMap \case
+symOf ss = expectingMulti (Pretty.backticks . text <$> ss) $ nextMap \case
     TSymbol s | s `elem` ss -> Just s
     _ -> Nothing
 
@@ -662,6 +669,18 @@ trySym s = peek >>= \case
     TSymbol s' | s == s' -> True <$ advance
     _ -> pure False
 
+-- | Expect a semantic space @Token@
+semSpace :: Parser ()
+semSpace = expecting "a semantic space" $ nextMap \case
+    TSemSpace -> Just ()
+    _ -> Nothing
+
+-- | Expect a given @Parser@ to be surrounded with backticks
+backticks :: Parser a -> Parser a
+backticks px = do
+    at <- attrOf (sym "`")
+    noFail do
+        px << expectingAt at "to close `" (sym "`")
 
 -- | Expect a given @Parser@ to be surrounded with parentheses
 parens :: Parser a -> Parser a
@@ -697,6 +716,6 @@ connected px = do
         | i == 0 -> runParser px s i
         | attrConnected a a' -> runParser px s i
         | otherwise -> runParser
-            (expecting (text "a connected token") px)
+            (expecting "a connected token" px)
             (ParseStream (Seq.fromList [Tag a' TEof]) f)
             0

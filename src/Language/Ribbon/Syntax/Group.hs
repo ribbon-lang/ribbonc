@@ -12,11 +12,12 @@ import Data.Attr
 import Text.Pretty
 
 import Language.Ribbon.Syntax.Ref
+import Language.Ribbon.Syntax.Name
 import Language.Ribbon.Syntax.Path
 import Language.Ribbon.Syntax.Binding
 
 
-type GroupMap a = Map Name (GroupSet a)
+type GroupMap a = Map FixName (GroupSet a)
 
 type GroupSet a = Set (ATag a)
 

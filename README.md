@@ -19,8 +19,9 @@ by deep extensibility in the style of Lua/LISP
 
 This project is still in the very early development stages. The compiler created
 here will target bytecode for
-[Ribbon<sup>I</sup>](https://github.com/ribbon-lang/ribboni), an effect-aware low level
-stack machine interpreter (which is also in a very early stage of development)
+[Ribbon<sup>I</sup>](https://github.com/ribbon-lang/ribboni), an effect-aware
+low level stack machine interpreter (which is also in a very early stage of
+development)
 
 For now, issues are turned off and pull requests without prior
 [discussion](#discussion) are discouraged. See [Methodology](#methodology) for
@@ -54,24 +55,21 @@ Note this is not a full list for the final language, only the bootstrap
 - Polymorphic top-level variable definitions
 - Pattern matching
 - Full, reliable type inference for all features
-- User-defined effect types
-- Effect handlers
-- Typeclasses
+- User-defined effect types and effect handlers
+- Typeclasses with named instances
 - Row-polymorphic structural data types (product and sum)
 - Row-polymorphic effect annotations for functions
 - Monoidal concatenation constraints for row types
 - Subtyping constraints for row types
 - Lexically scoped variables for lambda functions, using hidden effects
-- Simple built-ins like map, set
+- Simple standard types like map, set
 
 #### Non-goals
 Some things I do not plan to do, which again apply to the bootstrap only
-- Creating a reference implementation for the entire language
 - First-class closures
 - High performance / optimization
 - Great errors à la rustc
 - Unicode support
-- The vast majority of quality of life concerns
 
 
 ## Methodology
@@ -120,14 +118,13 @@ under [Apache 2.0](LICENSE)
 ## Dependencies
 
 For a full list see [package.yaml](package.yaml), but in short, as far as
-libraries included via source, just the basic boilerplate dependencies such as
+libraries included via source, I have the basic boilerplate dependencies such as
 `containers`, `mtl`, `bytestring`, `text`, as well as some quality of life stuff
-like `directory`, `pretty`, etc
+like `directory`, `pretty`, and `parallel-io` for concurrent parsing
 
 `alex` is a build dependency
 
 The Stack configuration is locked to `lts-21.25`, using GHC `9.4.8`
-
 
 
 ## Usage
@@ -138,7 +135,7 @@ play with features implemented thus far, the best way to do that is via
 
 Currently you can:
 - Play with the lexer, using `lexString`/`lexByteString`
-- Play with the parser, using `moduleHead`/`file`
+- Play with the parser, using `moduleHead`/`file`/etc
 in combination with `parseByteStringWith`/`parseStringWith`/`parseFileWith`
 
 

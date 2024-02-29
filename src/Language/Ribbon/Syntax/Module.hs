@@ -12,7 +12,7 @@ import Language.Ribbon.Lexical
 
 import Language.Ribbon.Syntax.Ref
 import Language.Ribbon.Syntax.Group
-import Language.Ribbon.Syntax.Path
+import Language.Ribbon.Syntax.Name
 import Language.Ribbon.Syntax.Data
 import Language.Ribbon.Syntax.Scheme
 import Language.Ribbon.Syntax.Type
@@ -46,28 +46,28 @@ type ProtoModule
         UnresolvedImports
 
 -- | A map from arbitrary keys to arbitrary lists of values
-type MetaData = Map (ATag Name) (ATag String)
+type MetaData = Map (ATag SimpleName) (ATag String)
 
 
 -- | Parametric type storing all the elements of a module,
 --   with their form depending on compilation phase.
 --   A given @Ref@ may be bound to multiple rows of the module,
 --   for example a value definition may have an entry in
---   @values@, @quantifiers@, @qualifiers@, and @types@.
---   Types with bodies are stored as @groups@, @quantifiers@, and @qualifiers@
+--   @values@, @quantifiers@, @qualifiers@, and @types@, while
+--   types with fields are stored in @groups@, @quantifiers@, and @qualifiers@.
 --   The root namespace is always stored in @Ref Namespace modId 0@
 data Module t v i
     = Module
-    { groups      :: !(RefMap (Def Group))
-    , imports     :: !(RefMap (Def i))
-    , quantifiers :: !(RefMap (Def Quantifier))
-    , qualifiers  :: !(RefMap (Def (Qualifier t)))
-    , fields      :: !(RefMap (Def (FieldType t)))
-    , types       :: !(RefMap (Def t))
-    , values      :: !(RefMap (Def v))
+    {       groups :: !(RefMap (Def Group))
+    ,      imports :: !(RefMap (Def i))
+    ,  quantifiers :: !(RefMap (Def Quantifier))
+    ,   qualifiers :: !(RefMap (Def (Qualifier t)))
+    ,       fields :: !(RefMap (Def (FieldType t)))
+    ,        types :: !(RefMap (Def t))
+    ,       values :: !(RefMap (Def v))
 
-    , files :: !(Map FilePath Ref)
-    , dependencies :: !(Map Name Ref)
-    , meta :: !MetaData
+    ,        files :: !(Map FilePath Ref)
+    , dependencies :: !(Map SimpleName Ref)
+    ,         meta :: !MetaData
     }
     deriving Show

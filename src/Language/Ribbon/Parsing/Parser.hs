@@ -16,7 +16,7 @@ import Data.Attr
 import Control.Applicative
 import Control.Monad.State.Strict
 
-import Text.Pretty hiding (parens, brackets, braces, cat)
+import Text.Pretty hiding (parens, brackets, backticks, braces, cat)
 
 import Language.Ribbon.Util
 
@@ -25,6 +25,7 @@ import Language.Ribbon.Parsing.Monad.Parser
 import Language.Ribbon.Lexical
 import Language.Ribbon.Syntax
 import Debug.Trace (traceM)
+import Data.Functor ((<&>))
 
 
 
@@ -49,7 +50,7 @@ moduleHead = expecting "a valid module header" do
         }
     where
     keyPairs = many do
-        liftA2 (,) (tag name) grabWhitespaceDomain
+        liftA2 (,) (tag simpleName) grabWhitespaceDomain
 
     processPairs =
         flip (foldWithM mempty) \(k, toks) (sources, dependencies, meta) ->
@@ -68,13 +69,13 @@ moduleHead = expecting "a valid module header" do
         assertAt at (null existing.value) $
             hang "multiple `sources` fields in module head"
                 $ "original is here:" <+> pPrint (tagOf existing)
-        recurseParser (wsList (sym ",") (tag string)) toks
+        recurseParser (wsListBody (sym ",") (tag string)) toks
 
     processDependencies at existing toks = do
         assertAt at (null existing.value) $
             hang "multiple `dependencies` fields in module head"
                 $ "original is here:" <+> pPrint (tagOf existing)
-        recurseParser (wsList (sym ",") dependency) toks
+        recurseParser (wsListBody (sym ",") dependency) toks
 
     processMeta key meta toks = do
         assertAt key.tag (Map.notMember key meta) $
@@ -88,7 +89,7 @@ moduleHead = expecting "a valid module header" do
     dependency = do
         moduleName <- tag string
         moduleVersion <- sym "@" >> tag version
-        alias <- optional (sym "as" >> noFail (tag name))
+        alias <- optional (sym "as" >> noFail (tag simpleName))
         pure (moduleName, moduleVersion, alias)
 
     validateName s =
@@ -106,7 +107,7 @@ item = asum
         sym "use" >> noFail use
     , do
         vis <- option Private visibility
-        (fixity, prec, n) <- defName
+        (fixity, prec, n) <- todo
         RawDefItem vis fixity prec n <$> def
     ]
 
@@ -147,7 +148,7 @@ effectDef = sym "effect" >> noFail do
         grabWhitespaceDomain >>= recurseParser (many $ tag effectItem)
     where
     effectItem = do
-        (fixity, prec, n) <- defName
+        (fixity, prec, n) <- todo
         sym ":"
         RawEffectItem fixity prec n <$>
             noFail grabWhitespaceDomain
@@ -159,7 +160,7 @@ classDef = sym "class" >> noFail do
         grabWhitespaceDomain >>= recurseParser (many $ tag classItem)
     where
     classItem = do
-        (fixity, prec, n) <- defName
+        (fixity, prec, n) <- todo
         sym ":"
         grabWhitespaceDomain >>= recurseParser do
             asum [ classValue fixity prec n
@@ -184,7 +185,7 @@ instanceDef = sym "instance" >> noFail do
     where
     instanceItem = do
         sym "="
-        (fixity, prec, n) <- defName
+        (fixity, prec, n) <- todo
         grabWhitespaceDomain >>= recurseParser do
             asum [ instanceValue fixity prec n
                  , instanceType fixity prec n
@@ -247,11 +248,11 @@ use = do
 
     alias = optional $ sym "as" >> tag do
         vis <- option Private visibility
-        fixity <- option Atom exactFixity
+        fixity <- option Atom todo
         prec <- option 0 do
             guard (fixity /= Atom)
             precedence
-        n <- noFail (tag name)
+        n <- noFail (tag simpleName)
         pure $ RawRebind vis fixity prec n
 
 
@@ -277,48 +278,48 @@ pathBase = asum
     [ PbRoot <$ sym "/"
     , PbThis <$ sym "./"
     , PbModule <$> do
-        sym "module" >> noFail name
+        sym "module" >> noFail simpleName
     , PbFile <$> do
         sym "file" >> noFail string
     , PbUp . length <$> some (sym "../")
     ]
 
 pathComponent :: Parser PathComponent
-pathComponent = do
-    (fixity, cat) :@: at <- tag $ liftA2 (,)
-        do option OUnspecified overloadFixity
-        do option OUnresolved overloadCategory
-    assertAt at (cat /= ONamespace || fixity == OUnspecified)
-        "namespace items cannot have fixity"
-    PathComponent fixity cat <$> noFailIf
-        (fixity /= OUnspecified || cat /= OUnresolved)
-        name
+pathComponent = liftA2 PathComponent
+    do option OUnresolved overloadCategory
+    do anyName
 
 
-defName :: Parser (ExactFixity, Precedence, ATag Name)
-defName = do
-    fixity <- option Atom exactFixity
-    liftA2 (fixity, , )
-        do option (defaultPrecedence fixity) do
-            guard (fixity /= Atom)
-            precedence
-        do tag name
+anyName :: Parser FixName
+anyName = asum
+    [ simpleName <&> \n -> FixName (Seq.singleton (FixSimple n))
+    , fixName
+    ]
 
-name :: Parser Name
-name = expecting "an unreserved name" $ nextMap \case
-    t@(TSymbol s) | not (isReserved t) -> pure (Name s)
+fixName :: Parser FixName
+fixName = expecting "a fix name" $ backticks do
+    FixName . Seq.fromList <$> some do
+        asum
+            [ FixOperand <$ semSpace
+            , FixSimple <$> simpleName
+            ]
+
+validateFixNameDef :: ATag FixName -> Parser ()
+validateFixNameDef (FixName cs :@: at) = do
+    assertAt at (any isFixSimple cs)
+        "fix name def must contain at least one identifier or operator"
+    assertAt at (any isFixOperand cs)
+        "fix name def must contain at least one operand-designating space"
+
+
+simpleName :: Parser SimpleName
+simpleName = expecting "an unreserved identifier or operator" $ nextMap \case
+    t@(TSymbol s) | not (isReserved t) -> pure (SimpleName s)
     _ -> empty
 
 visibility :: Parser Visibility
 visibility = Public <$ sym "pub"
 
-overloadFixity :: Parser OverloadFixity
-overloadFixity = asum
-    [ OInfix <$ sym "infix"
-    , OAtomPrefix <$ sym "prefix"
-    , OPostfix <$ sym "postfix"
-    , OAtomPrefix <$ sym "atom"
-    ]
 
 overloadCategory :: Parser OverloadCategory
 overloadCategory = asum
@@ -328,15 +329,6 @@ overloadCategory = asum
     , OValue <$ sym "value"
     ]
 
-exactFixity :: Parser ExactFixity
-exactFixity = asum
-    [ InfixL <$ sym "infixl"
-    , InfixR <$ sym "infixr"
-    , Infix <$ sym "infix"
-    , Prefix <$ sym "prefix"
-    , Postfix <$ sym "postfix"
-    , Atom <$ sym "atom"
-    ]
 
 precedence :: Parser Precedence
 precedence = do
@@ -362,11 +354,11 @@ field idx = do
     where
     numbered = do
         off <- tag int
-        n <- option (Name (show off.value) :@: off.tag) do
-            sym "\\" >> noFail (tag name)
+        n <- option (SimpleName (show off.value) :@: off.tag) do
+            sym "\\" >> noFail (tag simpleName)
         pure (RawField off n)
     nameOnly = do
-        n <- tag name
+        n <- tag simpleName
         pure (RawField (idx :@: n.tag) n)
 
 
@@ -393,7 +385,7 @@ qualifier = sym "where" >> noFail do
 
 typeBinder :: Parser TypeBinder
 typeBinder = do
-    n <- tag name
+    n <- tag simpleName
     k <- option (KVar n.value.value :@: n.tag) do
         sym ":" >> tag kind
     pure (n `Of` k)

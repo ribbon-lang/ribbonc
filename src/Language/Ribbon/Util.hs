@@ -130,6 +130,14 @@ not'd f a = not (f a)
 (<<) :: Monad m => m b -> m a -> m b
 (<<) ma mb = do a <- ma; a <$ mb
 
+-- | `show s` without the quotes
+escapeString :: String -> String
+escapeString = init . tail . show
+
+-- | `show c` without the quotes
+escapeChar :: Char -> String
+escapeChar = escapeString . pure
+
 -- | Maybe -> Monad with monadic failure case
 liftMaybe :: Monad m => m a -> Maybe a -> m a
 liftMaybe failed = Maybe.maybe failed pure

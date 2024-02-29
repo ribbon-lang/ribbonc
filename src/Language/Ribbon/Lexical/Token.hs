@@ -24,6 +24,8 @@ data Token
     | TLiteral !Literal
     -- | A token indicating a semantic version number
     | TVersion !Version
+    -- | A semantically significant space
+    | TSemSpace
     -- | End of file token
     | TEof
     deriving (Eq, Ord, Show)
@@ -33,6 +35,7 @@ instance Pretty Token where
         TSymbol s -> text s
         TLiteral l -> pPrint l
         TVersion v -> pPrint v
+        TSemSpace -> "{SEM-SPACE}"
         TEof -> "{EOF}"
 
 instance Pretty TokenSeq where
@@ -49,6 +52,7 @@ isEof = \case
 isSentinel :: Token -> Bool
 isSentinel = \case
     TEof -> True
+    TSemSpace -> True
     TSymbol s -> s `elem` [")", "]", "}", ",", "=", ":"]
     _ -> False
 
@@ -73,6 +77,7 @@ reservedSymbols =
     , "let", "in", "as"
     , "match", "with"
     , "if", "then", "else"
+    , "'", "`"
     , "=", ":", "=>", ";", ",", ".", "..", "./", "../", ".*"
     , "{", "}", "(", ")", "[", "]"
     ]
@@ -87,6 +92,8 @@ data TokenSpec
     | TsLiteral !(Maybe LiteralKind)
     -- | Expect a TVersion
     | TsVersion
+    -- | Expect a TSemSpace
+    | TsSemSpace
     -- | Expect an end of file token
     | TsEof
     deriving (Eq, Ord, Show)
@@ -98,4 +105,5 @@ instance Pretty TokenSpec where
         TsLiteral Nothing -> "literal"
         TsLiteral (Just k) -> pPrint k
         TsVersion -> "version"
+        TsSemSpace -> "semantic space"
         TsEof -> "eof"

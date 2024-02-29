@@ -34,43 +34,63 @@ $alpha = [A-Za-z_]
 $alphanum = [A-Za-z0-9_]
 $punc = [\'\,\{\}\(\)\[\]]
 $backtick = [\`]
-$hWhite = $white # [\n]
+$hWhite = [\ \t]
+$vWhite = [\n\r]
 
 @reserved = let | in | as | match | with | do | fun | handler
           | module | import | use | file | pub | namespace
           | type | effect | class | instance
           | infix | infixl | infixr | prefix | postfix
           | "=>" | ";" | "./" | "../" | ".." | "."
+@identifier = $alpha $alphanum*
 @operator = ($printable # $white # $alphanum # $punc # $backtick # [\.\"])+
-@escape = \\ ([\\\'\"0nrt] | x $hex{2} | u \{ $hex+ \})
+@escape = \\ ([\\\'\"0anrtv] | x $hex{2} | u \{ $hex+ \})
 
 tokens :-
+    <0> (\#\!.*\n)? { \_ _ -> do setStartCode src; next }
+
     ";;" .* \n;
 
-    <src> $hWhite* { beginLine srcLine }
-    <srcLine> \n   { endLine src }
+    <src>     $hWhite* { beginLine srcLine }
+    <srcLine> $vWhite+ { endLine src }
     <srcLine> $hWhite+;
 
-    <srcLine> \' (@escape | $printable # [\\\'] | $white) \' { char }
-    <srcLine> $dec+ \. $dec+ \. $dec+                        { version }
-    <srcLine> $dec+ \. $dec+ (e [\+\-]? $dec+)?              { float }
-    <srcLine> $dec+                                          { decInt }
-    <srcLine> 0x $hex+                                       { hexInt }
-    <srcLine> 0b $bin+                                       { binInt }
+    <srcLine> \' (@escape | $printable # [\\\'] | $hWhite) \' { char }
+    <srcLine> $dec+ \. $dec+ \. $dec+                         { version }
+    <srcLine> $dec+ \. $dec+ (e [\+\-]? $dec+)?               { float }
+    <srcLine> $dec+                                           { decInt }
+    <srcLine> 0x $hex+                                        { hexInt }
+    <srcLine> 0b $bin+                                        { binInt }
 
-    <srcLine>   \"                                     { beginString srcString }
-    <srcString> @escape | $printable # [\\\"] | $white { accumString }
-    <srcString> \"                                     { endString srcLine }
+    <srcLine>   \"                                  { beginString srcString }
+    <srcString> @escape | $printable # [\\\"\r\n\v] { accumString }
+    <srcString> \"                                  { endString srcLine }
 
-    <srcLine> $backtick ($alpha $alphanum* | @operator) $backtick { escSymbol }
+    <srcLine>    $backtick   { beginFixName srcFixName }
+    <srcFixName> $hWhite+    { semSpace }
+    <srcFixName> $vWhite     { disallowedSymbol }
+    <srcFixName> $punc       { disallowedSymbol }
+    <srcFixName> @reserved   { disallowedSymbol }
+    <srcFixName> @operator   { symbol }
+    <srcFixName> @identifier { symbol }
+    <srcFixName> $backtick   { endFixName srcLine}
 
-    <srcLine> @reserved         { symbol }
-    <srcLine> @operator         { symbol }
-    <srcLine> $alpha $alphanum* { symbol }
-    <srcLine> $punc             { symbol }
+    <srcLine> @reserved   { symbol }
+    <srcLine> @operator   { symbol }
+    <srcLine> @identifier { symbol }
+    <srcLine> $punc       { symbol }
 
 
 {
+
+stateName :: Int -> String
+stateName sc
+    | sc == src = "source"
+    | sc == srcLine = "line"
+    | sc == srcString = "string"
+    | sc == srcFixName = "fix name"
+    | otherwise = "unknown"
+
 beginLine :: Int -> AlexAction (ATag Token)
 beginLine sc _ _ = do
     setStartCode sc
@@ -82,15 +102,30 @@ endLine sc _ _ = do
     setIndent 0
     next
 
-escSymbol :: AlexAction (ATag Token)
-escSymbol input@AlexInput{..} len = do
-    let x = excerpt input 1 (len - 1)
-    TSymbol x <@> getAttr pos
+beginFixName :: Int -> AlexAction (ATag Token)
+beginFixName sc input len = do
+    setStartCode sc
+    symbol input len
+
+endFixName :: Int -> AlexAction (ATag Token)
+endFixName sc input len = do
+    setStartCode sc
+    symbol input len
 
 symbol :: AlexAction (ATag Token)
 symbol input@AlexInput{..} len = do
     let x = excerpt input 0 len
     TSymbol x <@> getAttr pos
+
+disallowedSymbol :: AlexAction a
+disallowedSymbol input len = do
+    sc <- getStartCode
+    let x = excerpt input 0 len
+    fail $ "symbol `" <> escapeString x <> "` is not allowed inside " <> stateName sc
+
+semSpace :: AlexAction (ATag Token)
+semSpace AlexInput{..} _ = do
+    TSemSpace <@> getAttr pos
 
 char :: AlexAction (ATag Token)
 char input@AlexInput{..} len = do
@@ -171,8 +206,9 @@ next = do
     case alexScan input startCode of
         AlexEOF ->
             getStartCode >>= \case
-                n | n /= srcString -> TEof <@> getUnitAttr
-                _ -> unexpectedEof input.pos
+                ((`elem` [srcString, srcFixName]) -> True) ->
+                    unexpectedEof input.pos
+                _ -> TEof <@> getUnitAttr
         AlexError input' ->
             if isAlexEof input'
                 then unexpectedEof input'.pos
@@ -203,7 +239,7 @@ lexByteString filePath fileContent =
                 AlexInput
                 { pos = Nil
                 , bytes = fileContent
-                , startCode = src
+                , startCode = 0
                 }
             , stringAccumulator = ""
             , stringStart = Nil

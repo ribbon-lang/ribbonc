@@ -5,7 +5,7 @@ import Data.Attr
 
 import Text.Pretty
 
-import Language.Ribbon.Syntax.Path
+import Language.Ribbon.Syntax.Name
 import Language.Ribbon.Syntax.Kind
 
 
@@ -15,7 +15,7 @@ import Language.Ribbon.Syntax.Kind
 data TypeBinder
     = TypeBinder
     -- | The name of a bound type
-    { name :: !(ATag Name)
+    { name :: !(ATag SimpleName)
     -- | The kind of a bound type
     , kind :: !(ATag Kind)
     }
@@ -25,7 +25,7 @@ instance Pretty TypeBinder where
     pPrintPrec lvl _ (n `Of` k) = pPrintPrec lvl 0 n <+> ":" <+> pPrintPrec lvl 0 k
 
 -- | Infix-convenient alias for `TypeBinder`
-pattern Of :: ATag Name -> ATag Kind -> TypeBinder
+pattern Of :: ATag SimpleName -> ATag Kind -> TypeBinder
 pattern Of n k = TypeBinder n k
 {-# COMPLETE Of #-}
 infix 9 `Of`
