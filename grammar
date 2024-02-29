@@ -1,24 +1,30 @@
-Name = identifier | operator | "`" (identifier | operator) "`"
+SimpleName = identifier | operator
+
+FixName = SimpleName | Prefix | Infix | Postfix where
+    Prefix "`" (SimpleName space)+ "`"
+    Postfix = "`" (space SimpleName)+ "`"
+    Infix = "`" space (SimpleName space)+ "`"
+
+FixNameDecl
+    = SimpleName
+    | FixName.Prefix uInt?
+    | uInt? FixName.Postfix
+    | uInt? FixName.Infix
+    | FixName.Infix uInt?
+    | ("(" uInt ")")? FixName.Infix
 
 TypeHead = listSome<identifier (":" Kind)?> ("where" listSome<Type>)?
 
-PartialFixity = "infix" | "prefix" | "postfix" | "atom"
-ExactFixity
-    = ("infixl" | "infixr" | "infix" | "prefix" | "postfix") sInt?
-    | "atom"
-
 Field body = Label body where
-    Label = uInt ("\\" Name)? | Name
+    Label = uInt ("\\" SimpleName)? | SimpleName
 
 Path
     = PlainBase ("/" Component++"/")?
     | SlashBase Component**"/"
     | Component++"/" where
-    PlainBase = "module" Name | "file" string
+    PlainBase = "module" SimpleName | "file" string
     SlashBase = "/" | "./" | "../"+
-    Component
-        = "namespace" Name
-        | PartialFixity? ("type" | "value")? Name
+    Component = ("namespace" | "instance" | "type" | "value")? FixName
 
 PathExt tail
     = Path.PlainBase ("/" Path.Component++"/")? "/" tail
@@ -37,7 +43,7 @@ ModuleHead = "module" string "@" version wsBlock<Meta> where
         = "sources" WsList<",", string>
         | "dependencies" WsList<",", Dependency>
         | identifier WsList<",", string>
-    Dependency = string "@" version ("as" Name)?
+    Dependency = string "@" version ("as" SimpleName)?
     Version
         = $uInt "." $uInt "." $uInt
         if $1 > 0 or $2 > 0 or $3 > 0
@@ -46,36 +52,37 @@ Doc = Def*
 
 Def
     = Use | Visibility? (Namespace | TypeDef | ValueDef) where
-    DefName = ExactFixity? Name
     Use = "use" UseTree where
-        UseTree = (Path | PathExt<"{" UseBranch "}" | "..">) ("as" Visibility? Name)?
+        UseTree = (Path | PathExt<"{" UseBranch "}" | ".." | FixName>) ("as" Visibility? FixNameDecl)?
         UseBranch = UseTree**","
 
-    Namespace = Name "=" "namespace" wsBlock<Doc>
+    Namespace = SimpleName "=" "namespace" wsBlock<Doc>
 
-    TypeDef = DefName "=" TypeBody where
-        Dec = Name ":" wsBlock<Type>
+    TypeDef = FixNameDecl "=" TypeBody where
+        EffectDec = FixNameDecl ":" wsBlock<Type>
+        FieldDec = Field<":" wsBlock<Type>>
         ClassDec
-            = DefName ":" (("forall" TypeHead "=>")? Type | "type" TypeHead?)
+            = FixNameDecl ":" (("forall" TypeHead "=>")? Type | "type" TypeHead?)
         InstanceDef
-            = DefName "=" (wsBlock<Value> | "type" (TypeHead "=>"?) Type)
+            = FixNameDecl "=" (wsBlock<Value> | "type" (TypeHead "=>"?) Type)
         TypeBody
             = "type" (TypeHead "=>")? wsBlock<Type>
-            | "struct" (TypeHead "=>")? WsList<",", Dec>
-            | "union" (TypeHead "=>")? WsList<",", Dec>
-            | "effect" (TypeHead "=>")? WsList<",", Dec>
+            | "struct" (TypeHead "=>")? WsList<",", FieldDec>
+            | "union" (TypeHead "=>")? WsList<",", FieldDec>
+            | "effect" (TypeHead "=>")? WsList<",", EffectDec>
             | "class" (TypeHead "=>")? WsList<",", ClassDec>
             | "instance" TypeHead? "for" Type "=>" WsList<",", InstanceDef>
 
-    ValueDef = DefName ValueBody where
-        ValueBody = ValueType? ValueExpr | ValueType
+    ValueDef = FixNameDecl (ValueType? ValueExpr | ValueType) where
         ValueType = ":" ("forall" TypeHead)? wsBlock<Type>
         ValueExpr = "=" wsBlock<Value>
 
 Kind
-    = "type" | "effect"
-    | "num" | "str"
-    | "data" | "effects"
+    = "type"
+    | "effect"
+    | "value" ("Int" | "String")
+    | "data"
+    | "effects"
     | "constraint"
     | Kind "->" Kind
     | "(" Kind ")"
@@ -96,7 +103,7 @@ Type |=
         IsStruct = "struct" Type ("as" Type)?
         IsUnion = "union" Type ("as" Type)?
         HasClass = Type? "with" Type
-        HasAssoc = Type? "has" (Name ("~" Type)? | "type" Name)
+        HasAssoc = Type? "has" (FixName ("~" Type)? | "type" FixName)
         RowSub = Type "<" Type?
         RowCat = Type "<>" Type ("~" Type)?
         Equality = Type "~" Type
@@ -113,8 +120,8 @@ Value |=
     Group = "(" Value ")"
     Tuple = "(" Value "," Value**"," ")"
     Struct = "{" Field<"=" Block>**"," "}"
-    AnyUnion = "+/" Name
-    Select = Value "." Name
+    AnyUnion = "+/" SimpleName
+    Select = Value "." SimpleName
     Concat = Value "<>" Value
     App = Value Block
     Ann = Value ":" wsBlock<Type>
@@ -127,7 +134,7 @@ Value |=
     Sequence = Value ";" Value
     Handler = "with" Type "handler" wsBlock<Case+> "do" Block
         where Case
-            = Name "|" listSome<Patt> "=>" Block
+            = FixName "|" listSome<Patt> "=>" Block
             | "return" Patt "=>" Block
     User |=
         Infix = Value Path Value
@@ -142,7 +149,7 @@ Patt |=
     Group = "(" Patt ")"
     Tuple = "(" Patt "," Patt**"," ")"
     Struct = "{" Field<"=" WsBlock<Patt>>**"," ".."? "}"
-    AnyUnion = "+/" Name Patt?
+    AnyUnion = "+/" SimpleName Patt?
     App = Path Patt?
     Alias = Patt "as" identifier
     Ann = Patt ":" wsBlock<Type>
