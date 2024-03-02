@@ -12,8 +12,8 @@ import Data.Attr
 import Text.Pretty
 
 import Language.Ribbon.Syntax.Ref
-import Language.Ribbon.Syntax.Name
-import Language.Ribbon.Syntax.Path
+import Language.Ribbon.Lexical.Name
+import Language.Ribbon.Lexical.Path
 import Language.Ribbon.Syntax.Binding
 
 

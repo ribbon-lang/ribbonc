@@ -1,4 +1,4 @@
-module Language.Ribbon.Syntax.Fixity where
+module Language.Ribbon.Lexical.Fixity where
 
 import Text.Pretty
 

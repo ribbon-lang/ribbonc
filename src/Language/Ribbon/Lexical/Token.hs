@@ -9,8 +9,14 @@ import Data.Sequence (Seq)
 
 import Text.Pretty
 
+import Language.Ribbon.Util
+
 import Language.Ribbon.Lexical.Literal
+import Language.Ribbon.Lexical.Path
+import Language.Ribbon.Lexical.Name
 import Language.Ribbon.Lexical.Version
+import Language.Ribbon.Parsing.Text
+import Control.Monad
 
 -- | A lexical sequence of @Token@s ready for parsing
 type TokenSeq = Seq (ATag Token)
@@ -26,7 +32,9 @@ data Token
     | TVersion !Version
     -- | A semantically significant space
     | TSemSpace
-    -- | End of file token
+    -- | A sequence of tokens delimited by something
+    | TTree !TokenTree
+    -- | An end of file token
     | TEof
     deriving (Eq, Ord, Show)
 
@@ -36,13 +44,49 @@ instance Pretty Token where
         TLiteral l -> pPrint l
         TVersion v -> pPrint v
         TSemSpace -> "{SEM-SPACE}"
+        TTree t -> pPrint t
         TEof -> "{EOF}"
 
 instance Pretty TokenSeq where
-    pPrint ts = brackets $ vcat' $ toList ts <&> \(t :@: a) ->
-        backticked t <+> "@" <+> pPrint a
+    pPrintPrec lvl _ ts = sep $ toList ts <&> \(t :@: a) ->
+        pPrint t <+> maybeMEmpty do
+            guard (lvl > PrettyNormal)
+            Just $ "@" <+> pPrintPrec lvl 0 a
 
--- | Check if a token is Eof
+data TokenTree
+    = TtBlock !BlockKind !TokenSeq
+    | TtPath !Path
+    deriving (Eq, Ord, Show)
+
+instance Pretty TokenTree where
+    pPrint = \case
+        TtBlock k ts -> blockPrint k ts
+        TtPath p -> pPrint p
+
+data BlockKind
+    = BkParen
+    | BkBrace
+    | BkBracket
+    | BkIndent
+    | BkLine
+    deriving (Eq, Ord, Show)
+
+instance Pretty BlockKind where
+    pPrint = \case
+        BkParen -> "parenthesis"
+        BkBrace -> "brace"
+        BkBracket -> "bracket"
+        BkIndent -> "indentation"
+        BkLine -> "line"
+
+blockPrint :: BlockKind -> TokenSeq -> Doc
+blockPrint = \case
+    BkParen -> parens . pPrint
+    BkBrace -> braces . pPrint
+    BkBracket -> brackets . pPrint
+    BkIndent -> indent . vcat' . (["↘"] <>) . (<> ["↖"]) . toList . fmap pPrint
+    BkLine -> hsep . (["◁"] <>) . (<> ["▷"]) . toList . fmap pPrint
+
 isEof :: Token -> Bool
 isEof = \case
     TEof -> True
@@ -51,7 +95,6 @@ isEof = \case
 -- | Check if a token terminates expressions (ie @,@, @}@ etc)
 isSentinel :: Token -> Bool
 isSentinel = \case
-    TEof -> True
     TSemSpace -> True
     TSymbol s -> s `elem` [")", "]", "}", ",", "=", ":"]
     _ -> False
@@ -62,25 +105,24 @@ isSymbol s = \case
     TSymbol s' -> s == s'
     _ -> False
 
+-- | Check if a token has a reserved value; and return it if it doesnt
+filterUnreserved :: Token -> Maybe String
+filterUnreserved = \case
+    TSymbol s | s `notElem` reservedSymbols -> Nothing
+    _ -> Nothing
+
 -- | Check if a token has a reserved value; ie cannot be used as a Name
 isReserved :: Token -> Bool
 isReserved = \case
     TSymbol s -> s `elem` reservedSymbols
     _ -> True
 
--- | Reserved identifiers
-reservedSymbols :: [String]
-reservedSymbols =
-    [ "type", "effect", "value", "forall", "fun"
-    , "infix", "infixl", "infixr", "prefix", "postfix", "atom"
-    , "module", "import", "use", "file", "pub", "namespace"
-    , "let", "in", "as"
-    , "match", "with"
-    , "if", "then", "else"
-    , "'", "`"
-    , "=", ":", "=>", ";", ",", ".", "..", "./", "../", ".*"
-    , "{", "}", "(", ")", "[", "]"
-    ]
+-- | Check if a token is a semantic space
+isSemSpace :: Token -> Bool
+isSemSpace = \case
+    TSemSpace -> True
+    _ -> False
+
 
 
 

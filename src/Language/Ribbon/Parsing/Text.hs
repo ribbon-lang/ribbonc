@@ -12,7 +12,7 @@ import Data.Nil
 
 import Language.Ribbon.Util
 
-import Language.Ribbon.Lexical
+import Language.Ribbon.Lexical.Version
 
 
 
@@ -84,3 +84,42 @@ parseVersion s =
             patch' <- parseWord patch
             Fold.find (/= Nil) (Just $ Version major' minor' patch')
         _ -> Nothing
+
+
+
+verticalSpaces :: String
+verticalSpaces = "\n\r\v\f"
+
+mustEscapes :: String
+mustEscapes =  "\\\a\b\f\n\r\t\v\0"
+
+reservedSymbols :: [String]
+reservedSymbols =
+    [ "type", "effect", "class", "instance", "struct"
+    , "union", "namespace", "forall", "fun"
+    , "module", "use", "file", "pub"
+    , "let", "in", "as"
+    , "match", "with"
+    , "if", "then", "else"
+    , "'", "`"
+    , "=", ":", "=>", ";", ",", "|"
+    , "{", "}", "(", ")", "[", "]"
+    ]
+
+punctuations :: String
+punctuations = userPunctuations <> reservedPunctuations <> blockPunctuations
+
+userPunctuations :: String
+userPunctuations = "',;"
+
+reservedPunctuations :: String
+reservedPunctuations = ".`\""
+
+blockPunctuations :: String
+blockPunctuations = "()[]{}"
+
+
+isSymbolic :: Char -> Bool
+isSymbolic
+    = Char.isPunctuation ||| Char.isSymbol
+    &&& not . (`elem` '_' : punctuations)

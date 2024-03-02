@@ -1,4 +1,4 @@
-module Language.Ribbon.Syntax.Path where
+module Language.Ribbon.Lexical.Path where
 
 import Data.Foldable qualified as Fold
 
@@ -12,9 +12,9 @@ import Text.Pretty
 
 import Language.Ribbon.Util
 
-import Language.Ribbon.Syntax.Fixity
-import Language.Ribbon.Syntax.Category
-import Language.Ribbon.Syntax.Name
+import Language.Ribbon.Lexical.Fixity
+import Language.Ribbon.Lexical.Category
+import Language.Ribbon.Lexical.Name
 
 
 
@@ -88,10 +88,10 @@ data PathComponent
     deriving (Eq, Ord, Show)
 
 instance Pretty PathComponent where
-    pPrint = \case
+    pPrintPrec lvl _ = \case
         PathComponent k n -> hsep
-            [ pPrint k
-            , maybeBackticked (needsEscape n) n
+            [ pPrintPrec lvl 0 k
+            , pPrintPrec lvl 0 n
             ]
 
 instance CatOverloaded PathComponent where

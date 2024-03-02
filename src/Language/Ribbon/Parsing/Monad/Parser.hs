@@ -2,6 +2,7 @@ module Language.Ribbon.Parsing.Monad.Parser where
 
 import Data.Functor
 import Data.Foldable
+import Data.Function ((&))
 
 import Data.String (fromString)
 import Data.ByteString.Lazy (ByteString)
@@ -30,119 +31,12 @@ import Language.Ribbon.Util
 
 import Language.Ribbon.Lexical
 
+import Language.Ribbon.Parsing.Error
 import Language.Ribbon.Parsing.Lexer qualified as L
-import Data.Function ((&))
-import Debug.Trace (traceM)
+import Data.Text.Lazy (Text)
 
 
 
-
--- | Wrapper for all errors triggered in a @Parser@,
---   with the specific @ParseFail@ tagged with an @Attr@,
---   and a flag indicating whether the error is recoverable
-data ParseError
-    = ParseError
-    { recoverability :: !Recoverability
-    , failure :: !(ATag ParseFail)
-    }
-    deriving Show
-
--- | Indicates whether a @ParseError@ can be recovered
---   by the @Alternative Parser@ instance
-data Recoverability
-    = Recoverable
-    | Unrecoverable
-    deriving (Eq, Ord, Show, Enum, Bounded)
-
-instance Semigroup Recoverability where
-    Recoverable <> Recoverable = Recoverable
-    _ <> _ = Unrecoverable
-
-instance Pretty Recoverability where
-    pPrint = \case
-        Recoverable -> "recoverable"
-        Unrecoverable -> "unrecoverable"
-
-instance Pretty ParseError where
-    pPrintPrec lvl _ (ParseError r (f :@: x)) =
-        let rd = select (lvl > PrettyNormal) (pPrint r) mempty
-        in hang (rd <+> "syntax error at" <+> (pPrint x <> ":")) do
-            formatFailure [x] f
-
-instance Semigroup ParseError where
-    ea <> eb = ParseError
-        (ea.recoverability <> eb.recoverability)
-        (ea.failure <> eb.failure)
-
-
--- | Specific type of failure for a @ParseError@
-data ParseFail
-    = EofFailure
-    | UnexpectedFailure Token
-    | SingleFailure !Doc
-    | ExpectationFailure ![Doc] !(ATag ParseFail)
-    | AlternativeFailure ![ATag ParseFail]
-    deriving (Eq, Show)
-
-instance Pretty ParseFail where
-    pPrint = formatFailure []
-
-instance Pretty (ATag ParseFail) where
-    pPrint (f :@: x) = hang ("at" <+> (pPrint x <> ":")) (formatFailure [x] f)
-
-instance Semigroup (ATag ParseFail) where
-    (<>) ta tb | Just merge <- joinExpectation ta tb = merge where
-        joinExpectation (a :@: xa) (b :@: xb) = case (a, b) of
-            (ExpectationFailure m1 i1, ExpectationFailure m2 i2)
-                | xa == xb, i1 == i2 ->
-                    Just (ExpectationFailure (m1 `List.union` m2) i1 :@: xa)
-            (ExpectationFailure{}, AlternativeFailure bs)
-                | Just merge <- joinExpectationFold ta bs ->
-                    Just (AlternativeFailure merge :@: xb)
-            (AlternativeFailure as, ExpectationFailure{})
-                | Just merge <- joinExpectationFold tb as ->
-                    Just (AlternativeFailure merge :@: xa)
-            _ -> Nothing
-        joinExpectationFold _ [] = Nothing
-        joinExpectationFold eb (ea : as) = case joinExpectation ea eb of
-            Just a' -> Just (a' : as)
-            _ -> (ea :) <$> joinExpectationFold eb as
-    (<>) ta@(a :@: xa) tb@(b :@: xb) = Tag (xa <> xb) case (a, b) of
-        (UnexpectedFailure _, UnexpectedFailure _) | xa == xb -> a
-        (EofFailure, EofFailure) -> EofFailure
-        (_, UnexpectedFailure _) -> a
-        (UnexpectedFailure _, _) -> b
-        (_, EofFailure) -> a
-        (EofFailure, _) -> b
-        (AlternativeFailure as, AlternativeFailure bs) ->
-            AlternativeFailure (as `List.union` bs)
-        (AlternativeFailure as, _) -> AlternativeFailure (as `List.union` [tb])
-        (_, AlternativeFailure bs) -> AlternativeFailure ([ta] `List.union` bs)
-        _ -> case List.nub [ta, tb] of
-            [e] -> e.value
-            es -> AlternativeFailure es
-
--- | Format a @ParseFail@ into a @Doc@, discarding any @Attr@s
---   that have already been printed in the given tree
-formatFailure :: [Attr] -> ParseFail -> Doc
-formatFailure ignore = \case
-        EofFailure -> "unexpected end of input"
-        UnexpectedFailure tok ->
-            "unexpected token" <+> backticked tok
-        SingleFailure doc -> doc
-        ExpectationFailure msg incite ->
-            hang ("expected" <+> (lsep msg <> ":")) do
-                go ignore incite
-        AlternativeFailure [sub] -> go ignore sub
-        AlternativeFailure subs ->
-            hang "all alternatives failed:" do
-                vcat' (go ignore <$> subs)
-    where
-    go ig (f :@: x) =
-        if x `elem` ig
-            then formatFailure ig f
-            else hang ("at" <+> (pPrint x <> ":")) do
-                formatFailure (x : ig) f
 
 
 
@@ -156,7 +50,7 @@ data ParseStream
 
 -- | Create a @ParseFail@ from a @ParseStream@ and an offset into it;
 --   Either an @UnexpectedFailure currentToken@ or @EofFailure@
-formatInput :: ParseStream -> Int -> ATag ParseFail
+formatInput :: ParseStream -> Int -> ATag (ParseFail Token)
 formatInput ps i = Tag (psAttr ps i) case psToken ps i of
     Just t | not (isEof t) -> UnexpectedFailure t
     _ -> EofFailure
@@ -165,11 +59,12 @@ formatInput ps i = Tag (psAttr ps i) case psToken ps i of
 
 -- | Parsing monad
 newtype Parser a
-    = Parser (ParseStream -> Int -> Either ParseError (a, Int))
+    = Parser
+    ( ParseStream -> Int -> Either (ParseError Token) (a, Int) )
     deriving Functor
 
 -- | Unwrap a @Parser a@ to a function
-runParser :: Parser a -> ParseStream -> Int -> Either ParseError (a, Int)
+runParser :: Parser a -> ParseStream -> Int -> Either (ParseError Token) (a, Int)
 runParser (Parser m) = m
 
 instance Applicative Parser where
@@ -189,9 +84,8 @@ instance Alternative Parser where
     Parser a <|> Parser b = Parser \s i ->
         case a s i of
             Left (ParseError Recoverable fa) -> case b s i of
-                Left (ParseError r fb)
-                    | Recoverable <- r -> Left $ ParseError r (fa <> fb)
-                    | otherwise -> Left $ ParseError r fb
+                Left (ParseError Recoverable fb) ->
+                    Left $ ParseError Recoverable (fa <> fb)
                 x -> x
             x -> x
 
@@ -199,7 +93,7 @@ instance MonadFail Parser where
     fail msg = Parser \s i -> Left $ ParseError Recoverable $
         SingleFailure (text msg) :@: psAttr s i
 
-instance MonadError ParseError Parser where
+instance MonadError (ParseError Token) Parser where
     throwError e = Parser \_ _ -> Left e
     catchError (Parser a) f = Parser \s i ->
         case a s i of
@@ -539,10 +433,7 @@ grabWhitespaceDomainOf = grabDomain . wsDominated
 --   on the same line or with a higher indentation level
 --   than that of the given @Attr@
 wsDominated :: Attr -> ATag Token -> Bool
-wsDominated a1 (_ :@: a2) =
-    let Pos _ l1 _ i1 = a1.range.start
-        Pos _ l2 _ i2 = a2.range.start
-    in l1 == l2 || i1 < i2
+wsDominated a1 (_ :@: a2) = todo
 
 -- | @wsBlock<wsBlock<elem>++(sep?) | elem (sep elem)*>@
 wsList :: Parser sep -> Parser a -> Parser [a]
@@ -562,6 +453,12 @@ wsListBody ms ma = asum [block, inline] where
                             else ma << optional ms
                         toks
 
+-- | Perform syntactic analysis on @Text@ using the given @Parser@,
+--   with errors reported to be in the provided @FilePath@
+parseTextWith :: Parser a -> FilePath -> Text -> Either Doc a
+parseTextWith p filePath fileContent = do
+    toks <- L.lexText filePath fileContent
+    evalParser p filePath toks
 
 -- | Perform syntactic analysis on a @ByteString@ using the given @Parser@,
 --   with errors reported to be in the provided @FilePath@
@@ -573,7 +470,14 @@ parseByteStringWith p filePath fileContent = do
 -- | Perform syntactic analysis on a @String@ using the given @Parser@,
 --   with errors reported to be in the provided @FilePath@
 parseStringWith :: Parser a -> FilePath -> String -> Either Doc a
-parseStringWith p name = parseByteStringWith p name . fromString
+parseStringWith p filePath = parseByteStringWith p filePath . fromString
+
+
+parseFileWith :: Pretty a => Parser a -> FilePath -> IO (Either Doc a)
+parseFileWith px filePath = do
+    L.lexFile filePath <&> \case
+        Left e -> Left e
+        Right toks -> evalParser px filePath toks
 
 
 -- | Evaluate a @Parser@ on a given @Seq (ATag Token)@,

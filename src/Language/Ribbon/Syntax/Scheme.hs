@@ -5,7 +5,7 @@ import Data.Attr
 
 import Text.Pretty
 
-import Language.Ribbon.Syntax.Name
+import Language.Ribbon.Lexical.Name
 import Language.Ribbon.Syntax.Kind
 
 

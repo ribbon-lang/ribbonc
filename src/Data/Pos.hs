@@ -13,19 +13,18 @@ import Text.Pretty
 data Pos
     = Pos
     { offset :: !Word32
-    , line :: !Word32
+    ,   line :: !Word32
     , column :: !Word32
-    , indent :: !Word32
     }
 
 instance Show Pos where
     show = prettyShowLevel PrettyVerbose
 
 instance Pretty Pos where
-    pPrintPrec lvl _ (Pos o l c i) =
+    pPrintPrec lvl _ (Pos o l c) =
         let s = pPrint l <> ":" <> pPrint c
         in if lvl > PrettyNormal
-            then s <> parens (pPrint o <> ", " <> pPrint i)
+            then s <> parens (pPrint o)
             else s
 
 instance Eq Pos where
@@ -36,7 +35,7 @@ instance Ord Pos where
 
 instance Nil Pos where
     isNil = (== Nil)
-    nil = Pos 0 1 1 0
+    nil = Pos 0 1 1
 
 -- | Determine if two @Pos@ are adjacent in terms of line and column
 posConnected :: Pos -> Pos -> Bool

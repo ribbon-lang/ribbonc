@@ -1,4 +1,4 @@
-module Language.Ribbon.Syntax.Name where
+module Language.Ribbon.Lexical.Name where
 
 import Data.Char qualified as Char
 
@@ -11,7 +11,7 @@ import Data.Nil
 
 import Text.Pretty
 
-import Language.Ribbon.Syntax.Fixity
+import Language.Ribbon.Lexical.Fixity
 
 
 
@@ -67,6 +67,29 @@ instance HasFixity FixName where
             _ Seq.:|> q
                 | FixSimple _ <- q -> Postfix
                 | FixOperand <- q -> Infix
+
+data FixNameError
+    = FixNameMissingSimple
+    | FixNameAdjacentOperands
+    deriving (Eq, Ord, Show)
+
+instance Pretty FixNameError where
+    pPrint = \case
+        FixNameMissingSimple ->
+            "fix name must contain at least one identifier or operator"
+        FixNameAdjacentOperands ->
+            "fix name must not contain adjacent operands"
+
+validateFixName :: FixName -> Maybe FixNameError
+validateFixName (FixName cs) = do
+    if not $ any isFixSimple cs
+        then Just FixNameMissingSimple
+        else checkAdjacencies cs where
+    checkAdjacencies Nil = Nothing
+    checkAdjacencies (l Seq.:<| r)
+        | FixOperand <- l, FixOperand Seq.:<| _ <- r =
+            Just FixNameAdjacentOperands
+        | otherwise = checkAdjacencies r
 
 -- | A component of a variable name with operator semantics;
 --   see @FixName@ for usage details

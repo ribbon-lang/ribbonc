@@ -2,11 +2,11 @@ module Language.Ribbon.Syntax.Binding where
 
 import Text.Pretty
 
-import Language.Ribbon.Syntax.Visibility
-import Language.Ribbon.Syntax.Category
-import Language.Ribbon.Syntax.Fixity
-import Language.Ribbon.Syntax.Associativity
-import Language.Ribbon.Syntax.Precedence
+import Language.Ribbon.Lexical.Visibility
+import Language.Ribbon.Lexical.Category
+import Language.Ribbon.Lexical.Fixity
+import Language.Ribbon.Lexical.Associativity
+import Language.Ribbon.Lexical.Precedence
 
 
 

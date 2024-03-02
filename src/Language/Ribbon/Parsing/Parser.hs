@@ -26,6 +26,9 @@ import Language.Ribbon.Lexical
 import Language.Ribbon.Syntax
 import Debug.Trace (traceM)
 import Data.Functor ((<&>))
+import Data.Bifunctor
+import Control.Monad.Error.Class
+import Language.Ribbon.Parsing.Error
 
 
 
@@ -298,18 +301,16 @@ anyName = asum
 
 fixName :: Parser FixName
 fixName = expecting "a fix name" $ backticks do
-    FixName . Seq.fromList <$> some do
+    fn :@: at <- tag $ FixName . Seq.fromList <$> some do
         asum
             [ FixOperand <$ semSpace
             , FixSimple <$> simpleName
             ]
 
-validateFixNameDef :: ATag FixName -> Parser ()
-validateFixNameDef (FixName cs :@: at) = do
-    assertAt at (any isFixSimple cs)
-        "fix name def must contain at least one identifier or operator"
-    assertAt at (any isFixOperand cs)
-        "fix name def must contain at least one operand-designating space"
+    case validateFixName fn of
+        Just msg -> throwError $
+            ParseError Unrecoverable $ SingleFailure (pPrint msg) :@: at
+        _ -> pure fn
 
 
 simpleName :: Parser SimpleName

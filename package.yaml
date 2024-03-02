@@ -41,9 +41,6 @@ dependencies:
     - parallel-io
     - optparse-applicative
 
-build-tools:
-    - alex
-
 executables:
     ribbonc:
         main: Main.hs

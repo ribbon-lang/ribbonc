@@ -35,8 +35,8 @@ instance Pretty Literal where
     pPrint = \case
         LInt i -> pPrint i
         LFloat f -> pPrint f
-        LChar c -> pPrint c
-        LString s -> pPrint s
+        LChar c -> shown c
+        LString s -> shown s
 
 instance Pretty LiteralKind where
     pPrint = \case

@@ -1,4 +1,4 @@
-module Language.Ribbon.Syntax.Associativity where
+module Language.Ribbon.Lexical.Associativity where
 
 import Text.Pretty
 

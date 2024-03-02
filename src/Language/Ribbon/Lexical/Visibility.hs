@@ -1,4 +1,4 @@
-module Language.Ribbon.Syntax.Visibility where
+module Language.Ribbon.Lexical.Visibility where
 
 import Text.Pretty
 

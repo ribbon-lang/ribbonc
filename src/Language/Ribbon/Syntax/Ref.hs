@@ -7,7 +7,7 @@ import Data.Attr
 
 import Text.Pretty
 
-import Language.Ribbon.Syntax.Category
+import Language.Ribbon.Lexical.Category
 
 
 

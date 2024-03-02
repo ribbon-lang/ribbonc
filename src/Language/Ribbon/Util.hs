@@ -86,6 +86,10 @@ option a fa = fa <|> pure a
 compose :: (a -> b) -> (b -> c) -> (a -> c)
 compose f g a = g (f a)
 
+-- | The reverse of @(.:)@
+compose2 :: (a -> b -> c) -> (c -> d) -> (a -> b -> d)
+compose2 f g a b = g (f a b)
+
 -- | Compose a list of functions
 composeAll :: [a -> a] -> a -> a
 composeAll = foldr compose id
@@ -93,10 +97,8 @@ composeAll = foldr compose id
 -- | Compose a binary function
 (.:) :: (c -> d) -> (a -> b -> c) -> a -> b -> d
 (.:) = (.) . (.)
+infixr 8 .:
 
--- | The reverse of @(.:)@
-compose2 :: (a -> b -> c) -> (c -> d) -> a -> b -> d
-compose2 = flip (.:)
 
 -- | Split a list into multiple sub-lists
 --   at each element that satisfies a predicate
@@ -115,12 +117,12 @@ splitOn = splitWith . (==)
 -- | Compositional @&&@
 (&&&) :: (a -> Bool) -> (a -> Bool) -> (a -> Bool)
 (&&&) f g a = f a && g a
-infixl 8 &&&
+infix 7 &&&
 
 -- | Compositional @||@
 (|||) :: (a -> Bool) -> (a -> Bool) -> (a -> Bool)
 (|||) f g a = f a || g a
-infixl 8 |||
+infix 8 |||
 
 -- | Compositional @not@
 not'd :: (a -> Bool) -> (a -> Bool)
@@ -190,6 +192,32 @@ foldWithM b as f = foldrM f b as
 -- | `foldrM` with the function taken second
 foldWithM' :: (Foldable t, Monad m) => b -> (a -> b -> m b) -> t a -> m b
 foldWithM' = flip foldrM
+
+-- | Continue evaluating `m a` while `m Bool` is `True`
+whileM :: Monad m => m Bool -> m a -> m [a]
+whileM p a = p >>= selecting
+    do liftA2 (:) a (whileM p a)
+    do pure []
+
+-- | Continue evaluating `m a` while `m Bool` is `False`
+untilM :: Monad m => m Bool -> m a -> m [a]
+untilM p a = p >>= selecting
+    do pure []
+    do liftA2 (:) a (untilM p a)
+
+-- | Continue evaluating `m a` while `m Bool` is `True`,
+--   discarding results
+whileM_ :: Monad m => m Bool -> m a -> m ()
+whileM_ p a = p >>= selecting
+    do a *> whileM_ p a
+    do pure ()
+
+-- | Continue evaluating `m a` while `m Bool` is `False`,
+--   discarding results
+untilM_ :: Monad m => m Bool -> m a -> m ()
+untilM_ p a = p >>= selecting
+    do pure ()
+    do a *> untilM_ p a
 
 -- | Force a string literal to be a @String@ under @OverloadedStrings@
 pattern String :: String -> String

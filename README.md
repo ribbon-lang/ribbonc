@@ -45,7 +45,7 @@ understand if you know ebnf.
 #### Implementation progress
 - 🟩 Lexical analysis
 - 🟨 Syntactic analysis (parsing)
-- 🟨 Semantic analysis (graph of module, etc)
+- 🟥 Semantic analysis (graph of module, etc)
 - 🟥 Type inference
 - 🟥 Code generation
 - 🟥 Driver CLI
@@ -122,8 +122,6 @@ libraries included via source, I have the basic boilerplate dependencies such as
 `containers`, `mtl`, `bytestring`, `text`, as well as some quality of life stuff
 like `directory`, `pretty`, and `parallel-io` for concurrent parsing
 
-`alex` is a build dependency
-
 The Stack configuration is locked to `lts-21.25`, using GHC `9.4.8`
 
 
@@ -134,9 +132,12 @@ play with features implemented thus far, the best way to do that is via
 `stack repl`
 
 Currently you can:
-- Play with the lexer, using `lexString`/`lexByteString`
-- Play with the parser, using `moduleHead`/`file`/etc
-in combination with `parseByteStringWith`/`parseStringWith`/`parseFileWith`
+- Play with the lexer,
+using `pLexFileWith`
+with `L.lines`/others in `Language.Ribbon.Parsing.Lexer`
+    > or execute with `lexStringWith`/`lexByteStringWith`/`lexTextWith`/`lexFileWith`
+<!-- - Play with the parser, using `moduleHead`/`file`/etc
+in combination with `parseByteStringWith`/`parseStringWith`/`parseFileWith` -->
 
 
 ## Discussion

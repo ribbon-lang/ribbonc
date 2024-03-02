@@ -1,8 +1,8 @@
-module Language.Ribbon.Syntax.Precedence where
+module Language.Ribbon.Lexical.Precedence where
 
 import Data.Word (Word8)
 
-import Language.Ribbon.Syntax.Fixity
+import Language.Ribbon.Lexical.Fixity
 
 
 

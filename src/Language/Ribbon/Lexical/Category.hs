@@ -1,4 +1,4 @@
-module Language.Ribbon.Syntax.Category where
+module Language.Ribbon.Lexical.Category where
 
 import Text.Pretty
 

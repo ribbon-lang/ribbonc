@@ -13,12 +13,12 @@ import Text.Pretty
 
 import Language.Ribbon.Lexical
 
-import Language.Ribbon.Syntax.Name
-import Language.Ribbon.Syntax.Path
+import Language.Ribbon.Lexical.Name
+import Language.Ribbon.Lexical.Path
 import Language.Ribbon.Syntax.Scheme
-import Language.Ribbon.Syntax.Visibility
-import Language.Ribbon.Syntax.Fixity
-import Language.Ribbon.Syntax.Precedence
+import Language.Ribbon.Lexical.Visibility
+import Language.Ribbon.Lexical.Fixity
+import Language.Ribbon.Lexical.Precedence
 import Language.Ribbon.Syntax.Module
 import Language.Ribbon.Util
 
