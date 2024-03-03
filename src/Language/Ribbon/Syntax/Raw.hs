@@ -13,12 +13,7 @@ import Text.Pretty
 
 import Language.Ribbon.Lexical
 
-import Language.Ribbon.Lexical.Name
-import Language.Ribbon.Lexical.Path
 import Language.Ribbon.Syntax.Scheme
-import Language.Ribbon.Lexical.Visibility
-import Language.Ribbon.Lexical.Fixity
-import Language.Ribbon.Lexical.Precedence
 import Language.Ribbon.Syntax.Module
 import Language.Ribbon.Util
 
@@ -316,7 +311,7 @@ instance Pretty RawUse where
         let pd = pPrintPrec lvl 0 path
             td = pPrintPrec lvl 0 tree
         in hang "use" do
-            do if pathRequiresSlash path.value && not (rawUseTreeIsSingle tree.value)
+            do if requiresSlash path && not (rawUseTreeIsSingle tree.value)
                 then pd </> td
                 else pd <> td
             <+> maybeMEmpty (hang "as" . pPrintPrec lvl 0 <$> alias)

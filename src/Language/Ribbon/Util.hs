@@ -242,3 +242,9 @@ instance SlashConnect String where
 instance SlashConnect Doc where
     (</>) a b = a <> "/" <> b
 
+
+superscript :: Char -> Char
+superscript c = Maybe.fromMaybe c do
+    List.lookup c $ zip
+        "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+        "⁰¹²³⁴⁵⁶⁷⁸⁹ᵃᵇᶜᵈᵉᶠᵍʰᶦʲᵏˡᵐⁿᵒᵖᵠʳˢᵗᵘᵛʷˣʸᶻᴬᴮᶜᴰᴱᶠᴳᴴᴵᴶᴷᴸᴹᴺᴼᴾᵠᴿˢᵀᵁⱽᵂˣʸᶻ"

@@ -17,6 +17,7 @@ import Control.Applicative
 import Control.Monad.State.Strict
 
 import Text.Pretty hiding (parens, brackets, backticks, braces, cat)
+import Text.Pretty qualified as Pretty
 
 import Language.Ribbon.Util
 
@@ -24,11 +25,7 @@ import Language.Ribbon.Parsing.Monad.Parser
 
 import Language.Ribbon.Lexical
 import Language.Ribbon.Syntax
-import Debug.Trace (traceM)
 import Data.Functor ((<&>))
-import Data.Bifunctor
-import Control.Monad.Error.Class
-import Language.Ribbon.Parsing.Error
 
 
 
@@ -37,7 +34,7 @@ moduleHead :: Parser RawModuleHead
 moduleHead = expecting "a valid module header" do
     moduleName <- sym "module" >> tag string
     validateName moduleName
-    moduleVersion <- sym "@" >> tag version
+    moduleVersion <- simpleNameOf "@" >> tag version
 
     (sources, dependencies, meta) <- do
         option mempty grabWhitespaceDomain
@@ -52,18 +49,20 @@ moduleHead = expecting "a valid module header" do
         , meta = meta
         }
     where
-    keyPairs = many do
-        liftA2 (,) (tag simpleName) grabWhitespaceDomain
+    keyPairs = grabLines >>= mapM do
+        recurseParser do
+            liftA2 (,) (tag simpleName) grabWhitespaceDomain
 
     processPairs =
-        flip (foldWithM mempty) \(k, toks) (sources, dependencies, meta) ->
+        flip (foldWithM mempty) \(k, toks) (sources, dependencies, meta) -> do
+            f <- getFilePath
             case k.value.value of
                 "sources" ->
-                    (, dependencies, meta) . Tag (attrFold toks) <$>
+                    (, dependencies, meta) . Tag (attrFold (fileAttr f) toks) <$>
                         processSources (tagOf k) sources toks
 
                 "dependencies" ->
-                    (sources, , meta) . Tag (attrFold toks) <$>
+                    (sources, , meta) . Tag (attrFold (fileAttr f) toks) <$>
                         processDependencies (tagOf k) dependencies toks
 
                 _ -> (sources, dependencies, ) <$> processMeta k meta toks
@@ -91,7 +90,7 @@ moduleHead = expecting "a valid module header" do
 
     dependency = do
         moduleName <- tag string
-        moduleVersion <- sym "@" >> tag version
+        moduleVersion <- simpleNameOf "@" >> tag version
         alias <- optional (sym "as" >> noFail (tag simpleName))
         pure (moduleName, moduleVersion, alias)
 
@@ -133,8 +132,7 @@ def = asum [ startsEq, decls ] where
         grabWhitespaceDomain >>= recurseParser do
             (q, c) <- option mempty do
                 sym "forall" >> noFail typeHead
-            a <- lastAttr
-            t <- grabDomain (wsDominated a &&& not . isSymbol "=" . untag)
+            t <- grabDomain (not . isSymbol "=" . untag)
             option (RdDecl q c t) do
                 sym "="
                 RdDeclVal q c t <$> noFail grabWhitespaceDomain
@@ -231,15 +229,16 @@ use :: Parser RawUse
 use = do
     optional (tag path) >>= \case
         Just p -> do
-            traceM $ "got path: " <> prettyShowLevel PrettyVerbose p
             liftA2 (RawUse p)
                 do option (RawUseSingle :@: p.tag)
-                    if pathRequiresSlash p.value
-                        then connected (sym "/") >> noFail (connected $ tag useTree)
-                        else connected $ tag useTree
+                    if requiresSlash p
+                        then do
+                            at <- attrOf $ connected p.tag (sym "/")
+                            noFail (connected at $ tag useTree)
+                        else connected p.tag $ tag useTree
                 do alias
         _ -> liftA3 RawUse
-            do tagApp1 (`Path` Nil) <$> PbThis <@> attr
+            do tagApp1 ((`Path` Nil) . Just) <$> PbThis <@> attr
             do tag useTree
             do alias
     where
@@ -260,37 +259,9 @@ use = do
 
 
 path :: Parser Path
-path = do
-    b <- tag $ optional pathBase
-    cs <- case untag b of
-        Just b' -> option Nil do
-            when (pathBaseRequiresSlash b') do
-                connected (sym "/")
-            comps
-        _ -> liftA2 (Seq.:<|)
-            do tag pathComponent
-            do option Nil $ connected (sym "/") >> comps
-    pure (Path (Maybe.fromMaybe PbThis <$> b) cs)
-    where
-        comps = Seq.fromList <$> listSome
-            (connected $ sym "/")
-            (connected $ tag pathComponent)
-
-pathBase :: Parser PathBase
-pathBase = asum
-    [ PbRoot <$ sym "/"
-    , PbThis <$ sym "./"
-    , PbModule <$> do
-        sym "module" >> noFail simpleName
-    , PbFile <$> do
-        sym "file" >> noFail string
-    , PbUp . length <$> some (sym "../")
-    ]
-
-pathComponent :: Parser PathComponent
-pathComponent = liftA2 PathComponent
-    do option OUnresolved overloadCategory
-    do anyName
+path = nextMap \case
+    TPath p -> Just p
+    _ -> Nothing
 
 
 anyName :: Parser FixName
@@ -300,23 +271,20 @@ anyName = asum
     ]
 
 fixName :: Parser FixName
-fixName = expecting "a fix name" $ backticks do
-    fn :@: at <- tag $ FixName . Seq.fromList <$> some do
-        asum
-            [ FixOperand <$ semSpace
-            , FixSimple <$> simpleName
-            ]
-
-    case validateFixName fn of
-        Just msg -> throwError $
-            ParseError Unrecoverable $ SingleFailure (pPrint msg) :@: at
-        _ -> pure fn
-
+fixName = expecting "a fix name" $ nextMap \case
+    TPath (SingleNamePath f) -> Just f
+    _ -> Nothing
 
 simpleName :: Parser SimpleName
 simpleName = expecting "an unreserved identifier or operator" $ nextMap \case
-    t@(TSymbol s) | not (isReserved t) -> pure (SimpleName s)
-    _ -> empty
+    TPath (SingleNamePath (SimpleFixName n)) -> Just n
+    _ -> Nothing
+
+simpleNameOf :: String -> Parser ()
+simpleNameOf s = expecting (Pretty.backticks $ text s) $ nextIf_ \case
+    TPath (SingleNamePath (SimpleFixName (SimpleName n))) -> n == s
+    _ -> False
+
 
 visibility :: Parser Visibility
 visibility = Public <$ sym "pub"

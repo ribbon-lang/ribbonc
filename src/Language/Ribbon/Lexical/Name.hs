@@ -68,6 +68,11 @@ instance HasFixity FixName where
                 | FixSimple _ <- q -> Postfix
                 | FixOperand <- q -> Infix
 
+-- | Pattern alias for a @FixName@ with a single @SimpleName@
+pattern SimpleFixName :: SimpleName -> FixName
+pattern SimpleFixName n = FixName (FixSimple n Seq.:<| Nil)
+{-# COMPLETE SimpleFixName #-}
+
 data FixNameError
     = FixNameMissingSimple
     | FixNameAdjacentOperands

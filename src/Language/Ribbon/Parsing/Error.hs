@@ -24,9 +24,8 @@ instance ParseInput Token where
         TSymbol _ -> "symbol"
         TLiteral l -> inputIdentity l
         TVersion _ -> "version"
-        TSemSpace -> "semantic space"
-        TTree _ -> "tree"
-        TEof -> "end of file"
+        TTree k _ -> prettyShow k <> " tree"
+        TPath _ -> "path"
     inputPretty = pPrint
 
 instance ParseInput Literal where

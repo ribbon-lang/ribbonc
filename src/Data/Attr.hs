@@ -35,14 +35,14 @@ instance Pretty Attr where
 instance Semigroup Attr where
     a <> Nil = a
     Nil <> b = b
-    a <> b = Ex.assert (a.file == b.file) $
+    a <> b = Ex.assert (a.file == b.file || isNil a.file || isNil b.file) $
         Attr a.file (a.range <> b.range)
 
 instance Monoid Attr where
-    mempty = Attr Nil mempty
+    mempty = Attr Nil Nil
 
 instance Nil Attr where
-    isNil = (== mempty)
+    isNil = isNil . (.range)
 
 -- | Determine if two @Attr@s are adjacent in terms of line and column
 attrConnected :: Attr -> Attr -> Bool
@@ -61,10 +61,15 @@ attrFlattenToEnd a = a { range = rangeFlattenToEnd a.range}
 
 -- | Fold a structure containing attributed items into a single @Attr@,
 --   using a given map function to extract the @Attr@s from elements
-attrFoldBy :: Foldable t => (a -> Attr) -> t a -> Attr
-attrFoldBy f = foldr ((<>) . f) Nil
+attrFoldBy :: Foldable t => (a -> Attr) -> Attr -> t a -> Attr
+attrFoldBy f = foldr ((<>) . f)
 
 
 -- | Fold a structure containing @ATag@ged items into a single @Attr@
-attrFold :: Foldable t => t (ATag a) -> Attr
+attrFold :: Foldable t => Attr -> t (ATag a) -> Attr
 attrFold = attrFoldBy tagOf
+
+
+-- | Create a new @Attr@ with a @Nil@ @Range@, for the given @FilePath@
+fileAttr :: FilePath -> Attr
+fileAttr f = Attr f mempty

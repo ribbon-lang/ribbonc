@@ -1,11 +1,16 @@
 module Language.Ribbon.Lexical.Token where
 
-import Data.Functor
+import Data.Sequence (Seq)
+import qualified Data.Sequence as Seq
+
 import Data.Foldable
+
+import Control.Monad
+
 import Data.Tag
 import Data.Attr
+import Data.Nil
 
-import Data.Sequence (Seq)
 
 import Text.Pretty
 
@@ -13,10 +18,13 @@ import Language.Ribbon.Util
 
 import Language.Ribbon.Lexical.Literal
 import Language.Ribbon.Lexical.Path
-import Language.Ribbon.Lexical.Name
 import Language.Ribbon.Lexical.Version
 import Language.Ribbon.Parsing.Text
-import Control.Monad
+import Control.Monad.State (evalState)
+import Control.Monad.State.Class
+import Data.Map.Strict (Map)
+import Data.Map.Strict qualified as Map
+import Control.Applicative
 
 -- | A lexical sequence of @Token@s ready for parsing
 type TokenSeq = Seq (ATag Token)
@@ -30,45 +38,43 @@ data Token
     | TLiteral !Literal
     -- | A token indicating a semantic version number
     | TVersion !Version
-    -- | A semantically significant space
-    | TSemSpace
     -- | A sequence of tokens delimited by something
-    | TTree !TokenTree
-    -- | An end of file token
-    | TEof
+    | TTree !BlockKind !TokenSeq
+    -- | A sequence of names and symbols
+    | TPath !Path
     deriving (Eq, Ord, Show)
+
+instance (Applicative m, MonadState BlockCounter m) => PrettyWith m Token where
+    pPrintPrecWith lvl prec = \case
+        TSymbol s -> pure (text s)
+        TLiteral l -> pPrintPrecWith lvl prec l
+        TVersion v -> pPrintPrecWith lvl prec v
+        TTree k ts -> blockPrintWith lvl k ts
+        TPath p -> pPrintPrecWith lvl prec p
 
 instance Pretty Token where
-    pPrint = \case
-        TSymbol s -> text s
-        TLiteral l -> pPrint l
-        TVersion v -> pPrint v
-        TSemSpace -> "{SEM-SPACE}"
-        TTree t -> pPrint t
-        TEof -> "{EOF}"
+    pPrintPrec lvl prec t =
+        evalState (pPrintPrecWith lvl prec t) emptyBlockCounter
+
+instance MonadState BlockCounter m => PrettyWith m TokenSeq where
+    pPrintPrecWith lvl _ ts = fmap hsep do
+        forM (toList ts) \(t :@: a) ->
+            liftA2 (<+>)
+                do pPrintPrecWith lvl 0 t
+                if lvl > PrettyNormal
+                    then ("@" <+>) <$> pPrintPrecWith lvl 0 a
+                    else pure mempty
 
 instance Pretty TokenSeq where
-    pPrintPrec lvl _ ts = sep $ toList ts <&> \(t :@: a) ->
-        pPrint t <+> maybeMEmpty do
-            guard (lvl > PrettyNormal)
-            Just $ "@" <+> pPrintPrec lvl 0 a
+    pPrintPrec lvl p ts =
+        evalState (pPrintPrecWith lvl p ts) emptyBlockCounter
 
-data TokenTree
-    = TtBlock !BlockKind !TokenSeq
-    | TtPath !Path
-    deriving (Eq, Ord, Show)
-
-instance Pretty TokenTree where
-    pPrint = \case
-        TtBlock k ts -> blockPrint k ts
-        TtPath p -> pPrint p
 
 data BlockKind
     = BkParen
     | BkBrace
     | BkBracket
-    | BkIndent
-    | BkLine
+    | BkWhitespace
     deriving (Eq, Ord, Show)
 
 instance Pretty BlockKind where
@@ -76,26 +82,34 @@ instance Pretty BlockKind where
         BkParen -> "parenthesis"
         BkBrace -> "brace"
         BkBracket -> "bracket"
-        BkIndent -> "indentation"
-        BkLine -> "line"
+        BkWhitespace -> "whitespace"
 
-blockPrint :: BlockKind -> TokenSeq -> Doc
-blockPrint = \case
-    BkParen -> parens . pPrint
-    BkBrace -> braces . pPrint
-    BkBracket -> brackets . pPrint
-    BkIndent -> indent . vcat' . (["↘"] <>) . (<> ["↖"]) . toList . fmap pPrint
-    BkLine -> hsep . (["◁"] <>) . (<> ["▷"]) . toList . fmap pPrint
+type BlockCounter = Map BlockKind Int
 
-isEof :: Token -> Bool
-isEof = \case
-    TEof -> True
-    _ -> False
+emptyBlockCounter :: BlockCounter
+emptyBlockCounter = Map.fromList
+    [(BkParen, 0), (BkBrace, 0), (BkBracket, 0), (BkWhitespace, 0)]
+
+blockPrintWith :: MonadState BlockCounter m =>
+    PrettyLevel -> BlockKind -> TokenSeq -> m Doc
+blockPrintWith lvl k ts = do
+    i <- fmap superscript . show <$> gets (Map.! k)
+    modify (Map.adjust (+1) k)
+    (text i <>) . (<> text i) <$> case k of
+        BkParen -> parens <$> pPrintPrecWith lvl 0 ts
+        BkBrace -> braces <$> pPrintPrecWith lvl 0 ts
+        BkBracket -> brackets <$> pPrintPrecWith lvl 0 ts
+        BkWhitespace -> hsep . (["◁"] <>) . (<> ["▷"]) <$>
+            traverse (pPrintPrecWith lvl 0) (toList ts)
+
+blockPrint :: PrettyLevel -> BlockKind -> TokenSeq -> Doc
+blockPrint lvl k ts =
+    evalState (blockPrintWith lvl k ts) emptyBlockCounter
+
 
 -- | Check if a token terminates expressions (ie @,@, @}@ etc)
 isSentinel :: Token -> Bool
 isSentinel = \case
-    TSemSpace -> True
     TSymbol s -> s `elem` [")", "]", "}", ",", "=", ":"]
     _ -> False
 
@@ -105,7 +119,7 @@ isSymbol s = \case
     TSymbol s' -> s == s'
     _ -> False
 
--- | Check if a token has a reserved value; and return it if it doesnt
+-- | Check if a token has a reserved value; and return it if it doesn't
 filterUnreserved :: Token -> Maybe String
 filterUnreserved = \case
     TSymbol s | s `notElem` reservedSymbols -> Nothing
@@ -120,7 +134,6 @@ isReserved = \case
 -- | Check if a token is a semantic space
 isSemSpace :: Token -> Bool
 isSemSpace = \case
-    TSemSpace -> True
     _ -> False
 
 
@@ -134,10 +147,6 @@ data TokenSpec
     | TsLiteral !(Maybe LiteralKind)
     -- | Expect a TVersion
     | TsVersion
-    -- | Expect a TSemSpace
-    | TsSemSpace
-    -- | Expect an end of file token
-    | TsEof
     deriving (Eq, Ord, Show)
 
 instance Pretty TokenSpec where
@@ -147,5 +156,33 @@ instance Pretty TokenSpec where
         TsLiteral Nothing -> "literal"
         TsLiteral (Just k) -> pPrint k
         TsVersion -> "version"
-        TsSemSpace -> "semantic space"
-        TsEof -> "eof"
+
+
+nilTree :: Token -> Bool
+nilTree = \case
+    TTree k ts
+        | k == BkWhitespace ->
+            isNil ts || all (nilTree . untag) ts
+    _ -> False
+
+reduceTokenSeq :: TokenSeq -> TokenSeq
+reduceTokenSeq = compose (fmap $ fmap reduceTree) \case
+    (TTree k ts :@: _) Seq.:<| Nil
+        | k == BkWhitespace ->
+            if isNil ts || all (nilTree . untag) ts
+            then Nil
+            else ts
+    ts -> ts
+
+reduceTree :: Token -> Token
+reduceTree = \case
+    TTree k ts
+        | k /= BkWhitespace
+        , (TTree k' ts' :@: _) Seq.:<| Nil <- ts
+        , k' == BkWhitespace ->
+            reduceTree (TTree k (reduceTokenSeq ts'))
+
+        | otherwise ->
+            TTree k (reduceTokenSeq ts)
+
+    t -> t

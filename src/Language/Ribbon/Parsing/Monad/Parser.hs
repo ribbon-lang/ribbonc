@@ -2,15 +2,12 @@ module Language.Ribbon.Parsing.Monad.Parser where
 
 import Data.Functor
 import Data.Foldable
-import Data.Function ((&))
 
 import Data.String (fromString)
 import Data.ByteString.Lazy (ByteString)
 
-import Data.Sequence (Seq)
 import Data.Sequence qualified as Seq
 
-import Data.List qualified as List
 
 import Data.Word (Word32)
 
@@ -34,25 +31,18 @@ import Language.Ribbon.Lexical
 import Language.Ribbon.Parsing.Error
 import Language.Ribbon.Parsing.Lexer qualified as L
 import Data.Text.Lazy (Text)
+import Data.Function ((&))
 
 
 
 
 
 
--- | Input type for Parser
-data ParseStream
-    = ParseStream
-    { input :: !TokenSeq
-    , filePath :: !FilePath
-    }
-    deriving Show
-
--- | Create a @ParseFail@ from a @ParseStream@ and an offset into it;
+-- | Create a @ParseFail@ from a @TokenSeq@ and an offset into it;
 --   Either an @UnexpectedFailure currentToken@ or @EofFailure@
-formatInput :: ParseStream -> Int -> ATag (ParseFail Token)
-formatInput ps i = Tag (psAttr ps i) case psToken ps i of
-    Just t | not (isEof t) -> UnexpectedFailure t
+formatInput :: FilePath -> TokenSeq -> ATag (ParseFail Token)
+formatInput fp ts = Tag (psAttr fp ts) case ts of
+    (t :@: _) Seq.:<| _ -> UnexpectedFailure t
     _ -> EofFailure
 
 
@@ -60,89 +50,75 @@ formatInput ps i = Tag (psAttr ps i) case psToken ps i of
 -- | Parsing monad
 newtype Parser a
     = Parser
-    ( ParseStream -> Int -> Either (ParseError Token) (a, Int) )
+    ( FilePath -> TokenSeq -> Either (ParseError Token) (a, TokenSeq) )
     deriving Functor
 
 -- | Unwrap a @Parser a@ to a function
-runParser :: Parser a -> ParseStream -> Int -> Either (ParseError Token) (a, Int)
+runParser ::
+    Parser a -> FilePath -> TokenSeq ->
+        Either (ParseError Token) (a, TokenSeq)
 runParser (Parser m) = m
 
 instance Applicative Parser where
-    pure a = Parser \_ i -> Right (a, i)
-    Parser f <*> Parser a = Parser \s i -> do
-        (f', i') <- f s i
-        (a', i'') <- a s i'
-        pure (f' a', i'')
+    pure a = Parser \_ ts -> Right (a, ts)
+    Parser f <*> Parser a = Parser \fp ts -> do
+        (f', ts') <- f fp ts
+        (a', ts'') <- a fp ts'
+        pure (f' a', ts'')
 
 instance Monad Parser where
-    Parser a >>= f = Parser \s i -> do
-        (a', i') <- a s i
-        runParser (f a') s i'
+    Parser a >>= f = Parser \fp ts -> do
+        (a', ts') <- a fp ts
+        runParser (f a') fp ts'
 
 instance Alternative Parser where
-    empty = Parser \s i -> Left $ ParseError Recoverable $ formatInput s i
-    Parser a <|> Parser b = Parser \s i ->
-        case a s i of
-            Left (ParseError Recoverable fa) -> case b s i of
+    empty = Parser \fp ts -> Left $ ParseError Recoverable $ formatInput fp ts
+    Parser a <|> Parser b = Parser \fp ts ->
+        case a fp ts of
+            Left (ParseError Recoverable fa) -> case b fp ts of
                 Left (ParseError Recoverable fb) ->
                     Left $ ParseError Recoverable (fa <> fb)
                 x -> x
             x -> x
 
 instance MonadFail Parser where
-    fail msg = Parser \s i -> Left $ ParseError Recoverable $
-        SingleFailure (text msg) :@: psAttr s i
+    fail msg = Parser \fp ts -> Left $ ParseError Recoverable $
+        SingleFailure (text msg) :@: psAttr fp ts
 
 instance MonadError (ParseError Token) Parser where
     throwError e = Parser \_ _ -> Left e
-    catchError (Parser a) f = Parser \s i ->
-        case a s i of
-            Left e -> runParser (f e) s i
+    catchError (Parser a) f = Parser \fp ts ->
+        case a fp ts of
+            Left e -> runParser (f e) fp ts
             x -> x
 
-instance MonadReader ParseStream Parser where
+instance MonadReader FilePath Parser where
     ask = Parser (curry Right)
-    local f (Parser a) = Parser \s _ ->
-        let s' = f s in a s' 0
+    local f (Parser a) = Parser \fp ts ->
+        let fp' = f fp in a fp' ts
 
-instance MonadState Int Parser where
-    get = Parser \_ i -> Right (i, i)
-    put i = Parser \_ _ -> Right ((), i)
+instance MonadState TokenSeq Parser where
+    get = Parser \_ ts -> Right (ts, ts)
+    put ts = Parser \_ _ -> Right ((), ts)
 
--- | Get the @Attr@ for a particular offset in a @ParseStream@,
+-- | Get the @Attr@ for a particular offset in a @TokenSeq@,
 --   or the end of the input, if the offset is out of bounds
-psAttr :: ParseStream -> Int -> Attr
-psAttr ps i = case Seq.lookup i ps.input of
-    Just (_ :@: x) -> x
-    _ -> case Seq.lookup (psLength ps - 1) ps.input of
-        Just (_ :@: x) -> x
-        _ -> Attr ps.filePath Nil
-
--- | Get the @Token@ for a particular offset in a @ParseStream@
-psToken :: ParseStream -> Int -> Maybe Token
-psToken ps i = untag <$> Seq.lookup i ps.input
-
--- | Get the length of a @ParseStream@
-psLength :: ParseStream -> Int
-psLength = Seq.length . (.input)
+psAttr :: FilePath -> TokenSeq -> Attr
+psAttr fp ts = case ts of
+    (_ :@: x) Seq.:<| _ -> x
+    _ -> Attr fp Nil
 
 
 
--- | Get the @ParseStream@ associated with the current @Parser@ action
-getStream :: Parser ParseStream
-getStream = Parser (curry Right)
 
--- | Get the @Seq (ATag Token)@ associated with the current @Parser@ action
+-- | Get the @TokenSeq@ associated with the current @Parser@ action
 getTokenSeq :: Parser TokenSeq
-getTokenSeq = (.input) <$> getStream
+getTokenSeq = get
 
 -- | Get the @FilePath@ associated with the current @Parser@ action
 getFilePath :: Parser FilePath
-getFilePath = (.filePath) <$> getStream
+getFilePath = ask
 
--- | Get the offset associated with the current @Parser@ action
-modOffset :: (Int -> Int) -> Parser Int
-modOffset f = Parser \_ i -> let i' = f i in Right (i, i')
 
 
 
@@ -157,16 +133,15 @@ noFail m = m `catchError` \(ParseError _ f) -> Parser \_ _ ->
 noFailIf :: Bool -> Parser a -> Parser a
 noFailIf p m = if p then noFail m else m
 
--- | Ensure that the given @Parser@ action consumes the remaining @ParseStream@
+-- | Ensure that the given @Parser@ action consumes the remaining @TokenSeq@
 consumesAll :: Parser a -> Parser a
-consumesAll m = do
-    a <- m
-    s <- getStream
-    i <- getOffset
-    if i >= psLength s
-        then pure a
-        else let Tag x failure = formatInput s i
-        in throwError $ ParseError Recoverable $ failure :@: x
+consumesAll m = Parser \fp ts -> do
+    (a, ts') <- runParser m fp ts
+    if null ts'
+        then Right (a, ts')
+        else
+            let Tag x failure = formatInput fp ts
+            in throwError $ ParseError Recoverable $ failure :@: x
 
 
 -- | Trigger an unrecoverable @ParseError@
@@ -194,60 +169,42 @@ assertAt :: Attr -> Bool -> Doc -> Parser ()
 assertAt x p expStr = unless p (parseErrorAt x expStr)
 
 
--- | Get the current offset in the current @Parser@ action
-getOffset :: Parser Int
-getOffset = modOffset id
-
--- | Set the current offset in the current @Parser@ action
-setOffset :: Int -> Parser ()
-setOffset i = void $ modOffset (const i)
 
 
 -- | Advance the offset in the current @Parser@ action
 advance :: Parser ()
-advance = Parser \_ i -> Right ((), i + 1)
+advance = Parser \_ -> (Right . ((), )) . \case
+    _ Seq.:<| ts' -> ts'
+    ts -> ts
 
 -- | Get the currently selected @Token@ in the @Parser@ action
 peek :: Parser Token
-peek = Parser \s i ->
-    case psToken s i of
-        Just a -> Right (a, i)
-        _ -> Left $ ParseError Recoverable $ EofFailure :@: psAttr s i
+peek = Parser \fp ts ->
+    case ts of
+        T' a Seq.:<| _ -> Right (a, ts)
+        _ -> Left $ ParseError Recoverable $ EofFailure :@: psAttr fp ts
 
 -- | Get the currently selected @Token@ in the @Parser@ action,
 --   returning @Nothing@ if the stream is empty
 tryPeek :: Parser (Maybe Token)
-tryPeek = Parser \s i ->
-    case psToken s i of
-        Just a -> Right (Just a, i)
-        _ -> Right (Nothing, i)
+tryPeek = Parser \_ ts ->
+    Right $ ( , ts) case ts of
+        T' a Seq.:<| _ -> Just a
+        _ -> Nothing
 
 -- | Get a location @Attr@ for the selected position in the @Parser@ action
 attr :: Parser Attr
-attr = Parser \s i -> Right (psAttr s i, i)
+attr = Parser \fp ts -> Right (psAttr fp ts, ts)
 
--- | Get the @Attr@ of the last @Token@ consumed,
---   or the current one if none have been consumed
-lastAttr :: Parser Attr
-lastAttr = Parser \s i -> Right
-    if i == 0
-        then (psAttr s i, i)
-        else (psAttr s (i - 1), i)
 
 
 -- | Wraps the output of a @Parser@ in an @ATag@ for the range consumed
 tag :: Parser a -> Parser (ATag a)
-tag p = do
-    i1 <- getOffset
-    a <- p
-    i2 <- getOffset
-    (a :@:) <$> buildAttr i1 i2
+tag p = Parser \fp ts -> do
+    (a, ts') <- runParser p fp ts
+    let at = attrFold (fileAttr fp) $ Seq.take (Seq.length ts - Seq.length ts') ts
+    Right (a :@: at, ts')
 
--- | Build an @Attr@ representing a segment of the @Parser@'s @ParseStream@
-buildAttr :: Int -> Int -> Parser Attr
-buildAttr i1 i2 = do
-    s <- getStream
-    pure (psAttr s i1 <> psAttr s (i2 - 1))
 
 -- | Execute @tag@ and discard the result, keeping only the @Attr@ generated
 attrOf :: Parser a -> Parser Attr
@@ -257,11 +214,6 @@ attrOf = fmap tagOf . tag
 --   keeping only the first @Pos@ of the @Attr@ generated
 posOf :: Parser a -> Parser Pos
 posOf = fmap ((.start) . (.range)) . attrOf
-
--- | Get the offset of the currently selected @Token@ in the @Parser@ action,
---   then execute the given @Parser@, returning only the offset
-offsetOf :: Parser a -> Parser Int
-offsetOf = (getOffset <<)
 
 -- | Get the currently selected @Token@ in the @Parser@ action,
 --   and advance the stream offset
@@ -340,8 +292,8 @@ nextMap p = do
 -- | Wrap the @ParseError@s of a given @Parser@
 --   in an explanation of the expectation that was had of it
 expecting :: Doc -> Parser a -> Parser a
-expecting msg px = px `catchError` \(ParseError r f) -> Parser \s i ->
-    Left $ ParseError r $ ExpectationFailure [msg] f :@: psAttr s i
+expecting msg px = px `catchError` \(ParseError r f) -> Parser \fp ts ->
+    Left $ ParseError r $ ExpectationFailure [msg] f :@: psAttr fp ts
 
 -- | Wrap the @ParseError@s of a given @Parser@
 --   in an explanation of the expectations that were had of it
@@ -408,50 +360,65 @@ listSome s p = liftA2 (:) p (many $ s >> p)
 listMany :: Parser s -> Parser a -> Parser [a]
 listMany s p = option [] (listSome s p)
 
--- | Use a predicate to grab a sequence of @Token@s from the @Parser@ stream.
---   Fails if this results in an empty sequence
+takeSeq :: Parser TokenSeq
+takeSeq = Parser \_ ts -> Right (ts, Nil)
+
 grabDomain :: (ATag Token -> Bool) -> Parser TokenSeq
-grabDomain f = do
-    toks <- Seq.fromList <$> some (nextIfAttr $ f &&& notEOF)
-    end <- mapTag attrFlattenToEnd <$> TEof <@> lastAttr
-    pure (toks Seq.:|> end)
-    where notEOF = \case T' TEof -> False; _ -> True
+grabDomain p = Parser \fp ts ->
+    case ts of
+        toks | not (Seq.null toks) ->
+            let (a, b) = consume False toks
+            in Right (reduceTokenSeq a, reduceTokenSeq b)
+        _ -> Left $ ParseError Recoverable $ EofFailure :@: psAttr fp ts
+    where
+    consume recursed = \case
+        (t Seq.:<| ts) | p t ->
+            case untag t of
+                TTree BkWhitespace ts' ->
+                    let (as, bs) = consume True ts'
+                    in buildSplit t ts as bs
+                    if recursed
+                        then recurse
+                        else (Seq.singleton t, Nil)
+                _ -> recurse
+            where
+            recurse =
+                let (as, bs) = consume recursed ts
+                in (t Seq.<| as, bs)
 
--- | Grab a sequence of @Token@s from the @Parser@ stream,
---   delimited by their line/indentation relative to the last @Attr@.
---   Fails if this results in an empty sequence
+        ts -> (Nil, ts)
+
+    buildSplit t rhs as bs nb
+        | Seq.null bs = nb
+        | Seq.null as = (Nil, t Seq.<| rhs)
+        | otherwise =
+            ( Seq.singleton (TTree BkWhitespace as :@: t.tag)
+            , (TTree BkWhitespace bs :@: t.tag) Seq.<| rhs
+            )
+
+-- | Get the rest of the input delimited by indentation
 grabWhitespaceDomain :: Parser TokenSeq
-grabWhitespaceDomain = lastAttr >>= grabWhitespaceDomainOf
+grabWhitespaceDomain = grabDomain (const True)
 
--- | Grab a sequence of @Token@s from the @Parser@ stream,
---   delimited by their line/indentation relative to a given @Attr@.
---   Fails if this results in an empty sequence
-grabWhitespaceDomainOf :: Attr -> Parser TokenSeq
-grabWhitespaceDomainOf = grabDomain . wsDominated
-
--- | A predicate-builder for @grabDomain@ that matches @ATag Token@s
---   on the same line or with a higher indentation level
---   than that of the given @Attr@
-wsDominated :: Attr -> ATag Token -> Bool
-wsDominated a1 (_ :@: a2) = todo
-
--- | @wsBlock<wsBlock<elem>++(sep?) | elem (sep elem)*>@
-wsList :: Parser sep -> Parser a -> Parser [a]
-wsList ms ma = grabWhitespaceDomain >>= recurseParser (wsListBody ms ma)
+-- | Consume a sequence of lines from the input
+grabLines :: Parser [TokenSeq]
+grabLines = some $ nextMap \case
+    TTree BkWhitespace lns -> Just lns
+    _ -> Nothing
 
 -- | @wsBlock<elem>++(sep?) | elem (sep elem)*@
 wsListBody :: Parser sep -> Parser a -> Parser [a]
 wsListBody ms ma = asum [block, inline] where
     inline = listSome ms ma
     block = do
-        lns <- some (attr >>= grabWhitespaceDomainOf)
-        noFailIf (length lns > 1) do
+        lns <- grabLines
+        noFail do
             lns & foldWithM' mempty \toks as ->
-                    (: as) <$> recurseParser
-                        do if null as
-                            then ma
-                            else ma << optional ms
-                        toks
+                (: as) <$> recurseParser
+                    do if null as
+                        then ma
+                        else ma << optional ms
+                    toks
 
 -- | Perform syntactic analysis on @Text@ using the given @Parser@,
 --   with errors reported to be in the provided @FilePath@
@@ -474,38 +441,29 @@ parseStringWith p filePath = parseByteStringWith p filePath . fromString
 
 
 parseFileWith :: Pretty a => Parser a -> FilePath -> IO (Either Doc a)
-parseFileWith px filePath = do
-    L.lexFile filePath <&> \case
-        Left e -> Left e
-        Right toks -> evalParser px filePath toks
+parseFileWith px filePath = L.lexFile filePath <&> (>>= evalParser px filePath)
 
 
--- | Evaluate a @Parser@ on a given @Seq (ATag Token)@,
+-- | Evaluate a @Parser@ on a given @TokenSeq@,
 --   converting @ParseError@s to @Doc@s and discarding the final offset,
 --   after ensuring that all input was consumed
-evalParser :: Parser a -> FilePath -> Seq (ATag Token) -> Either Doc a
+evalParser :: Parser a -> FilePath -> TokenSeq -> Either Doc a
 evalParser px filePath toks =
     case runParser
-        (consumesAll (px << eof))
-        (ParseStream toks filePath) 0 of
+        (consumesAll px)
+        filePath toks of
             Left e -> Left $ pPrint e
             Right (a, _) -> Right a
 
 -- | Evaluate a @Parser@ on a sub-stream of @Tokens@.
 --   The parser must consume all tokens (except eof), or fail
-recurseParser :: Parser a -> Seq (ATag Token) -> Parser a
+recurseParser :: Parser a -> TokenSeq -> Parser a
 recurseParser px toks = do
     f <- getFilePath
-    case runParser (consumesAll (px << eof)) (ParseStream toks f) 0 of
+    case runParser (consumesAll px) f toks of
         Left e -> Parser \_ _ -> Left e
         Right (a, _) -> pure a
 
-
--- | Expect the @Eof@ token
-eof :: Parser ()
-eof = nextMap \case
-    TEof -> Just ()
-    _ -> Nothing
 
 -- | Expect a @Version@
 version :: Parser Version
@@ -573,12 +531,6 @@ trySym s = peek >>= \case
     TSymbol s' | s == s' -> True <$ advance
     _ -> pure False
 
--- | Expect a semantic space @Token@
-semSpace :: Parser ()
-semSpace = expecting "a semantic space" $ nextMap \case
-    TSemSpace -> Just ()
-    _ -> Nothing
-
 -- | Expect a given @Parser@ to be surrounded with backticks
 backticks :: Parser a -> Parser a
 backticks px = do
@@ -607,19 +559,12 @@ brackets px = do
     noFail do
         px << expectingAt at "to close [" (sym "]")
 
--- | Expect a given @Parser@'s first input @Token@ to be directly adjacent,
---   in terms of line and column position, to the previous @Token@ consumed.
---   Note that if this is used on the first token in an input it has no effect
-connected :: Parser a -> Parser a
-connected px = do
-    f <- getFilePath
-    Parser \s i ->
-        let a = psAttr s (i - 1)
-            a' = psAttr s i
-        in if
-        | i == 0 -> runParser px s i
-        | attrConnected a a' -> runParser px s i
-        | otherwise -> runParser
-            (expecting "a connected token" px)
-            (ParseStream (Seq.fromList [Tag a' TEof]) f)
-            0
+-- | Expect a given @Parser@'s @Attr@ to be directly adjacent,
+--   in terms of line and column position, to the given @Attr@
+connected :: Attr -> Parser a -> Parser a
+connected at px = Parser \fp ts -> do
+    case ts of
+        (_ :@: at') Seq.:<| _ | attrConnected at at' -> runParser px fp ts
+        _ -> runParser
+            (expecting "a token directly connected to the previous" px)
+            fp Nil

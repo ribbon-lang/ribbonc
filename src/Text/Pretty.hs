@@ -4,7 +4,7 @@ module Text.Pretty
     ( module X
     , shown
     , vcat', vcatDouble, ($++$), with, joinWith, spaceWith, linesWith
-    , hang, qual, qual', qualH, indent, lsep
+    , hang, qual, qual', qualH, indent, lsep, lcat
     , backticks, backticked, maybeBackticks, maybeBackticked
     , hashes, hashed, maybeHashes, maybeHashed
     , quoted, maybeQuoted
@@ -15,6 +15,7 @@ module Text.Pretty
     , prettyShowLevel, prettyPrint, prettyPrintLevel
     , maybePPrint, maybePPrintPrec
     , pattern PrettyNormal, pattern PrettyRich, pattern PrettyVerbose
+    , PrettyWith(..)
     ) where
 
 import Text.PrettyPrint.HughesPJClass qualified as X
@@ -37,13 +38,28 @@ import Data.Set (Set)
 import Data.Set qualified as Set
 
 import Data.Sequence (Seq)
+import Control.Applicative
 
 import Data.Nil
+import Data.Traversable
+
+
 
 
 instance Nil Doc where
     nil = mempty
     isNil = isEmpty
+
+
+class Applicative ctx => PrettyWith ctx a where
+    pPrintWith :: a -> ctx Doc
+    pPrintPrecWith :: PrettyLevel -> Rational -> a -> ctx Doc
+
+    pPrintWith = pPrintPrecWith PrettyNormal 0
+    pPrintPrecWith _ _ = pPrintWith
+
+instance {-# OVERLAPPABLE #-} (Applicative ctx, Pretty a) => PrettyWith ctx a where
+    pPrintPrecWith lvl prec = pure . pPrintPrec lvl prec
 
 
 instance Pretty Word8 where
@@ -70,6 +86,80 @@ instance {-# OVERLAPPABLE #-} (Pretty a) => Pretty (Seq a) where
     pPrintPrec lvl _ s
         = hashes . brackets . lsep
         $ Fold.toList s <&> pPrintPrec lvl 0
+
+
+
+instance {-# OVERLAPPABLE #-} (Applicative ctx, PrettyWith ctx a)
+    => PrettyWith ctx (Maybe a) where
+        pPrintPrecWith lvl _ = do
+            maybe (pure "Nothing") (fmap (hang "Just") . pPrintPrecWith lvl 0)
+
+instance {-# OVERLAPPABLE #-} (Applicative ctx, PrettyWith ctx a, PrettyWith ctx b)
+    => PrettyWith ctx (Either a b) where
+        pPrintPrecWith lvl _ =
+            either (fmap (hang "Left") . pPrintPrecWith lvl 0)
+                   (fmap (hang "Right") . pPrintPrecWith lvl 0)
+
+instance {-# OVERLAPPABLE #-} (Applicative ctx, PrettyWith ctx a) => PrettyWith ctx [a] where
+    pPrintPrecWith lvl _ = fmap (brackets . lsep) . traverse (pPrintPrecWith lvl 0)
+
+instance {-# OVERLAPPABLE #-} (Applicative ctx, PrettyWith ctx k, PrettyWith ctx v)
+    => PrettyWith ctx (Map k v) where
+        pPrintPrecWith lvl _ m
+            = fmap (braces . lsep) do
+                for (Map.toList m) \(k, v) ->
+                    liftA2 (spaceWith "=")
+                        do pPrintPrecWith lvl 0 k
+                        do pPrintPrecWith lvl 0 v
+
+instance {-# OVERLAPPABLE #-} (Applicative ctx, PrettyWith ctx k) => PrettyWith ctx (Set k) where
+    pPrintPrecWith lvl _ s
+        = fmap (braces . lsep) do
+            traverse (pPrintPrecWith lvl 0) (Set.toList s)
+
+instance {-# OVERLAPPABLE #-} (Applicative ctx, PrettyWith ctx a) => PrettyWith ctx (Seq a) where
+    pPrintPrecWith lvl _ s
+        = fmap (hashes . brackets . lsep) do
+            traverse (pPrintPrecWith lvl 0) (Fold.toList s)
+
+
+instance {-# OVERLAPPABLE #-} (Applicative ctx, PrettyWith ctx a, PrettyWith ctx b)
+    => PrettyWith ctx (a, b) where
+        pPrintPrecWith lvl _ (a, b)
+            = fmap (parens . lsep) do
+                sequenceA [ pPrintPrecWith lvl 0 a
+                          , pPrintPrecWith lvl 0 b
+                          ]
+
+instance {-# OVERLAPPABLE #-} ( Applicative ctx
+                              , PrettyWith ctx a
+                              , PrettyWith ctx b
+                              , PrettyWith ctx c
+                              )
+    => PrettyWith ctx (a, b, c) where
+        pPrintPrecWith lvl _ (a, b, c)
+            = fmap (parens . lsep) do
+                sequenceA [ pPrintPrecWith lvl 0 a
+                          , pPrintPrecWith lvl 0 b
+                          , pPrintPrecWith lvl 0 c
+                          ]
+
+instance {-# OVERLAPPABLE #-} ( Applicative ctx
+                              , PrettyWith ctx a
+                              , PrettyWith ctx b
+                              , PrettyWith ctx c
+                              , PrettyWith ctx d
+                              )
+    => PrettyWith ctx (a, b, c, d) where
+        pPrintPrecWith lvl _ (a, b, c, d)
+            = fmap (parens . lsep) do
+                sequenceA [ pPrintPrecWith lvl 0 a
+                          , pPrintPrecWith lvl 0 b
+                          , pPrintPrecWith lvl 0 c
+                          , pPrintPrecWith lvl 0 d
+                          ]
+
+
 
 -- | The default, base level of pretty printing
 pattern PrettyNormal :: PrettyLevel
@@ -169,6 +259,11 @@ vcatDouble = foldr ($++$) Nil
 -- | @sep . punctuate ","@
 lsep :: [Doc] -> Doc
 lsep = fsep . punctuate ","
+
+
+-- | @lsep [a, b] @
+lcat :: Doc -> Doc -> Doc
+lcat a b = lsep [a, b]
 
 -- | Enclose a @Doc@ in backticks ``
 backticks :: Doc -> Doc

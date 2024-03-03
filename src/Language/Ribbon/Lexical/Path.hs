@@ -15,7 +15,23 @@ import Language.Ribbon.Util
 import Language.Ribbon.Lexical.Fixity
 import Language.Ribbon.Lexical.Category
 import Language.Ribbon.Lexical.Name
+import Data.Nil
 
+
+
+-- | A class for path types to determine if they require a trailing slash
+class RequiresSlash a where
+    -- | Determine if a path requires a trailing slash
+    requiresSlash :: a -> Bool
+
+instance RequiresSlash a => RequiresSlash (Tag t a) where
+    requiresSlash = requiresSlash . untag
+
+instance RequiresSlash a => RequiresSlash (Maybe a) where
+    requiresSlash = maybe False requiresSlash
+
+instance RequiresSlash (Seq a) where
+    requiresSlash = not . Seq.null
 
 
 
@@ -23,7 +39,7 @@ import Language.Ribbon.Lexical.Name
 --   and specifiers on names
 data Path
     = Path
-    { base :: !(ATag PathBase)
+    { base :: !(Maybe (ATag PathBase))
     , components :: !(Seq (ATag PathComponent))
     }
     deriving (Eq, Ord, Show)
@@ -31,14 +47,15 @@ data Path
 instance Pretty Path where
     pPrintPrec lvl _ (Path b cs) =
         let csd = hcat $ punctuate "/" (pPrintPrec lvl 0 <$> Fold.toList cs)
-        in if pathBaseRequiresSlash b.value
-            then pPrintPrec lvl 0 b </> csd
-            else pPrintPrec lvl 0 b <> csd
+            bd = maybeMEmpty $ pPrintPrec lvl 0 <$> b
+        in if requiresSlash b
+            then bd </> csd
+            else bd <> csd
 
-pathRequiresSlash :: Path -> Bool
-pathRequiresSlash lp
-        = not (Seq.null lp.components)
-    || pathBaseRequiresSlash lp.base.value
+instance RequiresSlash Path where
+    requiresSlash lp
+            = requiresSlash lp.components
+        || requiresSlash lp.base
 
 instance CatOverloaded Path where
     overloadedCategory (Path _ (_ Seq.:|> c)) = overloadedCategory c.value
@@ -47,6 +64,13 @@ instance CatOverloaded Path where
 instance HasFixity Path where
     getFixity (Path _ (_ Seq.:|> c)) = getFixity c.value
     getFixity _ = Atom
+
+
+-- | Pattern alias for a @Path@ with a single @FixName@ component
+pattern SingleNamePath :: FixName -> Path
+pattern SingleNamePath f <-
+    Path Nothing ((PathComponent OUnresolved f@(FixName _) :@: _) Seq.:<| Nil)
+{-# COMPLETE SingleNamePath #-}
 
 
 -- | The base component of a @Path@,
@@ -72,11 +96,11 @@ instance Pretty PathBase where
         PbFile f -> "file" <+> shown f
         PbUp i -> text (concat $ replicate i "../")
 
-pathBaseRequiresSlash :: PathBase -> Bool
-pathBaseRequiresSlash = \case
-    PbModule _ -> True
-    PbFile _ -> True
-    _ -> False
+instance RequiresSlash PathBase where
+    requiresSlash = \case
+        PbModule _ -> True
+        PbFile _ -> True
+        _ -> False
 
 -- | A component of a @Path@,
 --   specifying a name to look up, at a particular fixity and category

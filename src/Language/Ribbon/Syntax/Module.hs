@@ -12,7 +12,6 @@ import Language.Ribbon.Lexical
 
 import Language.Ribbon.Syntax.Ref
 import Language.Ribbon.Syntax.Group
-import Language.Ribbon.Lexical.Name
 import Language.Ribbon.Syntax.Data
 import Language.Ribbon.Syntax.Scheme
 import Language.Ribbon.Syntax.Type

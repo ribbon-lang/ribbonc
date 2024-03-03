@@ -133,11 +133,14 @@ play with features implemented thus far, the best way to do that is via
 
 Currently you can:
 - Play with the lexer,
-using `pLexFileWith`
-with `L.lines`/others in `Language.Ribbon.Parsing.Lexer`
-    > or execute with `lexStringWith`/`lexByteStringWith`/`lexTextWith`/`lexFileWith`
-<!-- - Play with the parser, using `moduleHead`/`file`/etc
-in combination with `parseByteStringWith`/`parseStringWith`/`parseFileWith` -->
+using `pLexStringWith`/`pLexFileWith`
+
+    with `L.doc`/others in `Language.Ribbon.Parsing.Lexer`
+
+- Play with the parser,
+using `pParseStringWith`/`pParseFileWith`
+
+    with `P.moduleHead`/others in `Language.Ribbon.Parsing.Parser`
 
 
 ## Discussion

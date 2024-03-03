@@ -35,6 +35,15 @@ instance {-# OVERLAPPABLE #-} (Pretty t, Pretty a) => Pretty (Tag t a) where
             then parens (pPrintPrec l 0 a) <> "@" <> brackets (pPrintPrec l 0 t)
             else pPrintPrec l p a
 
+instance {-# OVERLAPPABLE #-} (PrettyWith ctx t, PrettyWith ctx a)
+    => PrettyWith ctx (Tag t a) where
+        pPrintPrecWith l p (a :@: t) =
+            if l >= PrettyRich
+                then liftA2 (joinWith "@")
+                    do parens <$> pPrintPrecWith l 0 a
+                    do brackets <$> pPrintPrecWith l 0 t
+                else pPrintPrecWith l p a
+
 instance {-# OVERLAPPABLE #-} Bifunctor Tag where
     bimap f g (a :@: t) = g a :@: f t
 

@@ -10,6 +10,7 @@ default-extensions:
 
     - UndecidableInstances
     - DefaultSignatures
+    - PartialTypeSignatures
 
     - PatternSynonyms
     - ViewPatterns

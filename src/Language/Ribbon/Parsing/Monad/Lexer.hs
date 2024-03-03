@@ -30,8 +30,6 @@ import Text.Pretty
 
 import Language.Ribbon.Util
 
-import Language.Ribbon.Lexical
-
 import Language.Ribbon.Parsing.Error
 
 
@@ -107,12 +105,17 @@ newtype Lexer a
 runLexer :: Lexer a -> FilePath -> LexStream -> Either (ParseError Char) (a, LexStream)
 runLexer (Lexer f) = f
 
+-- | Perform lexical analysis on a @LexStream@ using the given @Lexer@,
+--   with errors reported to be in the provided @FilePath@
+execLexer :: Lexer a -> FilePath -> LexStream -> Either Doc a
+execLexer lx fp ls = case runLexer (consumesAll lx) fp ls of
+    Left e -> Left $ pPrint e
+    Right (a, _) -> Right a
+
 -- | Perform lexical analysis on @Text@ using the given @Lexer@,
 --   with errors reported to be in the provided @FilePath@
 lexTextWith :: Lexer a -> FilePath -> Text -> Either Doc a
-lexTextWith lx fp txt = case runLexer lx fp (LexStream Nil txt) of
-    Left e -> Left $ pPrint e
-    Right (a, _) -> Right a
+lexTextWith lx fp txt = execLexer lx fp (LexStream Nil txt)
 
 -- | Perform lexical analysis on a @ByteString@ using the given @Lexer@,
 --   with errors reported to be in the provided @FilePath@
@@ -199,29 +202,35 @@ consumesAll m = Lexer \fp ls ->
 
 -- | Trigger an unrecoverable @ParseError@
 --   with a message at the current location
-lexError :: Doc -> Lexer a
-lexError msg = attr >>= (`lexErrorAt` msg)
+lexError :: Recoverability -> Doc -> Lexer a
+lexError r msg = attr >>= \a -> lexErrorAt a r msg
 
 -- | Trigger an unrecoverable @ParseError@
 --   with a message at the given @Attr@
-lexErrorAt :: Attr -> Doc -> Lexer a
-lexErrorAt x msg =
-    throwError $ ParseError Unrecoverable $ SingleFailure msg :@: x
+lexErrorAt :: Attr -> Recoverability -> Doc -> Lexer a
+lexErrorAt x r msg =
+    throwError $ ParseError r $ SingleFailure msg :@: x
 
 
 -- | Trigger an unrecoverable @ParseError@
 --   with a message at the current location,
 --   if the given condition is false
-assert :: Bool -> Doc -> Lexer ()
-assert p expStr = unless p (lexError expStr)
+assert :: Bool -> Recoverability -> Doc -> Lexer ()
+assert p r expStr = unless p (lexError r expStr)
 
 -- | Trigger an unrecoverable @ParseError@
 --   with a message at the given @Attr@,
 --   if the condition is false
-assertAt :: Attr -> Bool -> Doc -> Lexer ()
-assertAt x p expStr = unless p (lexErrorAt x expStr)
+assertAt :: Attr -> Bool -> Recoverability -> Doc -> Lexer ()
+assertAt x p r expStr = unless p (lexErrorAt x r expStr)
 
 
+-- | Create an error message for a failed expectation of some @seq@ of @kind@,
+--   with the given @Attr@ as the location
+seqErr :: String -> String -> Attr -> ParseError a
+seqErr sub kind at = ParseError Unrecoverable $ Tag at $ SingleFailure $
+    "cannot parse" <+> backticks (text sub)
+        <+> "as a" <+> text kind
 
 
 -- | Advance the offset in the current @Lexer@ action
@@ -332,6 +341,21 @@ nextIf_ p = do
     if p a
         then advance
         else empty
+
+-- | Run a @Lexer@ without consuming input
+lookahead :: Lexer a -> Lexer a
+lookahead p = Lexer \fp ls ->
+    case runLexer p fp ls of
+        Left e -> Left e
+        Right (a, _) -> Right (a, ls)
+
+-- | Run a @Lexer@ without consuming input,
+--   and fail if it succeeds
+negativeLookahead :: Lexer a -> Lexer ()
+negativeLookahead p = Lexer \fp ls ->
+    case runLexer p fp ls of
+        Left _ -> Right ((), ls)
+        Right _ -> Left $ ParseError Recoverable $ formatInput fp ls
 
 -- | Advance the @Lexer@ stream offset,
 --   as long as the current @Char@ satisfies the predicate;
