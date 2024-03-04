@@ -4,47 +4,57 @@ module Language.Ribbon.Syntax.Group
     , Group(..)
     ) where
 
-import Data.Map (Map)
 import Data.Set (Set)
+import Data.Set qualified as Set
 
 import Data.Attr
 
 import Text.Pretty
 
+import Language.Ribbon.Lexical
+
 import Language.Ribbon.Syntax.Ref
-import Language.Ribbon.Lexical.Name
-import Language.Ribbon.Lexical.Path
-import Language.Ribbon.Syntax.Binding
-
-
-type GroupMap a = Map FixName (GroupSet a)
-
-type GroupSet a = Set (ATag a)
+import Data.Functor
 
 -- | A group of imports that has been resolved to a set of references
 --   to continue lookup traversal through
 newtype ResolvedBlobs
     = ResolvedBlobs
-    { inner :: GroupSet Ref }
-    deriving (Eq, Ord, Show, Pretty)
+    { inner :: Set (ATag Ref) }
+    deriving (Eq, Ord, Show)
+
+instance Pretty ResolvedBlobs where
+    pPrintPrec lvl _ (ResolvedBlobs bs) =
+        hang "blobs" $ vcat' do
+            pPrintPrec lvl 0 <$> Set.toList bs
 
 -- | An unresolved group of imports
 data UnresolvedImports
     = UnresolvedImports
-    { aliases :: !(GroupMap (Binding Path))
-    , blobs :: !(GroupSet Path)
+    { aliases :: ![(UnresolvedName, ATag Path)]
+    , blobs :: !(Set (ATag Path))
     }
     deriving (Eq, Ord, Show)
 
 instance Pretty UnresolvedImports where
     pPrintPrec lvl _ (UnresolvedImports as bs) =
-        vcat
-            [ hang "aliases" (pPrintPrec lvl 0 as)
-            , hang "blobs" (pPrintPrec lvl 0 bs)
+        hang "imports" $ vcat'
+            [ hang "aliases" $ vcat' do
+                pPrintPrec lvl 0 <$> as
+            , hang "blobs" $ vcat' do
+                pPrintPrec lvl 0 <$> Set.toList bs
             ]
 
 -- | A map of overloaded bindings
 newtype Group
     = Group
-    { defs :: GroupMap (Binding Ref) }
-    deriving (Eq, Ord, Show, Pretty)
+    { defs :: [(GroupName, ATag Ref)] }
+    deriving (Eq, Ord, Show)
+
+instance Pretty Group where
+    pPrintPrec lvl _ (Group ds) =
+        hang "defs" $ vcat' do
+            ds <&> \(n, r) ->
+                spaceWith "="
+                    do pPrintPrec lvl 0 n
+                    do pPrintPrec lvl 0 r

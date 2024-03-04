@@ -3,17 +3,14 @@ module Language.Ribbon.Lexical.Category where
 import Text.Pretty
 
 
-
--- | A class for types that can have a category,
---  in the context of an overloaded name
-class CatOverloaded e where
-    -- | Get the @OverloadCategory@ of a value
-    overloadedCategory :: e -> OverloadCategory
-
+-- | A class for types that can have a @Category@
+class HasCategory a where
+    -- | Get the @Category@ of a value
+    getCategory :: a -> Category
 
 -- | An exact category of a @Binding@, @Ref@, or definition;
 --   used for disambiguation during definition lookup
-data ExactCategory
+data Category
     -- | A namespace item
     = Namespace
     -- | An effect type def item
@@ -32,15 +29,16 @@ data ExactCategory
     | Value
     -- | A value declaration
     | Decl
-    -- | An associated type
-    | Associate
     -- | A struct field projection
     | Projection
     -- | A union field injection
     | Injection
     deriving (Eq, Ord, Show, Enum, Bounded)
 
-instance Pretty ExactCategory where
+instance HasCategory Category where
+    getCategory = id
+
+instance Pretty Category where
     pPrint = \case
         Namespace -> "namespace"
         Effect -> "effect"
@@ -51,19 +49,8 @@ instance Pretty ExactCategory where
         Alias -> "type"
         Value -> "value"
         Decl -> "decl"
-        Associate -> "associate"
         Projection -> "projection"
         Injection -> "injection"
-
-instance CatOverloaded ExactCategory where
-    overloadedCategory = \case
-        Namespace -> ONamespace
-        Instance -> OInstance
-        Value -> OValue
-        Decl -> OValue
-        Projection -> OValue
-        Injection -> OValue
-        _ -> OType
 
 
 -- | The generic category of a @Binding@,
@@ -77,17 +64,25 @@ data OverloadCategory
     | OType
     -- | A value-like item
     | OValue
-    -- | An unresolved item
-    | OUnresolved
     deriving (Eq, Ord, Show, Enum, Bounded)
 
 instance Pretty OverloadCategory where
-    pPrintPrec lvl _ = \case
+    pPrint = \case
         ONamespace -> "namespace"
         OInstance -> "instance"
         OType -> "type"
         OValue -> "value"
-        OUnresolved -> if lvl > PrettyNormal then "unresolved" else mempty
 
-instance CatOverloaded OverloadCategory where
-    overloadedCategory = id
+overloadedCategory :: Category -> OverloadCategory
+overloadedCategory = \case
+    Namespace -> ONamespace
+    Effect -> OType
+    Class -> OType
+    Instance -> OInstance
+    Struct -> OType
+    Union -> OType
+    Alias -> OType
+    Value -> OValue
+    Decl -> OValue
+    Projection -> OValue
+    Injection -> OValue

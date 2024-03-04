@@ -1,5 +1,6 @@
 module Language.Ribbon.Syntax.Raw where
 
+import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 
 import Data.Word (Word32)
@@ -14,9 +15,12 @@ import Text.Pretty
 import Language.Ribbon.Lexical
 
 import Language.Ribbon.Syntax.Scheme
-import Language.Ribbon.Syntax.Module
 import Language.Ribbon.Util
 
+
+
+-- | A map from arbitrary keys to arbitrary lists of values
+type MetaData = Map (ATag SimpleName) (ATag String)
 
 -- | A map from locally-appropriate names to module strings and versions
 type RawDependencies = [(ATag String, ATag Version, Maybe (ATag SimpleName))]

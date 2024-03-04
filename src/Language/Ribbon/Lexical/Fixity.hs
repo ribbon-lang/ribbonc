@@ -15,7 +15,7 @@ data Fixity
     | Prefix
     | Infix
     | Postfix
-    deriving (Eq, Ord, Show)
+    deriving (Eq, Ord, Enum, Bounded, Show)
 
 instance Pretty Fixity where
     pPrint = \case
@@ -27,8 +27,22 @@ instance Pretty Fixity where
 instance HasFixity Fixity where
     getFixity = id
 
-fixityCompare :: Fixity -> Fixity -> Ordering
-fixityCompare a b = case (a, b) of
-    (Prefix, Atom) -> EQ
-    (Atom, Prefix) -> EQ
-    _ -> compare a b
+
+data OverloadFixity
+    = OAtomPrefix
+    | OInfix
+    | OPostfix
+    deriving (Eq, Ord, Enum, Bounded, Show)
+
+instance Pretty OverloadFixity where
+    pPrint = \case
+        OAtomPrefix -> "atom/prefix"
+        OInfix -> "infix"
+        OPostfix -> "postfix"
+
+overloadedFixity :: Fixity -> OverloadFixity
+overloadedFixity = \case
+    Atom -> OAtomPrefix
+    Prefix -> OAtomPrefix
+    Infix -> OInfix
+    Postfix -> OPostfix

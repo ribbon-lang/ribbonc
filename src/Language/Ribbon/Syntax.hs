@@ -1,6 +1,5 @@
 module Language.Ribbon.Syntax(module X) where
 
-import Language.Ribbon.Syntax.Binding as X
 import Language.Ribbon.Syntax.Data as X
 import Language.Ribbon.Syntax.Group as X
 import Language.Ribbon.Syntax.Kind as X

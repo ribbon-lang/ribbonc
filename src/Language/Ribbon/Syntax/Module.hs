@@ -5,7 +5,7 @@ import Data.Map.Strict (Map)
 
 import Data.Attr
 
--- FIXME: implement pretty printer once PrettyGraph is ready
+-- FIXME: implement pretty printer
 -- import Text.Pretty
 
 import Language.Ribbon.Lexical
@@ -16,6 +16,8 @@ import Language.Ribbon.Syntax.Data
 import Language.Ribbon.Syntax.Scheme
 import Language.Ribbon.Syntax.Type
 import Language.Ribbon.Syntax.Value
+import Language.Ribbon.Syntax.Raw
+
 
 
 
@@ -44,8 +46,16 @@ type ProtoModule
         (Seq [ATag Token])
         UnresolvedImports
 
--- | A map from arbitrary keys to arbitrary lists of values
-type MetaData = Map (ATag SimpleName) (ATag String)
+
+-- | A definition of some item in a module, with a parent.
+--   the parent is either the namespace or type the item was defined in,
+--   or the module if it is the root namespace
+data Def v
+    = Def
+    { parent :: !Ref
+    , inner :: !(ATag v)
+    }
+    deriving (Eq, Ord, Show)
 
 
 -- | Parametric type storing all the elements of a module,
@@ -58,12 +68,12 @@ type MetaData = Map (ATag SimpleName) (ATag String)
 data Module t v i
     = Module
     {       groups :: !(RefMap (Def Group))
-    ,      imports :: !(RefMap (Def i))
     ,  quantifiers :: !(RefMap (Def Quantifier))
     ,   qualifiers :: !(RefMap (Def (Qualifier t)))
     ,       fields :: !(RefMap (Def (FieldType t)))
     ,        types :: !(RefMap (Def t))
     ,       values :: !(RefMap (Def v))
+    ,      imports :: !(RefMap (Def i))
 
     ,        files :: !(Map FilePath Ref)
     , dependencies :: !(Map SimpleName Ref)

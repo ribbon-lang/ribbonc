@@ -51,7 +51,9 @@ lexFile = lexFileWith doc
 
 -- | Lex a full document
 doc :: Lexer TokenSeq
-doc = reduceTokenSeq <$> lineSeq 0
+doc = reduceTokenSeq <$> do
+    option () shebang
+    lineSeq 0
 
 
 -- | Lex a single token, including trees
@@ -158,7 +160,7 @@ pathComponent = expecting "a path component" do
 
     when (Maybe.isJust c) hScan
 
-    PathComponent (Maybe.fromMaybe OUnresolved c) <$> name
+    PathComponent c <$> name
 
 
 
@@ -278,6 +280,12 @@ lineEnd :: Lexer ()
 lineEnd = expecting "a line ending" $ hScanning do
     option () comment
     some_ $ expectAnySeq ["\n", "\r\n"]
+
+-- | Expect a shebang (from @#!@ to the end of the line)
+shebang :: Lexer ()
+shebang = expecting "a shebang" do
+    expectSeq "#!"
+    nextWhile_ (/= '\n')
 
 -- | Expect a comment (from @;;@ to the end of the line)
 comment :: Lexer ()

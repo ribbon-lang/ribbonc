@@ -33,7 +33,6 @@ import Data.Functor ((<&>))
 moduleHead :: Parser RawModuleHead
 moduleHead = expecting "a valid module header" do
     moduleName <- sym "module" >> tag string
-    validateName moduleName
     moduleVersion <- simpleNameOf "@" >> tag version
 
     (sources, dependencies, meta) <- do
@@ -93,11 +92,6 @@ moduleHead = expecting "a valid module header" do
         moduleVersion <- simpleNameOf "@" >> tag version
         alias <- optional (sym "as" >> noFail (tag simpleName))
         pure (moduleName, moduleVersion, alias)
-
-    validateName s =
-        assertAt s.tag ('@' `notElem` s.value) $
-            "module name" <+> shown s.value <+> "is invalid,"
-                <+> "cannot contain `@` symbol"
 
 
 file :: Parser RawFile

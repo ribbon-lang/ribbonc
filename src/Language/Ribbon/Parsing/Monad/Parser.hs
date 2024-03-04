@@ -531,33 +531,30 @@ trySym s = peek >>= \case
     TSymbol s' | s == s' -> True <$ advance
     _ -> pure False
 
--- | Expect a given @Parser@ to be surrounded with backticks
-backticks :: Parser a -> Parser a
-backticks px = do
-    at <- attrOf (sym "`")
-    noFail do
-        px << expectingAt at "to close `" (sym "`")
 
 -- | Expect a given @Parser@ to be surrounded with parentheses
 parens :: Parser a -> Parser a
 parens px = do
-    at <- attrOf (sym "(")
-    noFail do
-        px << expectingAt at "to close (" (sym ")")
+    body <- nextMap \case
+        TTree BkParen ts -> Just ts
+        _ -> Nothing
+    noFail (recurseParser px body)
 
 -- | Expect a given @Parser@ to be surrounded with braces
 braces :: Parser a -> Parser a
 braces px = do
-    at <- attrOf (sym "{")
-    noFail do
-        px << expectingAt at "to close {" (sym "}")
+    body <- nextMap \case
+        TTree BkBrace ts -> Just ts
+        _ -> Nothing
+    noFail (recurseParser px body)
 
 -- | Expect a given @Parser@ to be surrounded with brackets
 brackets :: Parser a -> Parser a
 brackets px = do
-    at <- attrOf (sym "[")
-    noFail do
-        px << expectingAt at "to close [" (sym "]")
+    body <- nextMap \case
+        TTree BkBracket ts -> Just ts
+        _ -> Nothing
+    noFail (recurseParser px body)
 
 -- | Expect a given @Parser@'s @Attr@ to be directly adjacent,
 --   in terms of line and column position, to the given @Attr@

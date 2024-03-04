@@ -44,6 +44,12 @@ data Path
     }
     deriving (Eq, Ord, Show)
 
+-- | Pattern alias for a @Path@ with a single @FixName@ component
+pattern SingleNamePath :: FixName -> Path
+pattern SingleNamePath f <-
+    Path Nothing ((PathComponent Nothing f@(FixName _) :@: _) Seq.:<| Nil)
+{-# COMPLETE SingleNamePath #-}
+
 instance Pretty Path where
     pPrintPrec lvl _ (Path b cs) =
         let csd = hcat $ punctuate "/" (pPrintPrec lvl 0 <$> Fold.toList cs)
@@ -54,23 +60,17 @@ instance Pretty Path where
 
 instance RequiresSlash Path where
     requiresSlash lp
-            = requiresSlash lp.components
+        = requiresSlash lp.components
         || requiresSlash lp.base
-
-instance CatOverloaded Path where
-    overloadedCategory (Path _ (_ Seq.:|> c)) = overloadedCategory c.value
-    overloadedCategory _ = ONamespace
 
 instance HasFixity Path where
     getFixity (Path _ (_ Seq.:|> c)) = getFixity c.value
     getFixity _ = Atom
 
 
--- | Pattern alias for a @Path@ with a single @FixName@ component
-pattern SingleNamePath :: FixName -> Path
-pattern SingleNamePath f <-
-    Path Nothing ((PathComponent OUnresolved f@(FixName _) :@: _) Seq.:<| Nil)
-{-# COMPLETE SingleNamePath #-}
+pathCategory :: Path -> Maybe OverloadCategory
+pathCategory (Path _ (_ Seq.:|> c)) = c.value.category
+pathCategory _ = Just ONamespace
 
 
 -- | The base component of a @Path@,
@@ -106,7 +106,7 @@ instance RequiresSlash PathBase where
 --   specifying a name to look up, at a particular fixity and category
 data PathComponent
     = PathComponent
-    { category :: !OverloadCategory
+    { category :: !(Maybe OverloadCategory)
     , name :: !FixName
     }
     deriving (Eq, Ord, Show)
@@ -117,9 +117,6 @@ instance Pretty PathComponent where
             [ pPrintPrec lvl 0 k
             , pPrintPrec lvl 0 n
             ]
-
-instance CatOverloaded PathComponent where
-    overloadedCategory (PathComponent k _) = k
 
 instance HasFixity PathComponent where
     getFixity (PathComponent _ n) = getFixity n

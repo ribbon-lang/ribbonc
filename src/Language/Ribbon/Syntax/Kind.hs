@@ -8,7 +8,7 @@ import Text.Pretty
 
 
 -- | A kind expression ast.
---   Gives the type of a Type
+--   Gives the type of a @Type@
 data Kind
     -- | A kind created by kind inference, not yet resolved
     = KVar !String

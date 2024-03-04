@@ -1,15 +1,15 @@
 pub foo = 1 + 1
 
 pub quux = namespace
-    use module core/{list/{./, List}, ops/{+, -, infix < as lt}}
+    use module core/{list/{./, List}, ops/{` + `, ` - `, ` < ` as lt}}
     use module tag/{./, Tag}
 
     Semigroup = class a =>
-        infixl 9 <> : (a, a) -> a
+        9 ` <> ` : (a, a) -> a
 
     instance t, a where Semigroup t, Semigroup a
     for Semigroup (Tag t a) =>
-        <> = tag/concat
+        ` <> ` = tag/concat
 
     Vec2 = struct a =>
         x : a

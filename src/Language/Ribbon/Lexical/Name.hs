@@ -12,6 +12,11 @@ import Data.Nil
 import Text.Pretty
 
 import Language.Ribbon.Lexical.Fixity
+import Language.Ribbon.Lexical.Associativity
+import Language.Ribbon.Lexical.Precedence
+import Language.Ribbon.Lexical.Visibility
+import Language.Ribbon.Lexical.Category
+import Language.Ribbon.Util
 
 
 
@@ -124,3 +129,86 @@ isFixOperand :: FixNameComponent -> Bool
 isFixOperand = \case
     FixOperand -> True
     _ -> False
+
+
+-- | A @FixName@ qualified with
+--   a @Visibility@, @Category@, @Associativity@, and @Precedence@
+--   used for binding elements in a @Group@
+data GroupName
+    = GroupName
+    {    visibility :: !Visibility
+    ,      category :: !Category
+    , associativity :: !Associativity
+    ,    precedence :: !Precedence
+    ,          name :: !FixName
+    }
+    deriving Show
+
+instance Eq GroupName where
+    (==) = (== EQ) .: compare
+
+instance Ord GroupName where
+    compare a b = compare
+        (overloadedCategory a.category, overloadedFixity $ getFixity a, a.name)
+        (overloadedCategory b.category, overloadedFixity $ getFixity b, b.name)
+
+instance Pretty GroupName where
+    pPrintPrec lvl _ GroupName{..} =
+        hsep [ pPrintPrec lvl 0 visibility
+             , pPrintPrec lvl 0 category
+             , case getFixity name of
+                Atom -> pPrintPrec lvl 0 name
+                _ -> case associativity of
+                    NonAssociative ->
+                        paren'd precedence <+> pPrintPrec lvl 0 name
+                    LeftAssociative ->
+                        pPrint precedence <+> pPrintPrec lvl 0 name
+                    RightAssociative ->
+                        pPrintPrec lvl 0 name <+> pPrint precedence
+             ]
+
+instance HasCategory GroupName where
+    getCategory = (.category)
+
+instance HasFixity GroupName where
+    getFixity = getFixity . (.name)
+
+
+
+-- | A @FixName@ associated with an import that has not been resolved yet
+data UnresolvedName
+    = UnresolvedName
+    { visibility :: !Visibility
+    , category :: !(Maybe OverloadCategory)
+    , fixitySpecifics :: !(Maybe (Associativity, Precedence))
+    , name :: !FixName
+    }
+    deriving Show
+
+instance Eq UnresolvedName where
+    (==) = (== EQ) .: compare
+
+instance Ord UnresolvedName where
+    compare a b = compare
+        (a.category, overloadedFixity $ getFixity a, a.name)
+        (b.category, overloadedFixity $ getFixity b, b.name)
+
+instance HasFixity UnresolvedName where
+    getFixity = getFixity . (.name)
+
+instance Pretty UnresolvedName where
+    pPrintPrec lvl _ UnresolvedName{..} =
+        hsep [ pPrintPrec lvl 0 visibility
+             , pPrintPrec lvl 0 category
+             , case getFixity name of
+                Atom -> pPrintPrec lvl 0 name
+                _ -> case fixitySpecifics of
+                    Just (a, p) -> case a of
+                        NonAssociative ->
+                            paren'd p <+> pPrintPrec lvl 0 name
+                        LeftAssociative ->
+                            pPrint p <+> pPrintPrec lvl 0 name
+                        RightAssociative ->
+                            pPrintPrec lvl 0 name <+> pPrint p
+                    _ -> pPrintPrec lvl 0 name
+             ]
