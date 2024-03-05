@@ -114,7 +114,7 @@ data PathComponent
 instance Pretty PathComponent where
     pPrintPrec lvl _ = \case
         PathComponent k n -> hsep
-            [ pPrintPrec lvl 0 k
+            [ maybeMEmpty (pPrintPrec lvl 0 <$> k)
             , pPrintPrec lvl 0 n
             ]
 

@@ -1,4 +1,8 @@
-module Language.Ribbon.Parsing.Error where
+module Data.SyntaxError
+    ( SyntaxInput(..), SyntaxError(..), Recoverability(..), SyntaxFail(..)
+    , formatFailure
+    , seqErr
+    ) where
 
 import Data.List qualified as List
 
@@ -7,36 +11,17 @@ import Data.Attr
 
 import Text.Pretty
 
-import Language.Ribbon.Util
-
-import Language.Ribbon.Lexical.Token
-import Language.Ribbon.Lexical.Literal
+import Language.Ribbon.Util ( select, escapeChar )
 
 
 
 
-class (Eq a) => ParseInput a where
-    inputIdentity :: a -> String
+class (Eq a) => SyntaxInput a where
+    inputIdentity :: a -> Doc
     inputPretty :: a -> Doc
 
-instance ParseInput Token where
-    inputIdentity = \case
-        TSymbol _ -> "symbol"
-        TLiteral l -> inputIdentity l
-        TVersion _ -> "version"
-        TTree k _ -> prettyShow k <> " tree"
-        TPath _ -> "path"
-    inputPretty = pPrint
 
-instance ParseInput Literal where
-    inputIdentity = \case
-        LInt _ -> "integer literal"
-        LFloat _ -> "float literal"
-        LString _ -> "string literal"
-        LChar _ -> "character literal"
-    inputPretty = pPrint
-
-instance ParseInput Char where
+instance SyntaxInput Char where
     inputIdentity = \case
         '\\' -> "backslash"
         '\a' -> "alert"
@@ -50,17 +35,17 @@ instance ParseInput Char where
         _ -> "character"
     inputPretty = text . escapeChar
 
--- | Wrapper for all errors triggered in a @Parser@,
---   with the specific @ParseFail@ tagged with an @Attr@,
+-- | Wrapper for all errors triggered in a @Parser@ or @Lexer@,
+--   with the specific @SyntaxFail@ tagged with an @Attr@,
 --   and a flag indicating whether the error is recoverable
-data ParseError a
-    = ParseError
+data SyntaxError
+    = SyntaxError
     { recoverability :: !Recoverability
-    , failure :: !(ATag (ParseFail a))
+    , failure :: !(ATag SyntaxFail)
     }
     deriving Show
 
--- | Indicates whether a @ParseError@ can be recovered
+-- | Indicates whether a @SyntaxError@ can be recovered
 --   by the @Alternative Parser@ instance
 data Recoverability
     = Recoverable
@@ -76,33 +61,33 @@ instance Pretty Recoverability where
         Recoverable -> "recoverable"
         Unrecoverable -> "unrecoverable"
 
-instance ParseInput a => Pretty (ParseError a) where
-    pPrintPrec lvl _ (ParseError r (f :@: x)) =
+instance Pretty SyntaxError where
+    pPrintPrec lvl _ (SyntaxError r (f :@: x)) =
         let rd = select (lvl > PrettyNormal) (pPrint r) mempty
         in hang (rd <+> "syntax error at" <+> (pPrint x <> ":")) do
             formatFailure [x] f
 
-instance ParseInput a => Semigroup (ParseError a) where
-    ea <> eb = ParseError
+instance Semigroup SyntaxError where
+    ea <> eb = SyntaxError
         (ea.recoverability <> eb.recoverability)
         (ea.failure <> eb.failure)
 
--- | Specific type of failure for a @ParseError@
-data ParseFail a
+-- | Specific type of failure for a @SyntaxError@
+data SyntaxFail
     = EofFailure
-    | UnexpectedFailure a
+    | UnexpectedFailure Doc
     | SingleFailure !Doc
-    | ExpectationFailure ![Doc] !(ATag (ParseFail a))
-    | AlternativeFailure ![ATag (ParseFail a)]
+    | ExpectationFailure ![Doc] !(ATag SyntaxFail)
+    | AlternativeFailure ![ATag SyntaxFail]
     deriving (Eq, Show)
 
-instance ParseInput a => Pretty (ParseFail a) where
+instance Pretty SyntaxFail where
     pPrint = formatFailure []
 
-instance ParseInput a => Pretty (ATag (ParseFail a)) where
+instance Pretty (ATag SyntaxFail) where
     pPrint (f :@: x) = hang ("at" <+> (pPrint x <> ":")) (formatFailure [x] f)
 
-instance ParseInput a => Semigroup (ATag (ParseFail a)) where
+instance Semigroup (ATag SyntaxFail) where
     (<>) ta tb | Just merge <- joinExpectation ta tb = merge where
         joinExpectation (a :@: xa) (b :@: xb) = case (a, b) of
             (ExpectationFailure m1 i1, ExpectationFailure m2 i2)
@@ -134,14 +119,14 @@ instance ParseInput a => Semigroup (ATag (ParseFail a)) where
             [e] -> e.value
             es -> AlternativeFailure es
 
--- | Format a @ParseFail@ into a @Doc@, discarding any @Attr@s
+
+-- | Format a @SyntaxFail@ into a @Doc@, discarding any @Attr@s
 --   that have already been printed in the given tree
-formatFailure :: ParseInput a => [Attr] -> ParseFail a -> Doc
+formatFailure :: [Attr] -> SyntaxFail -> Doc
 formatFailure ignore = \case
         EofFailure -> "unexpected end of input"
-        UnexpectedFailure tok ->
-            "unexpected" <+> text (inputIdentity tok)
-                <+> backticks (inputPretty tok)
+        UnexpectedFailure msg ->
+            "unexpected" <+> msg
         SingleFailure doc -> doc
         ExpectationFailure msg incite ->
             hang ("expected" <+> (lsep msg <> ":")) do
@@ -156,3 +141,12 @@ formatFailure ignore = \case
             then formatFailure ig f
             else hang ("at" <+> (pPrint x <> ":")) do
                 formatFailure (x : ig) f
+
+
+-- | Create an error message for a failed expectation of some @seq@ of @kind@,
+--   with the given @Attr@ as the location
+seqErr :: String -> String -> Attr -> SyntaxError
+seqErr sub kind at = SyntaxError Unrecoverable $ Tag at $ SingleFailure $
+    "cannot parse" <+> backticks (text sub)
+        <+> "as a" <+> text kind
+

@@ -1,1 +1,3 @@
-a : (type -> type) -> data -> type, b where Concat b =>
+(Type -> Type) -> Data -> Type
+
+

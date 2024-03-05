@@ -17,6 +17,9 @@ import Language.Ribbon.Lexical.Precedence
 import Language.Ribbon.Lexical.Visibility
 import Language.Ribbon.Lexical.Category
 import Language.Ribbon.Util
+import Data.Function
+import Data.Attr
+import Data.Tag
 
 
 
@@ -54,6 +57,13 @@ newtype FixName
      { components :: Seq FixNameComponent }
     deriving (Eq, Ord, Show)
 
+-- | Compare two @FixName@s by their @OverloadFixity@
+--   and then by their @SimpleNames@
+fixNameCompare :: FixName -> FixName -> Ordering
+fixNameCompare a b = compare
+    (getFixity a, fixNameSimples a)
+    (getFixity b, fixNameSimples b)
+
 instance Pretty FixName where
     pPrint fn@(FixName cs) = maybeBackticks (needsEscape fn) $
         hcat $ pPrint <$> Fold.toList cs
@@ -77,6 +87,12 @@ instance HasFixity FixName where
 pattern SimpleFixName :: SimpleName -> FixName
 pattern SimpleFixName n = FixName (FixSimple n Seq.:<| Nil)
 {-# COMPLETE SimpleFixName #-}
+
+-- | Extract only the @SimpleNames@ from a @FixName@
+fixNameSimples :: FixName -> [SimpleName]
+fixNameSimples (FixName cs) = Fold.toList $ Fold.foldr f Nil cs where
+    f (FixSimple n) ns = n Seq.<| ns
+    f _ ns = ns
 
 data FixNameError
     = FixNameMissingSimple
@@ -132,30 +148,28 @@ isFixOperand = \case
 
 
 -- | A @FixName@ qualified with
---   a @Visibility@, @Category@, @Associativity@, and @Precedence@
---   used for binding elements in a @Group@
-data GroupName
-    = GroupName
+--   a @Visibility@, @Associativity@, and @Precedence@
+data QualifiedName
+    = QualifiedName
     {    visibility :: !Visibility
-    ,      category :: !Category
     , associativity :: !Associativity
     ,    precedence :: !Precedence
-    ,          name :: !FixName
+    ,          name :: !(ATag FixName)
     }
     deriving Show
 
-instance Eq GroupName where
+instance Eq QualifiedName where
     (==) = (== EQ) .: compare
 
-instance Ord GroupName where
-    compare a b = compare
-        (overloadedCategory a.category, overloadedFixity $ getFixity a, a.name)
-        (overloadedCategory b.category, overloadedFixity $ getFixity b, b.name)
+instance Ord QualifiedName where
+    compare = fixNameCompare `on` untag . (.name)
 
-instance Pretty GroupName where
-    pPrintPrec lvl _ GroupName{..} =
+instance HasFixity QualifiedName where
+    getFixity = getFixity . (.name)
+
+instance Pretty QualifiedName where
+    pPrintPrec lvl _ QualifiedName{..} =
         hsep [ pPrintPrec lvl 0 visibility
-             , pPrintPrec lvl 0 category
              , case getFixity name of
                 Atom -> pPrintPrec lvl 0 name
                 _ -> case associativity of
@@ -167,11 +181,28 @@ instance Pretty GroupName where
                         pPrintPrec lvl 0 name <+> pPrint precedence
              ]
 
+
+-- | A @FixName@ qualified with
+--   a @Visibility@, @Category@, @Associativity@, and @Precedence@
+--   used for binding elements in a @Group@
+data GroupName
+    = GroupName
+    {  category :: !Category
+    , qualified :: !QualifiedName
+    }
+    deriving (Eq, Ord, Show)
+
+instance Pretty GroupName where
+    pPrintPrec lvl _ GroupName{..} =
+        hsep [ pPrintPrec lvl 0 qualified
+             , pPrintPrec lvl 0 category
+             ]
+
 instance HasCategory GroupName where
     getCategory = (.category)
 
 instance HasFixity GroupName where
-    getFixity = getFixity . (.name)
+    getFixity = getFixity . (.qualified)
 
 
 

@@ -78,6 +78,16 @@ manyWith base a = many_v where
     many_v = option base some_v
     some_v = liftA2 (:) a many_v
 
+-- | Expect a list of @Parser m a@ separated by @Parser s@.
+--   The list must contain at least one result
+listSome :: (Monad m, Alternative m) => m s -> m a -> m [a]
+listSome s p = liftA2 (:) p (many $ s >> p)
+
+-- | Expect a list of @Parser m a@ separated by @Parser s@.
+--   The list may be empty
+listMany :: (Monad m, Alternative m) => m s -> m a -> m [a]
+listMany s p = option [] (listSome s p)
+
 -- | @optional@, with a default
 option :: Alternative f => a -> f a -> f a
 option a fa = fa <|> pure a

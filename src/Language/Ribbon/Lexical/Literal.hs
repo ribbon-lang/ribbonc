@@ -2,6 +2,8 @@ module Language.Ribbon.Lexical.Literal where
 
 import Data.Word(Word32)
 
+import Data.SyntaxError
+
 import Text.Pretty
 
 
@@ -18,6 +20,21 @@ data Literal
     | LString !String
     deriving (Eq, Ord, Show)
 
+instance SyntaxInput Literal where
+    inputIdentity = \case
+        LInt _ -> "integer literal"
+        LFloat _ -> "float literal"
+        LString _ -> "string literal"
+        LChar _ -> "character literal"
+    inputPretty = pPrint
+
+instance Pretty Literal where
+    pPrint = \case
+        LInt i -> pPrint i
+        LFloat f -> pPrint f
+        LChar c -> shown c
+        LString s -> shown s
+
 -- | Kind of a Literal
 data LiteralKind
     -- | The kind of a 32-bit signed integer
@@ -29,14 +46,6 @@ data LiteralKind
     -- | The kind of a UTF-32 encoded string
     | LkString
     deriving (Eq, Ord, Show)
-
-
-instance Pretty Literal where
-    pPrint = \case
-        LInt i -> pPrint i
-        LFloat f -> pPrint f
-        LChar c -> shown c
-        LString s -> shown s
 
 instance Pretty LiteralKind where
     pPrint = \case

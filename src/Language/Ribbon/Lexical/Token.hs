@@ -10,6 +10,7 @@ import Control.Monad
 import Data.Tag
 import Data.Attr
 import Data.Nil
+import Data.SyntaxError
 
 
 import Text.Pretty
@@ -43,6 +44,15 @@ data Token
     -- | A sequence of names and symbols
     | TPath !Path
     deriving (Eq, Ord, Show)
+
+instance SyntaxInput Token where
+    inputIdentity = \case
+        TSymbol _ -> "symbol"
+        TLiteral l -> inputIdentity l
+        TVersion _ -> "version"
+        TTree k _ -> pPrint k <> " tree"
+        TPath _ -> "path"
+    inputPretty = pPrint
 
 instance (Applicative m, MonadState BlockCounter m) => PrettyWith m Token where
     pPrintPrecWith lvl prec = \case

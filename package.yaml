@@ -11,6 +11,8 @@ default-extensions:
     - UndecidableInstances
     - DefaultSignatures
     - PartialTypeSignatures
+    - FunctionalDependencies
+    - TypeFamilies
 
     - PatternSynonyms
     - ViewPatterns

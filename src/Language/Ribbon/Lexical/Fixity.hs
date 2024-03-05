@@ -1,5 +1,7 @@
 module Language.Ribbon.Lexical.Fixity where
 
+import Data.Tag
+
 import Text.Pretty
 
 
@@ -7,6 +9,9 @@ import Text.Pretty
 class HasFixity a where
     -- | Extract the fixity of a name-like
     getFixity :: a -> Fixity
+
+instance HasFixity a => HasFixity (Tag t a) where
+    getFixity = getFixity . untag
 
 
 -- | Fixity of a name

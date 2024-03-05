@@ -1,8 +1,8 @@
 module Language.Ribbon.Parsing.Lexer where
 
-import Data.ByteString.Lazy (ByteString)
 
 import Data.Text.Lazy (Text)
+import Data.Text.Lazy qualified as Text
 import Data.Char qualified as Char
 import Data.Sequence qualified as Seq
 import Data.Maybe qualified as Maybe
@@ -13,8 +13,14 @@ import Data.Functor ((<&>))
 import Control.Applicative
 import Control.Monad
 import Control.Monad.Error.Class
+import Control.Monad.Parser
 
 import Data.Tag
+import Data.Pos
+import Data.Range
+import Data.Attr
+import Data.SyntaxError
+import Data.Nil
 
 import Text.Pretty
 
@@ -22,42 +28,64 @@ import Language.Ribbon.Util
 
 import Language.Ribbon.Lexical
 
-import Language.Ribbon.Parsing.Monad.Lexer
-import Language.Ribbon.Parsing.Error
 import Language.Ribbon.Parsing.Text
 
 
 
--- | Lex a @String@, reporting errors in the given @FilePath@,
---   and convert errors into a @Doc@
-lexString :: FilePath -> String -> Either Doc TokenSeq
-lexString = lexStringWith doc
 
--- | Lex a @ByteString@, reporting errors in the given @FilePath@,
---   and convert errors into a @Doc@
-lexByteString :: FilePath -> ByteString -> Either Doc TokenSeq
-lexByteString = lexByteStringWith doc
 
--- | Lex a @Text@, reporting errors in the given @FilePath@,
---   and convert errors into a @Doc@
-lexText :: FilePath -> Text -> Either Doc TokenSeq
-lexText = lexTextWith doc
+data LexStream
+    = LexStream
+    { pos :: !Pos
+    , input :: Text
+    }
 
--- | Read a file from the given @FilePath@ and lex it,
---   converting errors into a @Doc@
-lexFile :: FilePath -> IO (Either Doc TokenSeq)
-lexFile = lexFileWith doc
+instance Nil LexStream where
+    nil = LexStream Nil mempty
+    isNil (LexStream p i) = isNil p && Text.null i
+
+instance ParseInput LexStream where
+    type InputElement LexStream = Char
+    formatInput fp ls = case unconsInput ls of
+        Left e -> formatProblem fp ls e
+        Right (c, ls') -> UnexpectedFailure
+            (inputIdentity c <+> inputPretty c) :@: attrInputDiff fp ls ls'
+    unconsInput ls = do
+        (h, input') <- maybeError DecodeEof do
+            Text.uncons ls.input
+
+        size <- byteWidth $ Char.ord h
+
+        let offset' = size + ls.pos.offset
+            (line', column') =
+                if h == '\n'
+                    then (ls.pos.line + 1, 1)
+                    else (ls.pos.line, ls.pos.column + 1)
+
+        pure (h, ls {
+            input = input',
+            pos = Pos offset' line' column'
+        }) where
+        byteWidth c
+            | c == 0xFFFD = Left DecodeBadEncoding
+            | c <= 0x7f = pure 1
+            | c <= 0x7ff = pure 2
+            | c <= 0xffff = pure 3
+            | otherwise = pure 4
+    attrInput fp ls = Attr fp (unitRange ls.pos)
+    attrInputDiff fp ls ls' = Attr fp (Range ls.pos ls'.pos)
+
 
 
 -- | Lex a full document
-doc :: Lexer TokenSeq
+doc :: MonadParse LexStream m => m TokenSeq
 doc = reduceTokenSeq <$> do
     option () shebang
     lineSeq 0
 
 
 -- | Lex a single token, including trees
-token :: Int -> Lexer Token
+token :: MonadParse LexStream m => Int -> m Token
 token ind = asum do
     treeToken ind :
         [ TVersion <$> version
@@ -67,11 +95,11 @@ token ind = asum do
         ]
 
 -- | Lex a tree as a token
-treeToken :: Int -> Lexer Token
+treeToken :: MonadParse LexStream m => Int -> m Token
 treeToken ind = tree ind <&> uncurry TTree
 
 -- | Lex a tree as a kind and a sequence
-tree :: Int -> Lexer (BlockKind, TokenSeq)
+tree :: MonadParse LexStream m => Int -> m (BlockKind, TokenSeq)
 tree ind = asum
     [      (BkParen, ) <$> parenBlock ind
     ,      (BkBrace, ) <$> braceBlock ind
@@ -82,7 +110,7 @@ tree ind = asum
 
 
 -- | Lex a sequence of lines
-lineSeq :: Int -> Lexer TokenSeq
+lineSeq :: MonadParse LexStream m => Int -> m TokenSeq
 lineSeq ind = do
     fLn <- tag $ line ind
     lns <- many do
@@ -93,12 +121,12 @@ lineSeq ind = do
         fmap (TTree BkWhitespace)
 
 -- | Lex a single line
-line :: Int -> Lexer TokenSeq
+line :: MonadParse LexStream m => Int -> m TokenSeq
 line ind = Seq.fromList <$> many (hScanning $ tag $ token ind)
 
 
 -- | Lex a tree delimited by an indentation block
-indentBlock :: Int -> Lexer TokenSeq
+indentBlock :: MonadParse LexStream m => Int -> m TokenSeq
 indentBlock ind = expecting "an indented block" do
     lineEnd
     ind' <- lineStart
@@ -106,17 +134,17 @@ indentBlock ind = expecting "an indented block" do
     lineSeq ind'
 
 -- | Lex a tree delimited by a parenthesis block
-parenBlock :: Int -> Lexer TokenSeq
+parenBlock :: MonadParse LexStream m => Int -> m TokenSeq
 parenBlock = expecting "parenthesis block" .
     delimited "(" ")"
 
 -- | Lex a tree delimited by a brace block
-braceBlock :: Int -> Lexer TokenSeq
+braceBlock :: MonadParse LexStream m => Int -> m TokenSeq
 braceBlock = expecting "brace block" .
     delimited "{" "}"
 
 -- | Lex a tree delimited by a bracket block
-bracketBlock :: Int -> Lexer TokenSeq
+bracketBlock :: MonadParse LexStream m => Int -> m TokenSeq
 bracketBlock = expecting "bracket block" .
     delimited "[" "]"
 
@@ -124,7 +152,7 @@ bracketBlock = expecting "bracket block" .
 
 
 -- | Lex a @Path@ sequence
-path :: Lexer Path
+path :: MonadParse LexStream m => m Path
 path = do
     b <- optional $ tag pathBase
 
@@ -144,7 +172,7 @@ path = do
         }
 
 -- | Lex a @PathBase@
-pathBase :: Lexer PathBase
+pathBase :: MonadParse LexStream m => m PathBase
 pathBase = expecting "a path base" $ asum
     [ PbRoot <$ expectSymbol "/"
     , PbThis <$ expectSymbols [".", "/"]
@@ -154,7 +182,7 @@ pathBase = expecting "a path base" $ asum
     ]
 
 -- | Lex a @PathComponent@
-pathComponent :: Lexer PathComponent
+pathComponent :: MonadParse LexStream m => m PathComponent
 pathComponent = expecting "a path component" do
     c <- optional category
 
@@ -165,43 +193,38 @@ pathComponent = expecting "a path component" do
 
 
 -- | Lex a @FixName@ or a @SimpleName@
-name :: Lexer FixName
+name :: MonadParse LexStream m => m FixName
 name = expecting "a name" $ asum
     [ fixName
     , FixName . Seq.singleton . FixSimple <$> simpleName
     ]
 
 -- | Lex a @FixName@
-fixName :: Lexer FixName
+fixName :: MonadParse LexStream m => m FixName
 fixName = expecting "a fix name" do
-    pos <- getPos
-    expect '`' >> noFail do
+    fn :@: at <- tag $ expect '`' >> noFail do
         components <- some do
             asum [ FixOperand <$ semSpace, FixSimple <$> simpleName ]
         expect '`'
 
-        let fn = FixName (Seq.fromList components)
+        pure $ FixName (Seq.fromList components)
 
-        at <- getAttr pos
-
-        case validateFixName fn of
-            Just msg -> throwError $
-                ParseError Unrecoverable $ SingleFailure (pPrint msg) :@: at
-            _ -> pure fn
+    case validateFixName fn of
+        Just msg -> throwError $
+            SyntaxError Unrecoverable $ SingleFailure (pPrint msg) :@: at
+        _ -> pure fn
 
 -- | Lex a @SimpleName@
-simpleName :: Lexer SimpleName
+simpleName :: MonadParse LexStream m => m SimpleName
 simpleName = expecting "a simple name" $ SimpleName <$> do
-    pos <- getPos
-    n <- asum [ operator, identifier ]
-    at <- getAttr pos
-    n <$ assertAt at (n `notElem` reservedSymbols) Recoverable do
-        "symbol" <+> backticks (text n) <+> "is reserved"
+    n :@: at <- tag $ asum [ operator, identifier ]
+    n <$ assertAt at (n `notElem` reservedSymbols) Recoverable
+        ("symbol" <+> backticks (text n) <+> "is reserved")
 
 
 
 -- | Lex a @Literal@
-literal :: Lexer Literal
+literal :: MonadParse LexStream m => m Literal
 literal = expecting "a literal" $ asum
     [ LFloat <$> float
     , LInt <$> int
@@ -210,23 +233,20 @@ literal = expecting "a literal" $ asum
     ]
 
 -- | Lex a semantic @Version@
-version :: Lexer Version
+version :: MonadParse LexStream m => m Version
 version = expecting "a version" do
-    pos <- getPos
-    major <- decDigits
-    expect '.'
-    minor <- decDigits
-    expect '.'
-    patch <- decDigits
+    (major, minor, patch) :@: at <- tag $ liftA3 (,,)
+        do decDigits
+        do expect '.' >> decDigits
+        do expect '.' >> decDigits
 
     let val = major <> "." <> minor <> "." <> patch
-    at <- getAttr pos
 
     maybeError (seqErr val "version" at) do
         parseVersion $ filter (/= '_') val
 
 -- | Lex an operator, identifier, punctuation, or dot sequence
-symbol :: Lexer String
+symbol :: MonadParse LexStream m => m String
 symbol = expecting "a symbol" $ asum
     [ operator
     , identifier
@@ -238,7 +258,7 @@ symbol = expecting "a symbol" $ asum
 
 
 -- | Lex a tree delimited by a given pair of symbols
-delimited :: String -> String -> Int -> Lexer TokenSeq
+delimited :: MonadParse LexStream m => String -> String -> Int -> m TokenSeq
 delimited open close ind = do
     at <- attrOf $ expectSeq' open
     noFail do
@@ -251,15 +271,22 @@ delimited open close ind = do
         pure ts
 
 -- | Expect a specific symbol
-expectSymbol :: String -> Lexer ()
+expectSymbol :: MonadParse LexStream m => String -> m ()
 expectSymbol s = expecting (backticks $ text s) do
     x <- symbol
     guard (x == s)
 
 -- | Expect any one of a set of symbols
-expectSymbols :: [String] -> Lexer String
+expectSymbols :: MonadParse LexStream m => [String] -> m String
 expectSymbols ss = asum $ ss <&> \s -> s <$ expectSymbol s
 
+
+
+hScan :: MonadParse LexStream m => m ()
+hScan = option () $ nextWhile_ (== ' ')
+
+hScanning :: MonadParse LexStream m => m a -> m a
+hScanning = (hScan *>)
 
 
 -- | Lex an indentation level (in spaces or tabs, with tabs counting as 4)
@@ -267,7 +294,7 @@ expectSymbols ss = asum $ ss <&> \s -> s <$ expectSymbol s
 --   TODO: should tab width be configurable?
 --         should hard tabs be allowed?
 --         if they are, should spaces count as indentation?
-lineStart :: Lexer Int
+lineStart :: MonadParse LexStream m => m Int
 lineStart = expecting "an indentation level" do
     sum <$> many do
         nextMap \case
@@ -276,47 +303,47 @@ lineStart = expecting "an indentation level" do
             _ -> Nothing
 
 -- | Expect a line ending (either @\\n@ or @\\r\\n@)
-lineEnd :: Lexer ()
+lineEnd :: MonadParse LexStream m => m ()
 lineEnd = expecting "a line ending" $ hScanning do
     option () comment
     some_ $ expectAnySeq ["\n", "\r\n"]
 
 -- | Expect a shebang (from @#!@ to the end of the line)
-shebang :: Lexer ()
+shebang :: MonadParse LexStream m => m ()
 shebang = expecting "a shebang" do
     expectSeq "#!"
     nextWhile_ (/= '\n')
 
 -- | Expect a comment (from @;;@ to the end of the line)
-comment :: Lexer ()
+comment :: MonadParse LexStream m => m ()
 comment = expecting "a comment" do
     expectSeq ";;"
     nextWhile_ (/= '\n')
 
 -- | Lex a sequence of spaces with semantic implications,
 --   ie the spaces inside a @FixName@
-semSpace :: Lexer ()
+semSpace :: MonadParse LexStream m => m ()
 semSpace = expecting "a semantic space" do
     nextWhile_ (== ' ')
 
 -- | Expect a binary digit
-binDigit :: Lexer Char
+binDigit :: MonadParse LexStream m => m Char
 binDigit = expecting "binary digit" do
     nextIf (`elem` ['0','1'])
 
 -- | Expect a decimal digit
-decDigit :: Lexer Char
+decDigit :: MonadParse LexStream m => m Char
 decDigit = expecting "decimal digit" do
     nextIf Char.isDigit
 
 -- | Expect a hexadecimal digit
-hexDigit :: Lexer Char
+hexDigit :: MonadParse LexStream m => m Char
 hexDigit = expecting "hexadecimal digit" do
     nextIf Char.isHexDigit
 
 -- | Expect a sequence of binary digits,
 --   allowing underscores after the first digit
-binDigits :: Lexer String
+binDigits :: MonadParse LexStream m => m String
 binDigits = expecting "binary digits" do
     liftA2 (:)
         do nextIf (`elem` ['0','1'])
@@ -324,7 +351,7 @@ binDigits = expecting "binary digits" do
 
 -- | Expect a sequence of decimal digits,
 --   allowing underscores after the first digit
-decDigits :: Lexer String
+decDigits :: MonadParse LexStream m => m String
 decDigits = expecting "decimal digits" do
     liftA2 (:)
         do nextIf Char.isDigit
@@ -332,26 +359,26 @@ decDigits = expecting "decimal digits" do
 
 -- | Expect a sequence of hexadecimal digits,
 --   allowing underscores after the first digit
-hexDigits :: Lexer String
+hexDigits :: MonadParse LexStream m => m String
 hexDigits = expecting "hexadecimal digits" do
     liftA2 (:)
         do nextIf Char.isHexDigit
         do option [] $ nextWhile (Char.isHexDigit ||| (=='_'))
 
 -- | Lex a binary integer literal
-binInt :: Lexer Word32
+binInt :: MonadParse LexStream m => m Word32
 binInt = tag binDigits >>= \(digits :@: at) ->
     maybeError (seqErr digits "binary integer" at) do
         parseBinInt $ filter (/= '_') digits
 
 -- | Lex a decimal integer literal
-decInt :: Lexer Word32
+decInt :: MonadParse LexStream m => m Word32
 decInt = tag decDigits >>= \(digits :@: at) ->
     maybeError (seqErr digits "decimal integer" at) do
         parseDecInt $ filter (/= '_') digits
 
 -- | Lex a hexadecimal integer literal
-hexInt :: Lexer Word32
+hexInt :: MonadParse LexStream m => m Word32
 hexInt =
     tag hexDigits >>= \(digits :@: at) ->
         maybeError (seqErr digits "hexadecimal integer" at) do
@@ -360,16 +387,14 @@ hexInt =
 -- | Lex a character escape sequence,
 --   inside a @\'@-delimited character literal
 --   or a @\"@-delimited string literal
-escape :: Lexer Char
+escape :: MonadParse LexStream m => m Char
 escape = expecting "a valid escape sequence" do
-    pos <- getPos
-    expect '\\'
-    s <- ('\\' :) <$> asum
-        [ pure <$> nextIf (`elem` simpleEsc)
-        , hexEsc
-        , uniEsc
-        ]
-    at <- getAttr pos
+    s :@: at <- tag $ expect '\\' >> do
+        ('\\' :) <$> asum
+            [ pure <$> nextIf (`elem` simpleEsc)
+            , hexEsc
+            , uniEsc
+            ]
     maybeError (seqErr s "character escape" at) do
         parseChar $ filter (/= '_') s
     where
@@ -384,7 +409,7 @@ escape = expecting "a valid escape sequence" do
     simpleEsc = ['\\', '\'', '\"', '0', 'a', 'b', 'f', 'n', 'r', 't', 'v']
 
 -- | Lex an integer literal
-int :: Lexer Word32
+int :: MonadParse LexStream m => m Word32
 int = expecting "an integer literal" $ asum
     [ expectSeq "0x" >> hexInt
     , expectSeq "0b" >> binInt
@@ -392,26 +417,24 @@ int = expecting "an integer literal" $ asum
     ]
 
 -- | Lex a floating point literal
-float :: Lexer Float
+float :: MonadParse LexStream m => m Float
 float = expecting "a floating point literal" do
-    pos <- getPos
-    whole <- decDigits
-    expect '.'
-    frac <- decDigits
-    ex <- option "" do
-        e <- expectAny "eE"
-        sign <- option '+' (expectAny "+-")
-        digits <- decDigits
-        pure $ e : sign : digits
+    (whole, frac, ex) :@: at <- tag $ liftA3 (,,)
+        do decDigits
+        do expect '.' >> decDigits
+        do option "" do
+            e <- expectAny "eE"
+            sign <- option '+' (expectAny "+-")
+            digits <- decDigits
+            pure $ e : sign : digits
 
     let val = whole <> "." <> frac <> ex
-    at <- getAttr pos
 
     maybeError (seqErr val "float" at) do
         parseFloat $ filter (/= '_') val
 
 -- | Lex a character literal
-char :: Lexer Char
+char :: MonadParse LexStream m => m Char
 char = expecting "a character literal" do
     expect '\''
     c <- asum
@@ -421,7 +444,7 @@ char = expecting "a character literal" do
     c <$ expect '\''
 
 -- | Lex a string literal
-string :: Lexer String
+string :: MonadParse LexStream m => m String
 string = expecting "a string literal" do
     expect '\"'
     s <- many do
@@ -432,7 +455,7 @@ string = expecting "a string literal" do
     s <$ noFail (expect '\"')
 
 -- | Lex an @OverloadCategory@ (does not succeed on @OUnresolved@, use @option@)
-category :: Lexer OverloadCategory
+category :: MonadParse LexStream m => m OverloadCategory
 category = asum
     [ ONamespace <$ expectSeq "namespace"
     , OInstance <$ expectSeq "instance"
@@ -443,24 +466,24 @@ category = asum
 
 -- | Lex an atomic punctuation symbol like @,@
 --  (not a block delimiter like @{@ or a dot sequence like @..@)
-punctuation :: Lexer String
+punctuation :: MonadParse LexStream m => m String
 punctuation = expecting "punctuation" do
     ch <- nextIf (`elem` userPunctuations)
     [ch] <$ when (ch == ';') do -- avoid consuming comment start
         negativeLookahead (nextIf_ (== ';'))
 
 -- | Lex a sequence of dots
-dots :: Lexer String
+dots :: MonadParse LexStream m => m String
 dots = expecting "dot or ellipsis" do
     nextWhile (== '.')
 
 -- | Lex an operator
-operator :: Lexer String
+operator :: MonadParse LexStream m => m String
 operator = expecting "an operator" do
     nextWhile isSymbolic
 
 -- | Lex an identifier
-identifier :: Lexer String
+identifier :: MonadParse LexStream m => m String
 identifier = expecting "an identifier" do
     liftA2 (:)
         do nextIf (Char.isAlpha ||| (=='_'))
