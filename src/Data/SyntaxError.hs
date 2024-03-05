@@ -1,6 +1,7 @@
 module Data.SyntaxError
-    ( SyntaxInput(..), SyntaxError(..), Recoverability(..), SyntaxFail(..)
-    , formatFailure
+    ( DecodeProblem(..)
+    , SyntaxInput(..), SyntaxError(..), Recoverability(..), SyntaxFail(..)
+    , formatProblem, formatFailure
     , seqErr
     ) where
 
@@ -13,6 +14,22 @@ import Text.Pretty
 
 import Language.Ribbon.Util ( select, escapeChar )
 
+
+
+
+
+data DecodeProblem
+    = DecodeBadEncoding
+    | DecodeEof
+    deriving Show
+
+formatProblem ::
+    Attr -> DecodeProblem -> ATag SyntaxFail
+formatProblem at = \case
+    DecodeBadEncoding ->
+        SingleFailure "invalid utf8" :@: at
+    DecodeEof ->
+        EofFailure :@: at
 
 
 

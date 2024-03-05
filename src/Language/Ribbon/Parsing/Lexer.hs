@@ -1,8 +1,13 @@
 module Language.Ribbon.Parsing.Lexer where
 
+import Data.ByteString.Lazy (ByteString)
+import Data.ByteString.Lazy qualified as ByteString
 
 import Data.Text.Lazy (Text)
 import Data.Text.Lazy qualified as Text
+import Data.Text.Lazy.Encoding qualified as Text
+import Data.Text.Encoding.Error qualified as Text
+
 import Data.Char qualified as Char
 import Data.Sequence qualified as Seq
 import Data.Maybe qualified as Maybe
@@ -13,7 +18,7 @@ import Data.Functor ((<&>))
 import Control.Applicative
 import Control.Monad
 import Control.Monad.Error.Class
-import Control.Monad.Parser
+import Control.Monad.Parser.Class
 
 import Data.Tag
 import Data.Pos
@@ -39,15 +44,16 @@ data LexStream
     { pos :: !Pos
     , input :: Text
     }
+    deriving Show
 
 instance Nil LexStream where
     nil = LexStream Nil mempty
-    isNil (LexStream p i) = isNil p && Text.null i
+    isNil (LexStream _ i) = Text.null i
 
 instance ParseInput LexStream where
     type InputElement LexStream = Char
     formatInput fp ls = case unconsInput ls of
-        Left e -> formatProblem fp ls e
+        Left e -> formatProblem (attrInput fp ls) e
         Right (c, ls') -> UnexpectedFailure
             (inputIdentity c <+> inputPretty c) :@: attrInputDiff fp ls ls'
     unconsInput ls = do
@@ -75,6 +81,27 @@ instance ParseInput LexStream where
     attrInput fp ls = Attr fp (unitRange ls.pos)
     attrInputDiff fp ls ls' = Attr fp (Range ls.pos ls'.pos)
 
+-- | Wrap a @Text@ in a new @LexStream@,
+--   note that the @Text@, if decoded from another source, may use
+--   @Text.lenientDecode@ as the markers for invalid characters it generates
+--   are checked for by @ParseInput@ implementation
+lexStreamFromText :: Text -> LexStream
+lexStreamFromText = LexStream Nil
+
+-- | Lazily decode a @ByteString@ into @Text@, and wrap it in a new @LexStream@
+lexStreamFromByteString :: ByteString -> LexStream
+lexStreamFromByteString = lexStreamFromText .
+    Text.decodeUtf8With Text.lenientDecode
+
+-- | Lazily pack a @String@ into @Text@, and wrap it in a new @LexStream@
+lexStreamFromString :: String -> LexStream
+lexStreamFromString = lexStreamFromText . Text.pack
+
+-- | Read a lazy @ByteString@ from a @FilePath@, lazily decode it to @Text@,
+--   and wrap it in a new @LexStream@
+lexStreamFromFile :: FilePath -> IO LexStream
+lexStreamFromFile fp =
+    lexStreamFromByteString <$> ByteString.readFile fp
 
 
 -- | Lex a full document
