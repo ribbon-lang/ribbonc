@@ -13,7 +13,7 @@ import Data.SyntaxError
 import Control.Applicative
 import Control.Monad.Except
 import Control.Monad.Reader
-import Control.Monad.State.Strict qualified as Strict
+import Control.Monad.State.Strict
 import Control.Monad.State.Lazy qualified as Lazy
 
 import Control.Monad.File
@@ -21,11 +21,6 @@ import Control.Monad.File
 import Text.Pretty
 
 import Language.Ribbon.Util
-
-
-type MonadSyntaxError m = (MonadError SyntaxError m, MonadFail m)
-
-type MonadSyntax m = (MonadSyntaxError m, MonadFile m)
 
 
 
@@ -52,13 +47,19 @@ class (Eq (InputElement s), Pretty (InputElement s), Nil s) => ParseInput s wher
     attrInputDiff :: FilePath -> s -> s -> Attr
 
 
-class (Alternative m, MonadPlus m, MonadSyntax m, ParseInput x)
+
+type MonadSyntaxError m = (MonadError SyntaxError m, MonadFail m)
+
+class ( Alternative m, MonadPlus m
+      , MonadSyntaxError m, MonadFile m
+      , ParseInput x
+      )
     => MonadParse x m | m -> x where
         -- | Read/Write/Modify the @ParseInput@
         --   associated with the current @ParserT@ action
         parseState :: (x -> (a, x)) -> m a
 
-instance MonadParse x m => MonadParse x (Strict.StateT s m) where
+instance MonadParse x m => MonadParse x (StateT s m) where
     parseState = lift . parseState
 
 instance MonadParse x m => MonadParse x (Lazy.StateT s m) where
@@ -67,7 +68,8 @@ instance MonadParse x m => MonadParse x (Lazy.StateT s m) where
 instance MonadParse x m => MonadParse x (ReaderT r m) where
     parseState = lift . parseState
 
-
+instance MonadParse i m => MonadParse i (FileT m) where
+    parseState = lift . parseState
 
 
 
@@ -75,74 +77,60 @@ instance MonadParse x m => MonadParse x (ReaderT r m) where
 -- | Parsing monad
 newtype ParserT i m a
     = ParserT
-    ( i -> m (a, i) )
-    deriving Functor
+    ( StateT i m a )
+    deriving
+        ( Functor, Applicative, Monad
+        , MonadFail
+        , MonadFile
+        , MonadIO
+        , MonadTrans
+        )
 
-instance Monad m => Applicative (ParserT i m) where
-    pure a = ParserT \ts -> pure (a, ts)
-    ParserT f <*> ParserT a = ParserT \ts -> do
-        (f', ts') <- f ts
-        (a', ts'') <- a ts'
-        pure (f' a', ts'')
+deriving instance MonadReader r m => MonadReader r (ParserT i m)
+deriving instance MonadError e m => MonadError e (ParserT i m)
 
-instance Monad m => Monad (ParserT i m) where
-    ParserT a >>= f = ParserT \ts -> do
-        (a', ts') <- a ts
-        runParser (f a') ts'
+instance ( MonadSyntaxError m, MonadFile m
+         , ParseInput i
+         )
+    => MonadPlus (ParserT i m)
+instance ( MonadSyntaxError m, MonadFile m
+         , ParseInput i
+         )
+    => Alternative (ParserT i m) where
+        empty = ParserT $ StateT \ts -> do
+            fp <- getFilePath
+            throwError $
+                SyntaxError Recoverable $ formatInput fp ts
+        ParserT (StateT a) <|> ParserT (StateT b) = ParserT $ StateT \ts ->
+            a ts `catchError` \case
+                SyntaxError Recoverable fa ->
+                    b ts `catchError` \case
+                        SyntaxError Recoverable fb ->
+                            throwError $ SyntaxError Recoverable (fa <> fb)
+                        y -> throwError y
+                x -> throwError x
 
-instance (ParseInput i, MonadSyntax m) => MonadPlus (ParserT i m)
-instance (ParseInput i, MonadSyntax m) => Alternative (ParserT i m) where
-    empty = ParserT \ts -> do
-        fp <- getFilePath
-        throwError $
-            SyntaxError Recoverable $ formatInput fp ts
-    ParserT a <|> ParserT b = ParserT \ts ->
-        a ts `catchError` \case
-            SyntaxError Recoverable fa ->
-                b ts `catchError` \case
-                    SyntaxError Recoverable fb ->
-                        throwError $ SyntaxError Recoverable (fa <> fb)
-                    y -> throwError y
-            x -> throwError x
-
-instance (ParseInput i, MonadSyntax m) => MonadFail (ParserT i m) where
-    fail msg = ParserT \ts -> do
-        fp <- getFilePath
-        throwError $ SyntaxError Recoverable $
-            SingleFailure (text msg) :@: attrInput fp ts
-
-instance MonadSyntaxError m
-    => MonadError SyntaxError (ParserT i m) where
-        throwError e = ParserT \_ -> throwError e
-        catchError (ParserT a) f = ParserT \ts ->
-            a ts `catchError` \e ->
-                runParser (f e) ts
-
-instance MonadFile m => MonadFile (ParserT i m) where
-    withFilePath fp (ParserT m) = ParserT (withFilePath fp . m)
-    getFilePath = lift getFilePath
-
-instance MonadIO m => MonadIO (ParserT i m) where
-    liftIO = lift . liftIO
-
-instance MonadTrans (ParserT i) where
-    lift m = ParserT \ts -> (, ts) <$> m
+instance MonadState s m => MonadState s (ParserT i m) where
+    get = ParserT (lift get)
+    put = ParserT . lift . put
+    state = ParserT . lift . state
 
 
-instance (ParseInput i, MonadSyntax m) => MonadParse i (ParserT i m) where
-    parseState f = ParserT (pure . f)
+instance (ParseInput i, MonadSyntaxError m, MonadFile m)
+    => MonadParse i (ParserT i m) where
+        parseState f = ParserT $ StateT (pure . f)
 
 
 
 -- | Unwrap a @ParserT a@ to a function
 runParser ::
     ParserT i m a -> i -> m (a, i)
-runParser (ParserT m) = m
+runParser (ParserT m) = runStateT m
 
 -- | Evaluate a @Parser@ on a given @TokenSeq@,
 --   converting @SyntaxError@s to @Doc@s and discarding the final offset,
 --   after ensuring that all input was consumed
-evalParser :: (ParseInput i, MonadSyntax m) =>
+evalParser :: (ParseInput i, MonadSyntaxError m, MonadFile m) =>
     ParserT i m a -> i -> m a
 evalParser px toks =
     fst <$> runParser (consumesAll px) toks

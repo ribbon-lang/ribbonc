@@ -15,18 +15,17 @@ newtype FileT m a
     ( ReaderT FilePath m a )
     deriving
     ( Functor, Applicative, Monad, Alternative
-    , MonadPlus, MonadFail, MonadTrans
+    , MonadPlus, MonadFail, MonadIO, MonadTrans
     )
+
+deriving instance MonadError e m => MonadError e (FileT m)
+deriving instance MonadState s m => MonadState s (FileT m)
 
 instance MonadReader r m => MonadReader r (FileT m) where
     ask = lift ask
     local f (FileT (ReaderT m)) = FileT (ReaderT (local f . m))
     reader = lift . reader
 
-instance MonadState s m => MonadState s (FileT m) where
-    get = lift get
-    put = lift . put
-    state = lift . state
 
 runFileT :: FileT m a -> FilePath -> m a
 runFileT (FileT m) = runReaderT m
