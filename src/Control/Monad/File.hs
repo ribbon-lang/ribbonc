@@ -4,8 +4,11 @@ import Control.Applicative
 import Control.Monad.Trans
 
 import Control.Monad.Reader
+import Control.Monad.Writer.Strict qualified as Strict
+import Control.Monad.Writer.Lazy qualified as Lazy
 import Control.Monad.State.Strict qualified as Strict
 import Control.Monad.State.Lazy qualified as Lazy
+import Control.Monad.Writer.Class
 import Control.Monad.State.Class
 import Control.Monad.Except
 
@@ -20,6 +23,7 @@ newtype FileT m a
 
 deriving instance MonadError e m => MonadError e (FileT m)
 deriving instance MonadState s m => MonadState s (FileT m)
+deriving instance MonadWriter w m => MonadWriter w (FileT m)
 
 instance MonadReader r m => MonadReader r (FileT m) where
     ask = lift ask
@@ -52,4 +56,12 @@ instance MonadFile m => MonadFile (ReaderT r m) where
 
 instance MonadFile m => MonadFile (ExceptT e m) where
     withFilePath fp (ExceptT m) = ExceptT (withFilePath fp m)
+    getFilePath = lift getFilePath
+
+instance (Monoid w, MonadFile m) => MonadFile (Strict.WriterT w m) where
+    withFilePath fp (Strict.WriterT m) = Strict.WriterT (withFilePath fp m)
+    getFilePath = lift getFilePath
+
+instance (Monoid w, MonadFile m) => MonadFile (Lazy.WriterT w m) where
+    withFilePath fp (Lazy.WriterT m) = Lazy.WriterT (withFilePath fp m)
     getFilePath = lift getFilePath

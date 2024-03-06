@@ -4,13 +4,15 @@ import Data.Tag
 import Data.SyntaxError
 
 import Control.Applicative
-import Control.Monad.Except
-import Control.Monad.Reader
+import Control.Monad.Error.Class
+import Control.Monad.Reader.Class
 import Control.Monad.State.Strict
+import Control.Monad.Writer.Class
 
 import Control.Monad.Parser.Class
 
 import Control.Monad.File
+import Control.Monad.Diagnostics
 
 import Text.Pretty
 
@@ -33,6 +35,8 @@ newtype ParserT i m a
 
 deriving instance MonadReader r m => MonadReader r (ParserT i m)
 deriving instance MonadError e m => MonadError e (ParserT i m)
+deriving instance MonadWriter w m => MonadWriter w (ParserT i m)
+deriving instance MonadDiagnostics m => MonadDiagnostics (ParserT i m)
 
 instance ( MonadError SyntaxError m, MonadFile m
          , ParseInput i

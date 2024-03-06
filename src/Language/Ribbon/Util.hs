@@ -78,15 +78,27 @@ manyWith base a = many_v where
     many_v = option base some_v
     some_v = liftA2 (:) a many_v
 
--- | Expect a list of @Parser m a@ separated by @Parser s@.
+-- | Expect a list of @m a@ separated by @m s@.
 --   The list must contain at least one result
 listSome :: (Monad m, Alternative m) => m s -> m a -> m [a]
 listSome s p = liftA2 (:) p (many $ s >> p)
 
--- | Expect a list of @Parser m a@ separated by @Parser s@.
+-- | Expect a list of @m a@ separated by @m s@.
 --   The list may be empty
 listMany :: (Monad m, Alternative m) => m s -> m a -> m [a]
 listMany s p = option [] (listSome s p)
+
+
+
+-- | Expect a sequence of @m a@ separated by @m s@, and discard the results.
+--   The sequence must contain at least one result
+listSome_ :: (Monad m, Alternative m) => m s -> m a -> m ()
+listSome_ s p = p *> many_ (s >> p)
+
+-- | Expect a sequence of @m a@ separated by @m s@, and discard the results.
+--   The sequence may be empty
+listMany_ :: (Monad m, Alternative m) => m s -> m a -> m ()
+listMany_ s p = option () (listSome_ s p)
 
 -- | @optional@, with a default
 option :: Alternative f => a -> f a -> f a
@@ -161,6 +173,19 @@ maybeFail msg = liftMaybe (fail msg)
 -- | Maybe -> Monad with MonadError error case
 maybeError :: MonadError e m => e -> Maybe a -> m a
 maybeError e = liftMaybe (throwError e)
+
+-- | Maybe -> Monad with MonadError if Just err
+maybeIsError :: MonadError e m => Maybe e -> m ()
+maybeIsError = \case Just e -> throwError e; _ -> pure ()
+
+-- | Maybe -> Monad with mapped Just
+whenJust :: Monad m => (a -> m ()) -> Maybe a -> m ()
+whenJust = Maybe.maybe (pure ())
+
+-- | Maybe -> Monad with mapped Nothing
+whenNothing :: Monad m => m () -> Maybe a -> m ()
+whenNothing m = Maybe.maybe m (const (pure ()))
+
 
 -- | Maybe -> Alternative with empty case
 maybeEmpty :: Alternative m => Maybe a -> m a

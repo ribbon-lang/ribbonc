@@ -16,6 +16,7 @@ import Language.Ribbon.Lexical.Fixity
 import Language.Ribbon.Lexical.Category
 import Language.Ribbon.Lexical.Name
 import Data.Nil
+import qualified Data.Maybe as Maybe
 
 
 
@@ -67,10 +68,23 @@ instance HasFixity Path where
     getFixity (Path _ (_ Seq.:|> c)) = getFixity c.value
     getFixity _ = Atom
 
+instance Semigroup Path where
+    Path b1 c1 <> Path b2 c2 =
+        case b2 of
+            Nothing -> Path b1 (c1 <> c2)
+            _ -> Path b2 c2
+
+instance Monoid Path where
+    mempty = Path Nothing Nil
+
+instance Nil Path where
+    isNil p = Maybe.isNothing p.base && Seq.null p.components
+
 
 pathCategory :: Path -> Maybe OverloadCategory
 pathCategory (Path _ (_ Seq.:|> c)) = c.value.category
 pathCategory _ = Just ONamespace
+
 
 
 -- | The base component of a @Path@,

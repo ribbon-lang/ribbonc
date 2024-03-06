@@ -64,6 +64,12 @@ fixNameCompare a b = compare
     (getFixity a, fixNameSimples a)
     (getFixity b, fixNameSimples b)
 
+-- | Extract only the @SimpleNames@ from a @FixName@
+fixNameSimples :: FixName -> [SimpleName]
+fixNameSimples (FixName cs) = Fold.toList $ Fold.foldr f Nil cs where
+    f (FixSimple n) ns = n Seq.<| ns
+    f _ ns = ns
+
 instance Pretty FixName where
     pPrint fn@(FixName cs) = maybeBackticks (needsEscape fn) $
         hcat $ pPrint <$> Fold.toList cs
@@ -87,12 +93,6 @@ instance HasFixity FixName where
 pattern SimpleFixName :: SimpleName -> FixName
 pattern SimpleFixName n = FixName (FixSimple n Seq.:<| Nil)
 {-# COMPLETE SimpleFixName #-}
-
--- | Extract only the @SimpleNames@ from a @FixName@
-fixNameSimples :: FixName -> [SimpleName]
-fixNameSimples (FixName cs) = Fold.toList $ Fold.foldr f Nil cs where
-    f (FixSimple n) ns = n Seq.<| ns
-    f _ ns = ns
 
 data FixNameError
     = FixNameMissingSimple
@@ -212,7 +212,7 @@ data UnresolvedName
     { visibility :: !Visibility
     , category :: !(Maybe OverloadCategory)
     , fixitySpecifics :: !(Maybe (Associativity, Precedence))
-    , name :: !FixName
+    , name :: !(ATag FixName)
     }
     deriving Show
 

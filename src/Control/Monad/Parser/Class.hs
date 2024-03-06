@@ -378,3 +378,9 @@ connectSome at lx = do
 --   Equivalent to `many` (ie zero or more results are allowed)
 connectMany :: MonadParse x m => Attr -> m a -> m [a]
 connectMany at lx = option [] (connectSome at lx)
+
+-- | @catchError@ for @Recoverable@ failures only
+catchRecoverable :: MonadParse x m => m a -> (ATag SyntaxFail -> m a) -> m a
+catchRecoverable px h = px `catchError` \case
+    SyntaxError Recoverable f -> h f
+    e -> throwError e

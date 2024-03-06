@@ -7,6 +7,7 @@ import Data.Set qualified as Set
 
 import Data.Functor
 
+import Data.Tag
 import Data.Attr
 
 import Text.Pretty
@@ -18,6 +19,7 @@ import Language.Ribbon.Syntax.Data
 import Language.Ribbon.Syntax.Scheme
 import Language.Ribbon.Syntax.Type
 import Language.Ribbon.Syntax.Value
+import qualified Data.Foldable as Fold
 
 
 
@@ -115,7 +117,7 @@ type RawDependencies = [(ATag String, ATag Version, Maybe (ATag SimpleName))]
 -- | Raw output from a parser of the head section of a module
 data RawModuleHeader
     = RawModuleHeader
-    { sources :: ![ATag FilePath]
+    {      sources :: ![ATag FilePath]
     , dependencies :: !RawDependencies
     }
     deriving Show
@@ -176,7 +178,7 @@ instance Pretty ResolvedBlobs where
 data UnresolvedImports
     = UnresolvedImports
     { aliases :: ![(UnresolvedName, ATag Path)]
-    , blobs :: !(Set (ATag Path))
+    ,   blobs :: ![ATag Path]
     }
     deriving (Eq, Ord, Show)
 
@@ -186,5 +188,21 @@ instance Pretty UnresolvedImports where
             [ hang "aliases" $ vcat' do
                 pPrintPrec lvl 0 <$> as
             , hang "blobs" $ vcat' do
-                pPrintPrec lvl 0 <$> Set.toList bs
+                pPrintPrec lvl 0 <$> bs
             ]
+
+lookupUnresolvedAlias ::
+    FixName -> UnresolvedImports -> Maybe (UnresolvedName, ATag Path)
+lookupUnresolvedAlias n ui = Fold.find ((== n) . (.name.value) . fst) ui.aliases
+
+insertUnresolvedAlias ::
+    ATag Path -> UnresolvedName -> UnresolvedImports ->
+        Either (ATag Doc) UnresolvedImports
+insertUnresolvedAlias p n ui =
+    case lookupUnresolvedAlias n.name.value ui of
+        Just (e, _) -> Left $
+            ("alias" <+> pPrint n.name <+> "already exists") :@: e.name.tag
+        Nothing -> Right $ ui { aliases = (n, p) : ui.aliases }
+
+insertUnresolvedBlob :: ATag Path -> UnresolvedImports -> UnresolvedImports
+insertUnresolvedBlob p ui = ui { blobs = p : ui.blobs }

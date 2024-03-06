@@ -18,7 +18,7 @@ import Control.Applicative
 import Control.Monad.State.Strict
 
 import Control.Monad.File
-import Control.Monad.Parser
+import Control.Monad.Parser.Class
 
 import Text.Pretty hiding (parens, brackets, backticks, braces, cat)
 import Text.Pretty qualified as Pretty
@@ -31,9 +31,12 @@ import Language.Ribbon.Syntax
 import Control.Monad.Except
 import Data.SyntaxError
 import Data.Function
+import qualified Data.Set as Set
 
-
-
+import Language.Ribbon.Analysis.Builder
+import Data.Functor
+import Control.Monad.Diagnostics
+import Control.Monad.Reader
 
 
 
@@ -55,7 +58,8 @@ instance ParseInput TokenSeq where
 
 
 
-moduleHead :: MonadParse TokenSeq m => m (ATag String, ATag Version, MetaData, RawModuleHeader)
+moduleHead :: MonadParse TokenSeq m =>
+    m (ATag String, ATag Version, MetaData, RawModuleHeader)
 moduleHead = expecting "a valid module header" do
     moduleName <- sym "module" >> tag string
     moduleVersion <- simpleNameOf "@" >> tag version
@@ -117,10 +121,10 @@ moduleHead = expecting "a valid module header" do
         pure (moduleName, moduleVersion, alias)
 
 
--- file :: Parser RawFile
+-- file :: MonadParse TokenSeq m => m RawFile
 -- file = RawNamespace <$> many (tag item)
 
--- item :: Parser RawItem
+-- item :: MonadParse TokenSeq m => m RawItem
 -- item = asum
 --     [ RawUseItem <$> do
 --         sym "use" >> noFail use
@@ -130,7 +134,7 @@ moduleHead = expecting "a valid module header" do
 --         RawDefItem vis fixity prec n <$> def
 --     ]
 
--- def :: Parser RawDef
+-- def :: MonadParse TokenSeq m => m RawDef
 -- def = asum [ startsEq, decls ] where
 --     startsEq = sym "=" >> noFail do
 --         grabWhitespaceDomain >>= recurseParser do
@@ -154,12 +158,12 @@ moduleHead = expecting "a valid module header" do
 --                 sym "="
 --                 RdDeclVal q c t <$> noFail grabWhitespaceDomain
 
--- namespaceDef :: Parser RawDef
+-- namespaceDef :: MonadParse TokenSeq m => m RawDef
 -- namespaceDef = sym "namespace" >> noFail do
 --     RdNamespace . RawNamespace <$> do
 --         grabWhitespaceDomain >>= recurseParser (many $ tag item)
 
--- effectDef :: Parser RawDef
+-- effectDef :: MonadParse TokenSeq m => m RawDef
 -- effectDef = sym "effect" >> noFail do
 --     (q, c) <- option mempty typeHead
 --     RdEffect q c . RawNamespace <$> do
@@ -171,7 +175,7 @@ moduleHead = expecting "a valid module header" do
 --         RawEffectItem fixity prec n <$>
 --             noFail grabWhitespaceDomain
 
--- classDef :: Parser RawDef
+-- classDef :: MonadParse TokenSeq m => m RawDef
 -- classDef = sym "class" >> noFail do
 --     (q, c) <- option mempty typeHead
 --     RdClass q c . RawNamespace <$> do
@@ -195,7 +199,7 @@ moduleHead = expecting "a valid module header" do
 --             do option mempty quantifier
 --             do option mempty qualifier
 
--- instanceDef :: Parser RawDef
+-- instanceDef :: MonadParse TokenSeq m => m RawDef
 -- instanceDef = sym "instance" >> noFail do
 --     (q, c) <- option mempty typeHead
 --     RdInstance q c . RawNamespace <$> do
@@ -218,74 +222,84 @@ moduleHead = expecting "a valid module header" do
 --             do option mempty (typeHeadOf quantifier)
 --             do noFail grabWhitespaceDomain
 
--- typeAliasDef :: Parser RawDef
+-- typeAliasDef :: MonadParse TokenSeq m => m RawDef
 -- typeAliasDef = sym "type" >> noFail do
 --     liftA2 RdTypeAlias
 --         do option mempty (typeHeadOf quantifier)
 --         do noFail grabWhitespaceDomain
 
--- structDef :: Parser RawDef
+-- structDef :: MonadParse TokenSeq m => m RawDef
 -- structDef = sym "struct" >> noFail do
 --     liftA2 RdStruct
 --         do option mempty (typeHeadOf quantifier)
 --         do RawNamespace <$> noFail do
 --             grabWhitespaceDomain >>= recurseParser fields
 
--- unionDef :: Parser RawDef
+-- unionDef :: MonadParse TokenSeq m => m RawDef
 -- unionDef = sym "union" >> noFail do
 --     liftA2 RdUnion
 --         do option mempty (typeHeadOf quantifier)
 --         do RawNamespace <$> noFail do
 --             grabWhitespaceDomain >>= recurseParser fields
 
--- valueDef :: Parser RawDef
+-- valueDef :: MonadParse TokenSeq m => m RawDef
 -- valueDef = RdValue <$> grabWhitespaceDomain
 
 
--- use :: Parser RawUse
--- use = do
---     optional (tag path) >>= \case
---         Just p -> do
---             liftA2 (RawUse p)
---                 do option (RawUseSingle :@: p.tag)
---                     if requiresSlash p
---                         then do
---                             at <- attrOf $ connected p.tag (sym "/")
---                             noFail (connected at $ tag useTree)
---                         else connected p.tag $ tag useTree
---                 do alias
---         _ -> liftA3 RawUse
---             do tagApp1 ((`Path` Nil) . Just) <$> PbThis <@> attr
---             do tag useTree
---             do alias
---     where
---     useTree = asum
---         [ RawUseBlob <$ sym ".."
---         , RawUseBranch <$> braces do
---             listMany (sym ",") (tag use)
---         ]
-
---     alias = optional $ sym "as" >> tag do
---         vis <- option Private visibility
---         fixity <- option Atom todo
---         prec <- option 0 do
---             guard (fixity /= Atom)
---             precedence
---         n <- noFail (tag simpleName)
---         pure $ RawRebind vis fixity prec n
 
 
--- path :: Parser Path
--- path = nextMap \case
---     TPath p -> Just p
---     _ -> Nothing
+useDef :: (MonadDiagnostics m, MonadParse TokenSeq m) =>
+    UnresolvedImportBuilder m ()
+useDef = do
+    fp <- getFilePath
+    runReaderT use (Tag (fileAttr fp) Nil)
+    where
+    use = do
+        -- FIXME currently not supporting aliasing of blobs and branches as defined in the grammar
+        optional (tag path) >>= \case
+            Just p -> local (<> p) do
+                (if requiresSlash p
+                    then do
+                        at <- attrOf $ connected p.tag (sym "/")
+                        noFail (connected at useTree)
+                    else connected p.tag useTree) `catchRecoverable` const alias
+            _ -> useTree `catchRecoverable` const alias
+
+    useTree = asum
+        [ do
+            p <- ask
+            guard (not $ isNil p.value)
+            sym ".."
+            -- FIXME this needs to be able to hide aliased imports from the branch
+            -- this is currently unsupported by the blob system, blobs in general need a "hiding" qualifier
+            -- this will require another state to give us the branch siblings
+            lift $ insertBlob p
+
+        , braces do listMany_ (sym ",") use
+        ]
+
+    alias = do
+        p <- ask
+        guard (not $ isNil p.value)
+        asum
+            [ sym "as" >> noFail do
+                (vis, (associativity, prec, fn)) <- fixNameDef
+                lift $ insertAlias p UnresolvedName
+                    { visibility = vis
+                    , category = pathCategory p.value
+                    , fixitySpecifics = Just (associativity, prec)
+                    , name = fn
+                    }
+                pure ()
+            , pure ()
+            ]
 
 
--- anyName :: Parser FixName
--- anyName = asum
---     [ simpleName <&> \n -> FixName (Seq.singleton (FixSimple n))
---     , fixName
---     ]
+path :: MonadParse TokenSeq m => m Path
+path = nextMap \case
+    TPath p -> Just p
+    _ -> Nothing
+
 
 fixName :: MonadParse TokenSeq m => m FixName
 fixName = expecting "a fix name" $ nextMap \case
@@ -303,11 +317,11 @@ simpleNameOf s = expecting (Pretty.backticks $ text s) $ nextIf_ \case
     _ -> False
 
 
--- visibility :: Parser Visibility
--- visibility = Public <$ sym "pub"
+visibility :: MonadParse TokenSeq m => m Visibility
+visibility = Public <$ sym "pub"
 
 
--- overloadCategory :: Parser OverloadCategory
+-- overloadCategory :: MonadParse TokenSeq m => m OverloadCategory
 -- overloadCategory = asum
 --     [ ONamespace <$ sym "namespace"
 --     , OInstance <$ sym "instance"
@@ -315,17 +329,74 @@ simpleNameOf s = expecting (Pretty.backticks $ text s) $ nextIf_ \case
 --     , OValue <$ sym "value"
 --     ]
 
+fixNameDef :: (MonadDiagnostics m, MonadParse TokenSeq m) =>
+    m (Visibility, (Associativity, Precedence, ATag FixName))
+fixNameDef = liftA2 (,) (option Private visibility) do
+    (n, apt) <- asum
+        [ do
+            n@(_ :@: at) <- tag fixName
+            option (n, Nothing :@: at) do
+                (n, ) <$> tag do
+                    Just . Right <$> associativePrecedence
+        , do
+            apt <- tag associativePrecedence
+            n <- tag fixName
+            pure (n, Just . Left <$> apt)
+        ]
+    case untag apt of
+        Nothing -> pure (NonAssociative, defaultPrecedence (getFixity n), n)
+        Just aptLr -> case getFixity n of
+            Atom -> do
+                reportWarning $
+                    hang ("at" <+> (pPrint apt.tag <> ":")) do
+                        "atom names do not have precedence;"
+                        <+> "this annotation will be ignored"
+                pure (NonAssociative, defaultPrecedence Atom, n)
+            fx -> case (aptLr, fx) of
+                (Left apt', Prefix) -> do
+                    reportWarning $
+                        hang ("at" <+> (pPrint apt.tag <> ":")) do
+                            "prefix names expect precedence on the right"
+                    finishPfx apt.tag Prefix apt' n
+                (Right apt', Prefix) ->
+                    finishPfx apt.tag Prefix apt' n
+                (Right apt', Postfix) -> do
+                    reportWarning $
+                        hang ("at" <+> (pPrint apt.tag <> ":")) do
+                            "postfix names expect precedence on the left"
+                    finishPfx apt.tag Postfix apt' n
+                (Left apt', Postfix) ->
+                    finishPfx apt.tag Postfix apt' n
+                (Left apt', Infix) ->
+                    finishIfx LeftAssociative apt' n
+                (Right apt', Infix) ->
+                    finishIfx RightAssociative apt' n
+    where
+    finishIfx lr apt n = pure (select (fst apt) lr NonAssociative, snd apt, n)
+    finishPfx at fx apt n = do
+        unless (fst apt) $ reportWarning $
+            hang ("at" <+> (pPrint at <> ":")) do
+                pPrint fx <+> "names are always non-associative;"
+                    <+> "parens are not required"
+        pure (NonAssociative, snd apt, n)
 
--- precedence :: Parser Precedence
--- precedence = do
---     i :@: at <- tag int
---     assertAt at (i <= bound) $
---         "precedence level" <+> backticked i
---             <+> "is out of range, max is " <+> shown bound
---     pure (fromIntegral i) where
---     bound = fromIntegral @Precedence @Word32 maxBound
 
--- fields :: Parser [ATag RawField]
+associativePrecedence :: MonadParse TokenSeq m => m (Bool, Precedence)
+associativePrecedence = asum
+    [ (False, ) <$> parens precedence
+    , (True, ) <$> precedence
+    ]
+
+precedence :: MonadParse TokenSeq m => m Precedence
+precedence = do
+    i :@: at <- tag int
+    assertAt at (i <= bound) Unrecoverable $
+        "precedence level" <+> backticked i
+            <+> "is out of range, max is " <+> shown bound
+    pure (fromIntegral i) where
+    bound = fromIntegral @Precedence @Word32 maxBound
+
+-- fields :: MonadParse TokenSeq m => m [ATag RawField]
 -- fields = loop 0 where
 --     loop i = option [] do
 --         f <- tag $ field i
@@ -348,7 +419,7 @@ simpleNameOf s = expecting (Pretty.backticks $ text s) $ nextIf_ \case
 --         pure (RawField (idx :@: n.tag) n)
 
 
--- typeHead :: Parser (Quantifier, RawQualifier)
+-- typeHead :: MonadParse TokenSeq m => m (Quantifier, RawQualifier)
 -- typeHead = typeHeadOf $ liftA2 (,)
 --     do option mempty quantifier
 --     do option mempty qualifier
@@ -552,17 +623,3 @@ brackets px = do
         TTree BkBracket ts -> Just ts
         _ -> Nothing
     noFail (recurseParser px body)
-
--- | Expect a given @Parser@'s @Attr@ to be directly adjacent,
---   in terms of line and column position, to the given @Attr@
-connected :: MonadParse TokenSeq m => Attr -> m a -> m a
-connected at px = do
-    ts <- getParseState
-    case ts of
-        (_ :@: at') Seq.:<| _ | attrConnected at at' -> px
-        _ -> do
-            putParseState Nil
-            expecting "a token directly connected to the previous" px
-                `catchError` \e -> do
-                    putParseState ts
-                    throwError e
