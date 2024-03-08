@@ -1,3 +1,5 @@
+Visibility = "pub"
+
 SimpleName = identifier | operator
 
 FixName = SimpleName | Prefix | Infix | Postfix where
@@ -7,11 +9,11 @@ FixName = SimpleName | Prefix | Infix | Postfix where
 
 FixNameDecl
     = SimpleName
-    | FixName.Prefix uInt?
-    | uInt? FixName.Postfix
-    | uInt? FixName.Infix
-    | FixName.Infix uInt?
-    | ("(" uInt ")")? FixName.Infix
+    | FixName/Prefix uInt?
+    | uInt? FixName/Postfix
+    | uInt? FixName/Infix
+    | FixName/Infix uInt?
+    | ("(" uInt ")")? FixName/Infix
 
 TypeHead = listSome<identifier (":" Kind)?> ("where" listSome<Type>)?
 
@@ -27,9 +29,9 @@ Path
     Component = ("namespace" | "instance" | "type" | "value")? FixName
 
 PathExt tail
-    = Path.PlainBase ("/" Path.Component++"/")? "/" tail
-    | Path.SlashBase (Path.Component++"/" "/" tail | tail)
-    | Path.Component++"/" "/" tail
+    = Path/PlainBase ("/" Path/Component++"/")? "/" tail
+    | Path/SlashBase (Path/Component++"/" "/" tail | tail)
+    | Path/Component++"/" "/" tail
     | tail
 
 WsList sep elem = wsBlock<wsBlock<elem>++(sep?) | elem (sep elem)*>
@@ -50,11 +52,11 @@ ModuleHead = "module" string "@" version wsBlock<Meta> where
 
 Doc = Def*
 
-Def
-    = Use | Visibility? (Namespace | TypeDef | ValueDef) where
-    Use = "use" UseTree where
-        UseTree = (Path | PathExt<"{" UseBranch "}" | ".." | FixName>) ("as" Visibility? FixNameDecl)?
-        UseBranch = UseTree**","
+Def = Visibility? (Use | Namespace | TypeDef | ValueDef) where
+    Use = "use" Tree where
+        Tree = Elem ("as" FixNameDecl)?
+        Elem = Path | PathExt<"{" Tree**"," "}" | FixName | (".." Hiding?)>
+        Hiding = "hiding" "{" FixName**"," "}"
 
     Namespace = SimpleName "=" "namespace" wsBlock<Doc>
 
