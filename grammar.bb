@@ -56,7 +56,7 @@ Def = Visibility? (Use | Namespace | TypeDef | ValueDef) where
     Use = "use" Tree where
         Tree = Elem ("as" FixNameDecl)?
         Elem = Path | PathExt<"{" Tree**"," "}" | FixName | (".." Hiding?)>
-        Hiding = "hiding" "{" FixName**"," "}"
+        Hiding = "hiding" ("{" FixName**"," "}" | FixName)
 
     Namespace = SimpleName "=" "namespace" wsBlock<Doc>
 

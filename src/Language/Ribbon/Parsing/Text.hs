@@ -97,7 +97,7 @@ reservedSymbols :: [String]
 reservedSymbols =
     [ "type", "effect", "class", "instance", "struct"
     , "union", "namespace", "forall", "fun"
-    , "module", "use", "file", "pub"
+    , "module", "use", "file", "pub", "hiding"
     , "let", "in", "as"
     , "match", "with"
     , "if", "then", "else"

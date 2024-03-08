@@ -14,7 +14,6 @@ import Text.Pretty
 import Language.Ribbon.Lexical.Fixity
 import Language.Ribbon.Lexical.Associativity
 import Language.Ribbon.Lexical.Precedence
-import Language.Ribbon.Lexical.Visibility
 import Language.Ribbon.Lexical.Category
 import Language.Ribbon.Util
 import Data.Function
@@ -56,6 +55,10 @@ newtype FixName
      = FixName
      { components :: Seq FixNameComponent }
     deriving (Eq, Ord, Show)
+
+-- | Pattern alias for a @FixName@ with only a single @SimpleName@ component
+pattern SimpleNameFix :: SimpleName -> FixName
+pattern SimpleNameFix n <- FixName (FixSimple n Seq.:<| Nil)
 
 -- | Compare two @FixName@s by their @OverloadFixity@
 --   and then by their @SimpleNames@
@@ -151,8 +154,7 @@ isFixOperand = \case
 --   a @Visibility@, @Associativity@, and @Precedence@
 data QualifiedName
     = QualifiedName
-    {    visibility :: !Visibility
-    , associativity :: !Associativity
+    { associativity :: !Associativity
     ,    precedence :: !Precedence
     ,          name :: !(ATag FixName)
     }
@@ -169,18 +171,53 @@ instance HasFixity QualifiedName where
 
 instance Pretty QualifiedName where
     pPrintPrec lvl _ QualifiedName{..} =
-        hsep [ pPrintPrec lvl 0 visibility
-             , case getFixity name of
-                Atom -> pPrintPrec lvl 0 name
-                _ -> case associativity of
-                    NonAssociative ->
-                        paren'd precedence <+> pPrintPrec lvl 0 name
-                    LeftAssociative ->
-                        pPrint precedence <+> pPrintPrec lvl 0 name
-                    RightAssociative ->
-                        pPrintPrec lvl 0 name <+> pPrint precedence
+        case getFixity name of
+            Atom -> pPrintPrec lvl 0 name
+            _ -> case associativity of
+                NonAssociative ->
+                    paren'd precedence <+> pPrintPrec lvl 0 name
+                LeftAssociative ->
+                    pPrint precedence <+> pPrintPrec lvl 0 name
+                RightAssociative ->
+                    pPrintPrec lvl 0 name <+> pPrint precedence
+
+-- | A @FixName@ and @Category@
+data SpecificName
+    = SpecificName
+    { category :: !Category
+    , name :: !(ATag FixName)
+    }
+    deriving (Eq, Ord, Show)
+
+instance Pretty SpecificName where
+    pPrintPrec lvl _ SpecificName{..} =
+        hsep [ pPrintPrec lvl 0 category
+             , pPrintPrec lvl 0 name
              ]
 
+
+-- | A component of a @Path@,
+--   specifying a name to look up, at a particular fixity and category
+data PathName
+    = PathName
+    { category :: !(Maybe OverloadCategory)
+    , name :: !FixName
+    }
+    deriving (Eq, Ord, Show)
+
+-- | Pattern alias for a @PathName@ with no @Category@
+pattern FixPathName :: FixName -> PathName
+pattern FixPathName n = PathName Nothing n
+
+instance Pretty PathName where
+    pPrintPrec lvl _ = \case
+        PathName k n -> hsep
+            [ maybeMEmpty (pPrintPrec lvl 0 <$> k)
+            , pPrintPrec lvl 0 n
+            ]
+
+instance HasFixity PathName where
+    getFixity (PathName _ n) = getFixity n
 
 -- | A @FixName@ qualified with
 --   a @Visibility@, @Category@, @Associativity@, and @Precedence@
@@ -209,8 +246,7 @@ instance HasFixity GroupName where
 -- | A @FixName@ associated with an import that has not been resolved yet
 data UnresolvedName
     = UnresolvedName
-    { visibility :: !Visibility
-    , category :: !(Maybe OverloadCategory)
+    { category :: !(Maybe OverloadCategory)
     , fixitySpecifics :: !(Maybe (Associativity, Precedence))
     , name :: !(ATag FixName)
     }
@@ -229,8 +265,7 @@ instance HasFixity UnresolvedName where
 
 instance Pretty UnresolvedName where
     pPrintPrec lvl _ UnresolvedName{..} =
-        hsep [ pPrintPrec lvl 0 visibility
-             , pPrintPrec lvl 0 category
+        hsep [ pPrintPrec lvl 0 category
              , case getFixity name of
                 Atom -> pPrintPrec lvl 0 name
                 _ -> case fixitySpecifics of

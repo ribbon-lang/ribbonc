@@ -1,4 +1,8 @@
-module Control.Monad.Parser where
+module Control.Monad.Parser
+    ( module X
+    , Parser, runParser, evalParser
+    , ParserT, runParserT, evalParserT
+    ) where
 
 import Data.Tag
 import Data.SyntaxError
@@ -9,7 +13,7 @@ import Control.Monad.Reader.Class
 import Control.Monad.State.Strict
 import Control.Monad.Writer.Class
 
-import Control.Monad.Parser.Class
+import Control.Monad.Parser.Class as X
 
 import Control.Monad.File
 import Control.Monad.Diagnostics
@@ -29,6 +33,7 @@ newtype ParserT i m a
     deriving
         ( Functor, Applicative, Monad
         , MonadFile
+        , MonadDiagnostics
         , MonadIO
         , MonadTrans
         )
@@ -36,7 +41,6 @@ newtype ParserT i m a
 deriving instance MonadReader r m => MonadReader r (ParserT i m)
 deriving instance MonadError e m => MonadError e (ParserT i m)
 deriving instance MonadWriter w m => MonadWriter w (ParserT i m)
-deriving instance MonadDiagnostics m => MonadDiagnostics (ParserT i m)
 
 instance ( MonadError SyntaxError m, MonadFile m
          , ParseInput i
@@ -73,7 +77,7 @@ instance MonadState s m => MonadState s (ParserT i m) where
     state = ParserT . lift . state
 
 instance (ParseInput i, MonadError SyntaxError m, MonadFile m)
-    => MonadParse i (ParserT i m) where
+    => MonadParser i (ParserT i m) where
         parseState f = ParserT $ StateT (pure . f)
 
 

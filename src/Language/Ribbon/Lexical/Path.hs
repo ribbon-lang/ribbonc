@@ -41,15 +41,24 @@ instance RequiresSlash (Seq a) where
 data Path
     = Path
     { base :: !(Maybe (ATag PathBase))
-    , components :: !(Seq (ATag PathComponent))
+    , components :: !(Seq (ATag PathName))
     }
     deriving (Eq, Ord, Show)
 
+-- | Pattern alias for a @Path@ with a single @PathName@ component
+pattern SingleNamePath :: PathName -> Path
+pattern SingleNamePath pn <-
+    Path Nothing ((pn :@: _) Seq.:<| Nil)
+
 -- | Pattern alias for a @Path@ with a single @FixName@ component
-pattern SingleNamePath :: FixName -> Path
-pattern SingleNamePath f <-
-    Path Nothing ((PathComponent Nothing f@(FixName _) :@: _) Seq.:<| Nil)
-{-# COMPLETE SingleNamePath #-}
+pattern SingleFixPath :: FixName -> Path
+pattern SingleFixPath fn <-
+    SingleNamePath (FixPathName fn)
+
+-- | Pattern alias for a @Path@ with a single @SimpleName@ component
+pattern SingleSimplePath :: SimpleName -> Path
+pattern SingleSimplePath sn <-
+    SingleFixPath (SimpleFixName sn)
 
 instance Pretty Path where
     pPrintPrec lvl _ (Path b cs) =
@@ -116,21 +125,3 @@ instance RequiresSlash PathBase where
         PbFile _ -> True
         _ -> False
 
--- | A component of a @Path@,
---   specifying a name to look up, at a particular fixity and category
-data PathComponent
-    = PathComponent
-    { category :: !(Maybe OverloadCategory)
-    , name :: !FixName
-    }
-    deriving (Eq, Ord, Show)
-
-instance Pretty PathComponent where
-    pPrintPrec lvl _ = \case
-        PathComponent k n -> hsep
-            [ maybeMEmpty (pPrintPrec lvl 0 <$> k)
-            , pPrintPrec lvl 0 n
-            ]
-
-instance HasFixity PathComponent where
-    getFixity (PathComponent _ n) = getFixity n

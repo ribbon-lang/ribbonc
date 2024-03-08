@@ -2,9 +2,6 @@ module Language.Ribbon.Syntax.Module where
 
 import Data.Map.Strict (Map)
 
-import Data.Set (Set)
-import Data.Set qualified as Set
-
 import Data.Functor
 
 import Data.Tag
@@ -53,9 +50,9 @@ type AnalysisModule
 
 -- | A module that has been partially parsed,
 --   and is awaiting name resolution or parsing
-type RawModule
+type ParserModule
     = Module
-        RawModuleHeader
+        ParserModuleHeader
         TokenSeq
         TokenSeq
         UnresolvedImports
@@ -115,15 +112,15 @@ type RawDependencies = [(ATag String, ATag Version, Maybe (ATag SimpleName))]
 
 
 -- | Raw output from a parser of the head section of a module
-data RawModuleHeader
-    = RawModuleHeader
+data ParserModuleHeader
+    = ParserModuleHeader
     {      sources :: ![ATag FilePath]
     , dependencies :: !RawDependencies
     }
     deriving Show
 
-instance Pretty RawModuleHeader where
-    pPrintPrec lvl _ RawModuleHeader{..} =
+instance Pretty ParserModuleHeader where
+    pPrintPrec lvl _ ParserModuleHeader{..} =
         vcat' [ hang "sources" $ pPrintPrec lvl 0 sources
               , hang "dependencies" $ pPrintPrec lvl 0 dependencies
               ]
@@ -165,20 +162,33 @@ instance Pretty v => Pretty (Def v) where
 --   to continue lookup traversal through
 newtype ResolvedBlobs
     = ResolvedBlobs
-    { inner :: Set (ATag Ref) }
+    { inner :: Map (ATag Ref) (ATag FixName) }
     deriving (Eq, Ord, Show)
 
 instance Pretty ResolvedBlobs where
     pPrintPrec lvl _ (ResolvedBlobs bs) =
-        hang "blobs" $ vcat' do
-            pPrintPrec lvl 0 <$> Set.toList bs
+        hang "blobs" do
+            pPrintPrec lvl 0 bs
 
+
+data UnresolvedBlob
+    = UnresolvedBlob
+    {   path :: !(ATag Path)
+    , hiding :: ![ATag PathName]
+    }
+    deriving (Eq, Ord, Show)
+
+instance Pretty UnresolvedBlob where
+    pPrintPrec lvl _ UnresolvedBlob{..} =
+        spaceWith "hiding"
+            do pPrintPrec lvl 0 path
+            do pPrintPrec lvl 0 hiding
 
 -- | An unresolved group of imports
 data UnresolvedImports
     = UnresolvedImports
-    { aliases :: ![(UnresolvedName, ATag Path)]
-    ,   blobs :: ![ATag Path]
+    { aliases :: ![(Visible UnresolvedName, ATag Path)]
+    ,   blobs :: ![UnresolvedBlob]
     }
     deriving (Eq, Ord, Show)
 
@@ -192,17 +202,17 @@ instance Pretty UnresolvedImports where
             ]
 
 lookupUnresolvedAlias ::
-    FixName -> UnresolvedImports -> Maybe (UnresolvedName, ATag Path)
-lookupUnresolvedAlias n ui = Fold.find ((== n) . (.name.value) . fst) ui.aliases
+    FixName -> UnresolvedImports -> Maybe (Visible UnresolvedName, ATag Path)
+lookupUnresolvedAlias n ui = Fold.find ((== n) . (.value.name.value) . fst) ui.aliases
 
 insertUnresolvedAlias ::
-    ATag Path -> UnresolvedName -> UnresolvedImports ->
+    ATag Path -> Visible UnresolvedName -> UnresolvedImports ->
         Either (ATag Doc) UnresolvedImports
 insertUnresolvedAlias p n ui =
-    case lookupUnresolvedAlias n.name.value ui of
-        Just (e, _) -> Left $
-            ("alias" <+> pPrint n.name <+> "already exists") :@: e.name.tag
+    case lookupUnresolvedAlias n.value.name.value ui of
         Nothing -> Right $ ui { aliases = (n, p) : ui.aliases }
+        _ -> Left $
+            ("alias" <+> pPrint n.value.name <+> "already exists") :@: n.value.name.tag
 
-insertUnresolvedBlob :: ATag Path -> UnresolvedImports -> UnresolvedImports
-insertUnresolvedBlob p ui = ui { blobs = p : ui.blobs }
+insertUnresolvedBlob :: ATag Path -> [ATag PathName] -> UnresolvedImports -> UnresolvedImports
+insertUnresolvedBlob p h ui = ui { blobs = UnresolvedBlob p h : ui.blobs }

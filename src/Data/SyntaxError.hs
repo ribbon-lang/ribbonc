@@ -34,23 +34,22 @@ formatProblem at = \case
 
 
 class (Eq a) => SyntaxInput a where
-    inputIdentity :: a -> Doc
     inputPretty :: a -> Doc
 
 
 instance SyntaxInput Char where
-    inputIdentity = \case
-        '\\' -> "backslash"
-        '\a' -> "alert"
-        '\b' -> "backspace"
-        '\n' -> "newline"
-        '\r' -> "carriage return"
-        '\v' -> "vertical tab"
-        '\f' -> "form feed"
-        '\t' -> "tab"
-        '\0' -> "null"
-        _ -> "character"
-    inputPretty = text . escapeChar
+    inputPretty c = text (inputIdentity c) <+> backticks (text $ escapeChar c) where
+        inputIdentity = \case
+            '\\' -> "backslash"
+            '\a' -> "alert"
+            '\b' -> "backspace"
+            '\n' -> "newline"
+            '\r' -> "carriage return"
+            '\v' -> "vertical tab"
+            '\f' -> "form feed"
+            '\t' -> "tab"
+            '\0' -> "null"
+            _ -> "character"
 
 -- | Wrapper for all errors triggered in a @Parser@ or @Lexer@,
 --   with the specific @SyntaxFail@ tagged with an @Attr@,

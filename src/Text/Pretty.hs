@@ -4,7 +4,10 @@ module Text.Pretty
     ( module X
     , shown
     , vcat', vcatDouble, ($++$), with, joinWith, spaceWith, linesWith
-    , hang, qual, qual', qualH, indent, lsep, lcat
+    , hang, qual, qual', qualH
+    , qualBrackets, qualParens, qualBraces
+    , qualDoubleQuotes, qualQuotes, qualBackticks
+    , indent, lsep, lcat
     , backticks, backticked, maybeBackticks, maybeBackticked
     , hashes, hashed, maybeHashes, maybeHashed
     , quoted, maybeQuoted
@@ -218,6 +221,30 @@ qual' a b = a <+> b
 qualH :: Doc -> Doc -> Doc
 qualH _ Nil = Nil
 qualH a b = hang a b
+
+-- | Enclose a @Doc@ in brackets [] if it is not empty
+qualBrackets :: Doc -> Doc
+qualBrackets d = maybeBrackets (not $ isNil d) d
+
+-- | Enclose a @Doc@ in parens () if it is not empty
+qualParens :: Doc -> Doc
+qualParens d = maybeParens (not $ isNil d) d
+
+-- | Enclose a @Doc@ in braces {} if it is not empty
+qualBraces :: Doc -> Doc
+qualBraces d = maybeBraces (not $ isNil d) d
+
+-- | Enclose a @Doc@ in double quotes "" if it is not empty
+qualDoubleQuotes :: Doc -> Doc
+qualDoubleQuotes d = maybeDoubleQuotes (not $ isNil d) d
+
+-- | Enclose a @Doc@ in single quotes '' if it is not empty
+qualQuotes :: Doc -> Doc
+qualQuotes d = maybeQuotes (not $ isNil d) d
+
+-- | Enclose a @Doc@ in backticks \`\` if it is not empty
+qualBackticks :: Doc -> Doc
+qualBackticks d = maybeBackticks (not $ isNil d) d
 
 -- | The usual `nest` with a consistent indentation of 4 spaces
 indent :: Doc -> Doc

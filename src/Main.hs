@@ -45,7 +45,10 @@ parseFileWith ::
 parseFileWith p fp = do
     lexFileWith L.doc fp >>= \case
         Left e -> pure $ Left e
-        Right ts -> runExceptT $ runFileT (evalParserT p ts) fp
+        Right ts -> do
+            putStrLn "toks:"
+            prettyPrint ts
+            runExceptT $ runFileT (evalParserT p ts) fp
 
 main :: IO ()
 main = putStrLn "Hello, Ribbon!"

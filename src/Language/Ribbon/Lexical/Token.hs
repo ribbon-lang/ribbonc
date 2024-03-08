@@ -46,13 +46,12 @@ data Token
     deriving (Eq, Ord, Show)
 
 instance SyntaxInput Token where
-    inputIdentity = \case
+    inputPretty = \case
         TSymbol _ -> "symbol"
-        TLiteral l -> inputIdentity l
+        TLiteral l -> inputPretty l
         TVersion _ -> "version"
         TTree k _ -> pPrint k <> " tree"
         TPath _ -> "path"
-    inputPretty = pPrint
 
 instance (Applicative m, MonadState BlockCounter m) => PrettyWith m Token where
     pPrintPrecWith lvl prec = \case
@@ -84,7 +83,8 @@ data BlockKind
     = BkParen
     | BkBrace
     | BkBracket
-    | BkWhitespace
+    | BkIndent
+    | BkLine
     deriving (Eq, Ord, Show)
 
 instance Pretty BlockKind where
@@ -92,13 +92,14 @@ instance Pretty BlockKind where
         BkParen -> "parenthesis"
         BkBrace -> "brace"
         BkBracket -> "bracket"
-        BkWhitespace -> "whitespace"
+        BkIndent -> "indent"
+        BkLine -> "line"
 
 type BlockCounter = Map BlockKind Int
 
 emptyBlockCounter :: BlockCounter
 emptyBlockCounter = Map.fromList
-    [(BkParen, 0), (BkBrace, 0), (BkBracket, 0), (BkWhitespace, 0)]
+    [(BkParen, 0), (BkBrace, 0), (BkBracket, 0), (BkIndent, 0), (BkLine, 0)]
 
 blockPrintWith :: MonadState BlockCounter m =>
     PrettyLevel -> BlockKind -> TokenSeq -> m Doc
@@ -109,7 +110,9 @@ blockPrintWith lvl k ts = do
         BkParen -> parens <$> pPrintPrecWith lvl 0 ts
         BkBrace -> braces <$> pPrintPrecWith lvl 0 ts
         BkBracket -> brackets <$> pPrintPrecWith lvl 0 ts
-        BkWhitespace -> hsep . (["◁"] <>) . (<> ["▷"]) <$>
+        BkIndent -> hsep . (["↘"] <>) . (<> ["↖"]) <$>
+            traverse (pPrintPrecWith lvl 0) (toList ts)
+        BkLine -> hsep . (["◁"] <>) . (<> ["▷"]) <$>
             traverse (pPrintPrecWith lvl 0) (toList ts)
 
 blockPrint :: PrettyLevel -> BlockKind -> TokenSeq -> Doc
@@ -171,14 +174,14 @@ instance Pretty TokenSpec where
 nilTree :: Token -> Bool
 nilTree = \case
     TTree k ts
-        | k == BkWhitespace ->
+        | k == BkIndent || k == BkIndent ->
             isNil ts || all (nilTree . untag) ts
     _ -> False
 
 reduceTokenSeq :: TokenSeq -> TokenSeq
 reduceTokenSeq = compose (fmap $ fmap reduceTree) \case
     (TTree k ts :@: _) Seq.:<| Nil
-        | k == BkWhitespace ->
+        | k == BkIndent || k == BkLine ->
             if isNil ts || all (nilTree . untag) ts
             then Nil
             else ts
@@ -187,9 +190,9 @@ reduceTokenSeq = compose (fmap $ fmap reduceTree) \case
 reduceTree :: Token -> Token
 reduceTree = \case
     TTree k ts
-        | k /= BkWhitespace
+        | k /= BkIndent, k /= BkLine
         , (TTree k' ts' :@: _) Seq.:<| Nil <- ts
-        , k' == BkWhitespace ->
+        , k' == BkIndent || k' == BkLine ->
             reduceTree (TTree k (reduceTokenSeq ts'))
 
         | otherwise ->

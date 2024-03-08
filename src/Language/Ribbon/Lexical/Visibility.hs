@@ -2,6 +2,18 @@ module Language.Ribbon.Lexical.Visibility where
 
 import Text.Pretty
 
+-- | A binding with a visibility level
+data Visible a
+    = Visible
+    { visibility :: !Visibility
+    ,      value :: !a
+    }
+    deriving (Show, Eq, Ord)
+
+instance Pretty a => Pretty (Visible a) where
+    pPrintPrec lvl _ Visible{..} =
+        pPrintPrec lvl 0 visibility <+> pPrintPrec lvl 0 value
+
 -- | A visibility level for a binding
 data Visibility
     = Public
