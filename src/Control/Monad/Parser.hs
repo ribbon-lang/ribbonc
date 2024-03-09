@@ -16,7 +16,9 @@ import Control.Monad.Writer.Class
 import Control.Monad.Parser.Class as X
 
 import Control.Monad.File
-import Control.Monad.Diagnostics
+import Control.Monad.Diagnostics.Class
+import Control.Monad.Context.Class
+import Control.Monad.Builder.Class
 
 import Text.Pretty
 
@@ -41,6 +43,8 @@ newtype ParserT i m a
 deriving instance MonadReader r m => MonadReader r (ParserT i m)
 deriving instance MonadError e m => MonadError e (ParserT i m)
 deriving instance MonadWriter w m => MonadWriter w (ParserT i m)
+deriving instance MonadBuilder s m => MonadBuilder s (ParserT i m)
+deriving instance MonadContext c m => MonadContext c (ParserT i m)
 
 instance ( MonadError SyntaxError m, MonadFile m
          , ParseInput i
@@ -90,7 +94,7 @@ runParserT (ParserT m) = runStateT m
 -- | Evaluate a @Parser@ on a given @ParseInput@,
 --   discarding the final input after ensuring it @isNil@
 --   (ie, has been consumed completely)
-evalParserT :: (ParseInput i, MonadSyntaxError m, MonadFile m) =>
+evalParserT :: (ParseInput i, MonadError SyntaxError m, MonadFile m) =>
     ParserT i m a -> i -> m a
 evalParserT px toks =
     fst <$> runParserT (consumesAll px) toks

@@ -15,13 +15,20 @@ import Control.Monad.Writer.Strict qualified as Strict
 import Control.Monad.Writer.Lazy qualified as Lazy
 import Control.Monad.Except
 import Control.Monad.Reader
-
 import Control.Monad.File.Class
+import Control.Has
 
 import Text.Pretty
 
 import Language.Ribbon.Util
 
+
+
+
+-- | Marker for @Has@, ie @Has m [Parses input]@ ~ @MonadParser input m@
+newtype Parses a = Parse a
+
+type instance Has m (Parses i ': effs) = (MonadParser i m, Has m effs)
 
 
 -- | The class of types that can be used as input for a @ParserT@
@@ -43,6 +50,8 @@ class (Eq (InputElement s), Pretty (InputElement s), Nil s)
 
 -- | @MonadError SyntaxError@ + @MonadFail@
 type MonadSyntaxError m = (MonadError SyntaxError m, MonadFail m)
+
+type instance Has m (SyntaxError ': effs) = (MonadSyntaxError m, Has m effs)
 
 type MonadParserBase x m
     = ( Alternative m, MonadPlus m

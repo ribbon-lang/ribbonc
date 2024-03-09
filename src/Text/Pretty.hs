@@ -32,7 +32,7 @@ import Text.PrettyPrint.HughesPJClass as X hiding
 import Data.Functor((<&>))
 import Data.Foldable qualified as Fold
 
-import Data.Word (Word8, Word32)
+import Data.Word (Word8, Word32, Word64)
 
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -69,6 +69,9 @@ instance Pretty Word8 where
     pPrint = shown @Integer . fromIntegral
 
 instance Pretty Word32 where
+    pPrint = shown @Integer . fromIntegral
+
+instance Pretty Word64 where
     pPrint = shown @Integer . fromIntegral
 
 instance Pretty Doc where

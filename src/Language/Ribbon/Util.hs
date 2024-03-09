@@ -16,6 +16,7 @@ import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text
 
 import Text.Pretty
+import Data.Functor
 
 
 
@@ -136,6 +137,10 @@ splitWith p = go where
 splitOn :: Eq a => a -> [a] -> [[a]]
 splitOn = splitWith . (==)
 
+-- | Lookup a value in a list with a mapping predicate
+lookupWith :: (a -> Maybe b) -> [a] -> Maybe b
+lookupWith f = foldWith' Nothing \a -> (f a <|>)
+
 -- | Compositional @&&@
 (&&&) :: (a -> Bool) -> (a -> Bool) -> (a -> Bool)
 (&&&) f g a = f a && g a
@@ -194,6 +199,22 @@ maybeEmpty = Maybe.maybe empty pure
 -- | Maybe -> Monoid with mempty case
 maybeMEmpty :: Monoid a => Maybe a -> a
 maybeMEmpty = Maybe.fromMaybe mempty
+
+-- | ExceptT based error mapping
+mapError :: (Functor m) => (e -> e') -> ExceptT e m a -> ExceptT e' m a
+mapError f m = ExceptT do
+    runExceptT m <&> \case
+        Left e -> Left (f e)
+        Right a -> Right a
+
+-- | Either -> Monad with mapping
+liftEitherHandler :: Applicative m => (a -> m b) -> Either a b -> m b
+liftEitherHandler f = Either.either f pure
+
+-- | Either -> MonadError with mapping
+liftEitherMap :: MonadError e m => (a -> e) -> Either a b -> m b
+liftEitherMap f = Either.either (throwError . f) pure
+
 
 -- | Either -> Left with exception on Right
 forceLeft :: Either a b -> a

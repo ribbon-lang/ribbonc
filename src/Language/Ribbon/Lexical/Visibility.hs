@@ -8,7 +8,7 @@ data Visible a
     { visibility :: !Visibility
     ,      value :: !a
     }
-    deriving (Show, Eq, Ord)
+    deriving (Eq, Ord, Functor, Foldable, Traversable, Show)
 
 instance Pretty a => Pretty (Visible a) where
     pPrintPrec lvl _ Visible{..} =

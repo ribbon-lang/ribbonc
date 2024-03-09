@@ -1,6 +1,10 @@
 module Language.Ribbon.Lexical.Category where
 
+import Language.Ribbon.Lexical.Fixity
+
 import Text.Pretty
+
+
 
 
 -- | A class for types that can have a @Category@
@@ -86,3 +90,22 @@ overloadedCategory = \case
     Decl -> OValue
     Projection -> OValue
     Injection -> OValue
+
+
+
+-- | Wrapper for an item with a @Category@
+data Categorical a
+    = Categorical
+    { category :: !Category
+    , value :: !a
+    }
+    deriving (Eq, Ord, Functor, Foldable, Traversable, Show)
+
+instance Pretty a => Pretty (Categorical a) where
+    pPrint (Categorical c v) = pPrint c <+> pPrint v
+
+instance HasCategory (Categorical a) where
+    getCategory = (.category)
+
+instance HasFixity a => HasFixity (Categorical a) where
+    getFixity = getFixity . (.value)

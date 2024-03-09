@@ -178,8 +178,11 @@ nilTree = \case
             isNil ts || all (nilTree . untag) ts
     _ -> False
 
+reduceDocTokenSeq :: TokenSeq -> TokenSeq
+reduceDocTokenSeq = fmap $ fmap reduceTree
+
 reduceTokenSeq :: TokenSeq -> TokenSeq
-reduceTokenSeq = compose (fmap $ fmap reduceTree) \case
+reduceTokenSeq = compose reduceDocTokenSeq \case
     (TTree k ts :@: _) Seq.:<| Nil
         | k == BkIndent || k == BkLine ->
             if isNil ts || all (nilTree . untag) ts

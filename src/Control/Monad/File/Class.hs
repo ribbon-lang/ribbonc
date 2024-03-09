@@ -6,6 +6,13 @@ import Control.Monad.Writer.Strict qualified as Strict
 import Control.Monad.Writer.Lazy qualified as Lazy
 import Control.Monad.Reader
 import Control.Monad.Except
+import Control.Has
+
+
+
+
+type instance Has m (FilePath ': effs) = (MonadFile m, Has m effs)
+
 
 
 class Monad m => MonadFile m where

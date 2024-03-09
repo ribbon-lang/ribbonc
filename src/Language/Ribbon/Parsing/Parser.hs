@@ -19,6 +19,7 @@ import Control.Monad.State.Strict
 
 import Control.Monad.File
 import Control.Monad.Parser.Class
+import Control.Has
 
 import Text.Pretty hiding (parens, brackets, backticks, braces, cat)
 import Text.Pretty qualified as Pretty
@@ -33,7 +34,18 @@ import Data.SyntaxError
 import Data.Function
 
 import Language.Ribbon.Syntax.Raw
+import Language.Ribbon.Syntax.Module()
+import Language.Ribbon.Parsing.Lexer qualified as L
+import Control.Monad.Parser
+import Control.Monad.Builder
+import Language.Ribbon.Analysis()
+import Control.Monad.Diagnostics
 
+
+-- | Marker type for @Has@ ie @Has m [Parse]@ ~ @MonadParser TokenSeq m@
+data Parse
+
+type instance Has m (Parse ': effs) = (MonadParser TokenSeq m, Has m effs)
 
 instance ParseInput TokenSeq where
     type InputElement TokenSeq = Token
@@ -52,7 +64,7 @@ instance ParseInput TokenSeq where
 
 
 
-moduleHead :: MonadParser TokenSeq m => m RawModuleHeader
+moduleHead :: Has m '[Parse] => m RawModuleHeader
 moduleHead = expecting "a valid module header" do
     moduleName <- sym "module" >> tag string
     moduleVersion <- simpleNameOf "@" >> tag version
@@ -115,21 +127,40 @@ moduleHead = expecting "a valid module header" do
         alias <- optional (sym "as" >> noFail (tag simpleName))
         pure (moduleName, moduleVersion, alias)
 
+liftError :: Has m [ FailWith Doc, With '[Pretty e] ] => ExceptT e m a -> m a
+liftError m =
+    runExceptT m >>= liftEitherMap pPrint
 
--- file :: MonadParser TokenSeq m => m RawFile
--- file = RawNamespace <$> many (tag item)
 
--- item :: MonadParser TokenSeq m => m RawItem
--- item = asum
---     [ RawUseItem <$> do
---         sym "use" >> noFail use
---     , do
---         vis <- option Private visibility
---         (fixity, prec, n) <- Todo
---         RawDefItem vis fixity prec n <$> def
---     ]
+file :: Has m [ ModuleId, ItemId, Diag, FailWith Doc, OS ] =>
+    FilePath -> m (Group, UnresolvedImports)
+file filePath = flip runFileT filePath do
+    liftError (L.lexStreamFromFile filePath)
+        >>= liftError . evalParserT L.doc
+        >>= liftError . evalParserT grabLines
+        >>= namespaceBody
 
--- def :: MonadParser TokenSeq m => m RawDef
+namespaceBody :: Has m [ ModuleId, FilePath, ItemId, Diag ] =>
+    [TokenSeq] -> m (Group, UnresolvedImports)
+namespaceBody lns = flip runBuilderT Nil $ flip execBuilderT Nil do
+    forM_ lns (errorToDiagnostic . evalParserT item)
+
+
+
+item :: Has m
+    [ ModuleId, FilePath, ItemId
+    , Group, UnresolvedImports
+    , Diag, Parse
+    ] => m ()
+item = asum
+    [ useDef >>= todo -- addUseDef
+    , todo -- do
+        -- vis <- option Private visibility
+        -- (fixity, prec, n) <- Todo
+        -- RawDefItem vis fixity prec n <$> def
+    ]
+
+-- def :: Has m '[Parse] => m RawDef
 -- def = asum [ startsEq, decls ] where
 --     startsEq = sym "=" >> noFail do
 --         grabWhitespaceDomain >>= recurseParserAll do
@@ -153,12 +184,12 @@ moduleHead = expecting "a valid module header" do
 --                 sym "="
 --                 RdDeclVal q c t <$> noFail grabWhitespaceDomain
 
--- namespaceDef :: MonadParser TokenSeq m => m RawDef
+-- namespaceDef :: Has m '[Parse] => m RawDef
 -- namespaceDef = sym "namespace" >> noFail do
 --     RdNamespace . RawNamespace <$> do
 --         grabWhitespaceDomain >>= recurseParserAll (many $ tag item)
 
--- effectDef :: MonadParser TokenSeq m => m RawDef
+-- effectDef :: Has m '[Parse] => m RawDef
 -- effectDef = sym "effect" >> noFail do
 --     (q, c) <- option mempty typeHead
 --     RdEffect q c . RawNamespace <$> do
@@ -170,7 +201,7 @@ moduleHead = expecting "a valid module header" do
 --         RawEffectItem fixity prec n <$>
 --             noFail grabWhitespaceDomain
 
--- classDef :: MonadParser TokenSeq m => m RawDef
+-- classDef :: Has m '[Parse] => m RawDef
 -- classDef = sym "class" >> noFail do
 --     (q, c) <- option mempty typeHead
 --     RdClass q c . RawNamespace <$> do
@@ -194,7 +225,7 @@ moduleHead = expecting "a valid module header" do
 --             do option mempty quantifier
 --             do option mempty qualifier
 
--- instanceDef :: MonadParser TokenSeq m => m RawDef
+-- instanceDef :: Has m '[Parse] => m RawDef
 -- instanceDef = sym "instance" >> noFail do
 --     (q, c) <- option mempty typeHead
 --     RdInstance q c . RawNamespace <$> do
@@ -217,33 +248,32 @@ moduleHead = expecting "a valid module header" do
 --             do option mempty (typeHeadOf quantifier)
 --             do noFail grabWhitespaceDomain
 
--- typeAliasDef :: MonadParser TokenSeq m => m RawDef
+-- typeAliasDef :: Has m '[Parse] => m RawDef
 -- typeAliasDef = sym "type" >> noFail do
 --     liftA2 RdTypeAlias
 --         do option mempty (typeHeadOf quantifier)
 --         do noFail grabWhitespaceDomain
 
--- structDef :: MonadParser TokenSeq m => m RawDef
+-- structDef :: Has m '[Parse] => m RawDef
 -- structDef = sym "struct" >> noFail do
 --     liftA2 RdStruct
 --         do option mempty (typeHeadOf quantifier)
 --         do RawNamespace <$> noFail do
 --             grabWhitespaceDomain >>= recurseParserAll fields
 
--- unionDef :: MonadParser TokenSeq m => m RawDef
+-- unionDef :: Has m '[Parse] => m RawDef
 -- unionDef = sym "union" >> noFail do
 --     liftA2 RdUnion
 --         do option mempty (typeHeadOf quantifier)
 --         do RawNamespace <$> noFail do
 --             grabWhitespaceDomain >>= recurseParserAll fields
 
--- valueDef :: MonadParser TokenSeq m => m RawDef
+-- valueDef :: Has m '[Parse] => m RawDef
 -- valueDef = RdValue <$> grabWhitespaceDomain
 
 
-useDef :: MonadParser TokenSeq m => m (Visible RawUse)
-useDef = sym "use" >> noFail do
-    liftA2 Visible (option Private visibility) use where
+useDef :: Has m '[Parse] => m (Visible RawUse)
+useDef = sym "use" >> noFail do visible use where
     use = do
         optional (tag path) >>= \case
             Just p -> do
@@ -256,7 +286,7 @@ useDef = sym "use" >> noFail do
                             else connected p.tag $ tag useTree
                     do alias
             _ -> liftA3 RawUse
-                do tagApp1 ((`Path` Nil) . Just) <$> PbThis <@> attr
+                do Path Nothing Nil <@> attr
                 do tag useTree
                 do alias
     useTree = asum
@@ -273,37 +303,40 @@ useDef = sym "use" >> noFail do
     alias = optional $ sym "as" >> noFail qualifiedName
 
 
-path :: MonadParser TokenSeq m => m Path
+path :: Has m '[Parse] => m Path
 path = nextMap \case
     TPath p -> Just p
     _ -> Nothing
 
-pathName :: MonadParser TokenSeq m => m PathName
+pathName :: Has m '[Parse] => m PathName
 pathName = nextMap \case
     TPath (SingleNamePath n) -> Just n
     _ -> Nothing
 
-fixName :: MonadParser TokenSeq m => m FixName
+fixName :: Has m '[Parse] => m FixName
 fixName = expecting "a fix name" $ nextMap \case
     TPath (SingleNamePath (PathName Nothing f)) -> Just f
     _ -> Nothing
 
-simpleName :: MonadParser TokenSeq m => m SimpleName
+simpleName :: Has m '[Parse] => m SimpleName
 simpleName = expecting "an unreserved identifier or operator" $ nextMap \case
     TPath (SingleSimplePath n) -> Just n
     _ -> Nothing
 
-simpleNameOf :: MonadParser TokenSeq m => String -> m ()
+simpleNameOf :: Has m '[Parse] => String -> m ()
 simpleNameOf s = expecting (Pretty.backticks $ text s) $ nextIf_ \case
     TPath (SingleSimplePath (SimpleName n)) -> n == s
     _ -> False
 
 
-visibility :: MonadParser TokenSeq m => m Visibility
+visible :: Has m '[Parse] => m a -> m (Visible a)
+visible = liftA2 Visible (option Private visibility)
+
+visibility :: Has m '[Parse] => m Visibility
 visibility = Public <$ sym "pub"
 
 
--- overloadCategory :: MonadParser TokenSeq m => m OverloadCategory
+-- overloadCategory :: Has m '[Parse] => m OverloadCategory
 -- overloadCategory = asum
 --     [ ONamespace <$ sym "namespace"
 --     , OInstance <$ sym "instance"
@@ -311,7 +344,7 @@ visibility = Public <$ sym "pub"
 --     , OValue <$ sym "value"
 --     ]
 
-qualifiedName :: MonadParser TokenSeq m =>
+qualifiedName :: Has m '[Parse] =>
     m QualifiedName
 qualifiedName = do
         (n, apt) <- asum
@@ -358,13 +391,13 @@ qualifiedName = do
             QualifiedName NonAssociative (snd apt) n
 
 
-associativePrecedence :: MonadParser TokenSeq m => m (Bool, Precedence)
+associativePrecedence :: Has m '[Parse] => m (Bool, Precedence)
 associativePrecedence = asum
     [ (False, ) <$> parens precedence
     , (True, ) <$> precedence
     ]
 
-precedence :: MonadParser TokenSeq m => m Precedence
+precedence :: Has m '[Parse] => m Precedence
 precedence = do
     i :@: at <- tag int
     assertAt at (i <= bound) Unrecoverable $
@@ -373,7 +406,7 @@ precedence = do
     pure (fromIntegral i) where
     bound = fromIntegral @Precedence @Word32 maxBound
 
--- fields :: MonadParser TokenSeq m => m [ATag RawField]
+-- fields :: Has m '[Parse] => m [ATag RawField]
 -- fields = loop 0 where
 --     loop i = option [] do
 --         f <- tag $ field i
@@ -396,7 +429,7 @@ precedence = do
 --         pure (RawField (idx :@: n.tag) n)
 
 
--- typeHead :: MonadParser TokenSeq m => m (Quantifier, RawQualifier)
+-- typeHead :: Has m '[Parse] => m (Quantifier, RawQualifier)
 -- typeHead = typeHeadOf $ liftA2 (,)
 --     do option mempty quantifier
 --     do option mempty qualifier
@@ -409,16 +442,16 @@ precedence = do
 
 
 
-quantifier :: MonadParser TokenSeq m => m Quantifier
+quantifier :: Has m '[Parse] => m Quantifier
 quantifier = flip evalStateT 0 do
     Quantifier <$> listSome (lift $ sym ",") (tag typeBinder)
 
-qualifier :: MonadParser TokenSeq m => m (Qualifier TokenSeq)
+qualifier :: Has m '[Parse] => m (Qualifier TokenSeq)
 qualifier = sym "where" >> noFail do
     Qualifier . pure <$> tag do
         grabDomain (not . isSymbol "=>" . untag)
 
-typeBinder :: MonadParser TokenSeq m => StateT KindVar m TypeBinder
+typeBinder :: Has m '[Parse] => StateT KindVar m TypeBinder
 typeBinder = do
     n <- tag simpleName
     k <- optional $ lift do
@@ -429,7 +462,7 @@ typeBinder = do
             k' <- state \i -> (i, i + 1)
             pure $ n `Of` (KVar k' :@: n.tag)
 
-kind :: MonadParser TokenSeq m => m Kind
+kind :: Has m '[Parse] => m Kind
 kind = tag atom >>= arrows where
     atom = asum
         [ KType <$ simpleNameOf "Type"
@@ -448,7 +481,7 @@ kind = tag atom >>= arrows where
 
 
 
-grabDomain :: MonadParser TokenSeq m => (ATag Token -> Bool) -> m TokenSeq
+grabDomain :: Has m '[Parse] => (ATag Token -> Bool) -> m TokenSeq
 grabDomain p = do
     ts <- takeParseState
     case ts of
@@ -491,18 +524,18 @@ grabDomain p = do
             )
 
 -- | Get the rest of the input delimited by indentation
-grabWhitespaceDomain :: MonadParser TokenSeq m => m TokenSeq
+grabWhitespaceDomain :: Has m '[Parse] => m TokenSeq
 grabWhitespaceDomain = grabDomain (const True)
 
 -- | Consume a sequence of lines from the input
-grabLines :: MonadParser TokenSeq m => m [TokenSeq]
+grabLines :: Has m '[Parse] => m [TokenSeq]
 grabLines = do
     some $ nextMap \case
         TTree BkLine lns -> Just lns
         _ -> Nothing
 
 -- | @wsBlock<elem>++(sep?) | elem (sep elem)*@
-wsListBody :: MonadParser TokenSeq m => Bool -> m sep -> m a -> m [a]
+wsListBody :: Has m '[Parse] => Bool -> m sep -> m a -> m [a]
 wsListBody allowTrailing ms ma = asum [block, inline] where
     inline = listSome ms ma
     block = do
@@ -524,74 +557,74 @@ wsListBody allowTrailing ms ma = asum [block, inline] where
 
 
 -- | Expect a @Version@
-version :: MonadParser TokenSeq m => m Version
+version :: Has m '[Parse] => m Version
 version = expecting "a version" $ nextMap \case
     TVersion v -> Just v
     _ -> Nothing
 
 -- | Expect a @Literal@
-literal :: MonadParser TokenSeq m => m Literal
+literal :: Has m '[Parse] => m Literal
 literal = expecting "literal" $ nextMap \case
     TLiteral lit -> Just lit
     _ -> Nothing
 
 -- | Expect a @Literal@ of @Char@
-char :: MonadParser TokenSeq m => m Char
+char :: Has m '[Parse] => m Char
 char = expecting "character literal" $ nextMap \case
     TLiteral (LChar c) -> Just c
     _ -> Nothing
 
 -- | Expect a @Literal@ of @Int@
-int :: MonadParser TokenSeq m => m Word32
+int :: Has m '[Parse] => m Word32
 int = expecting "integer literal" $ nextMap \case
     TLiteral (LInt i) -> Just i
     _ -> Nothing
 
 -- | Expect a @Literal@ of @Float@
-float :: MonadParser TokenSeq m => m Float
+float :: Has m '[Parse] => m Float
 float = expecting "float literal" $ nextMap \case
     TLiteral (LFloat f) -> Just f
     _ -> Nothing
 
 -- | Expect a @Literal@ of @String@
-string :: MonadParser TokenSeq m => m String
+string :: Has m '[Parse] => m String
 string = expecting "string literal" $ nextMap \case
     TLiteral (LString s) -> Just s
     _ -> Nothing
 
 -- | Expect any symbol @Token@
-anySym :: MonadParser TokenSeq m => m String
+anySym :: Has m '[Parse] => m String
 anySym = expecting "a symbol" $ nextMap \case
     TSymbol s -> Just s
     _ -> Nothing
 
 -- | Expect a symbol @Token@ that is not reserved
-unreserved :: MonadParser TokenSeq m => m String
+unreserved :: Has m '[Parse] => m String
 unreserved = expecting "an unreserved symbol" $ nextMap \case
     tk@(TSymbol s) | not (isReserved tk) -> Just s
     _ -> Nothing
 
 -- | Expect a symbol @Token@ with a specific value
-sym :: MonadParser TokenSeq m => String -> m ()
+sym :: Has m '[Parse] => String -> m ()
 sym s = expecting (Pretty.backticks $ text s) $ nextMap \case
     TSymbol s' | s == s' -> Just ()
     _ -> Nothing
 
 -- | Expect a symbol @Token@ with a specific value from a given set
-symOf :: MonadParser TokenSeq m => [String] -> m String
+symOf :: Has m '[Parse] => [String] -> m String
 symOf ss = expectingMulti (Pretty.backticks . text <$> ss) $ nextMap \case
     TSymbol s | s `elem` ss -> Just s
     _ -> Nothing
 
 -- | Try and parse a symbol @Token@, returning a boolean indicating success
-trySym :: MonadParser TokenSeq m => String -> m Bool
+trySym :: Has m '[Parse] => String -> m Bool
 trySym s = peek >>= \case
     TSymbol s' | s == s' -> True <$ advance
     _ -> pure False
 
 
 -- | Expect a given @Parser@ to be surrounded with parentheses
-parens :: MonadParser TokenSeq m => m a -> m a
+parens :: Has m '[Parse] => m a -> m a
 parens px = do
     body <- expecting "`(`" $ nextMap \case
         TTree BkParen ts -> Just ts
@@ -599,7 +632,7 @@ parens px = do
     noFail (recurseParserAll px body)
 
 -- | Expect a given @Parser@ to be surrounded with braces
-braces :: MonadParser TokenSeq m => m a -> m a
+braces :: Has m '[Parse] => m a -> m a
 braces px = do
     body <- expecting "`{`" $ nextMap \case
         TTree BkBrace ts -> Just ts
@@ -607,7 +640,7 @@ braces px = do
     noFail (recurseParserAll px body)
 
 -- | Expect a given @Parser@ to be surrounded with brackets
-brackets :: MonadParser TokenSeq m => m a -> m a
+brackets :: Has m '[Parse] => m a -> m a
 brackets px = do
     body <- expecting "`[`" $ nextMap \case
         TTree BkBracket ts -> Just ts

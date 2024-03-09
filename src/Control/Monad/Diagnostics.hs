@@ -2,25 +2,21 @@ module Control.Monad.Diagnostics
     ( module X
     , Diagnostics, runDiagnostics
     , DiagnosticsT, runDiagnosticsT
+    , liftDiagnostics
     ) where
 
 import Control.Applicative
 import Control.Monad.Identity
 import Control.Monad.State.Class
-import Control.Monad.Reader
+import Control.Monad.Reader.Class
 import Control.Monad.Writer.Strict
-import Control.Monad.File
+import Control.Monad.File.Class
 import Control.Monad.Parser.Class
 import Control.Monad.Error.Class
 
 import Control.Monad.Diagnostics.Class as X
 
 import Data.Diagnostic
-
-import Text.Pretty
-import Control.Monad.Except
-
-
 
 
 
@@ -52,3 +48,10 @@ runDiagnosticsT (DiagnosticsT a) = runWriterT a
 --   returning the result and a list of @Diagnostic@s
 runDiagnostics :: Diagnostics a -> (a, [Diagnostic])
 runDiagnostics = runIdentity . runDiagnosticsT
+
+
+liftDiagnostics :: (MonadError [Diagnostic] m) =>
+    DiagnosticsT m a -> m a
+liftDiagnostics m = do
+    (a, ds) <- runDiagnosticsT m
+    a <$ unless (null ds) (throwError ds)

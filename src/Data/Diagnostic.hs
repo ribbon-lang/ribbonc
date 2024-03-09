@@ -31,3 +31,24 @@ instance Pretty Diagnostic where
         [ pPrint kind <+> doc
         , indent (vcat' help)
         ]
+
+-- | Create a new @Diagnostic@ using the given @DiagnosticKind@ and
+--   a @Doc@ created from the given value
+diagnosticFromDoc :: Pretty a => DiagnosticKind -> a -> Diagnostic
+diagnosticFromDoc k a = Diagnostic k (pPrint a) []
+
+-- | Create a new @Error@ @Diagnostic@ using and
+--   a @Doc@ created from the given value
+diagnosticFromError :: Pretty a => a -> Diagnostic
+diagnosticFromError = diagnosticFromDoc Error
+
+-- | Create a new @Warning@ @Diagnostic@ using and
+--   a @Doc@ created from the given value
+diagnosticFromWarning :: Pretty a => a -> Diagnostic
+diagnosticFromWarning = diagnosticFromDoc Warning
+
+-- | Convert an @Either e@ to an @Either Diagnostic@
+eitherDiagnostic :: Pretty e => Either e b -> Either Diagnostic b
+eitherDiagnostic = \case
+    Left a -> Left $ diagnosticFromError a
+    Right b -> Right b

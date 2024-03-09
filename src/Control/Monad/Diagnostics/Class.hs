@@ -1,4 +1,5 @@
 module Control.Monad.Diagnostics.Class where
+import Data.Diagnostic
 
 import Control.Monad.State.Strict qualified as Strict
 import Control.Monad.State.Lazy qualified as Lazy
@@ -6,12 +7,19 @@ import Control.Monad.Writer.Strict qualified as Strict
 import Control.Monad.Writer.Lazy qualified as Lazy
 import Control.Monad.Reader
 import Control.Monad.Except
-
-import Data.Diagnostic
+import Control.Has
 
 import Text.Pretty
 
+import Language.Ribbon.Util
 
+
+
+
+-- | Marker for @Has@, ie @Has m [Diag]@ ~ @MonadDiagnostics m@
+data Diag
+
+type instance Has m (Diag ': effs) = (MonadDiagnostics m, Has m effs)
 
 
 -- | A monad that can report @Diagnostic@s
@@ -42,29 +50,41 @@ instance MonadDiagnostics m => MonadDiagnostics (ExceptT e m) where
 
 
 
--- | Report a new @Diagnostic@ using the given @DiagnosticKind@ and @Doc@,
+-- | Report a new @Diagnostic@ using the given @DiagnosticKind@ and
+--   a @Doc@ created from the given item,
 --   with help @Doc@s
-reportH :: MonadDiagnostics m => DiagnosticKind -> Doc -> [Doc] -> m ()
-reportH k d h = reportFull (Diagnostic k d h)
+reportH :: (Pretty a, MonadDiagnostics m) => DiagnosticKind -> a -> [Doc] -> m ()
+reportH k a h = reportFull (Diagnostic k (pPrint a) h)
 
--- | Report a new @Error@ @Diagnostic@ using the given @Doc@,
+-- | Report a new @Error@ @Diagnostic@ using
+--   a @Doc@ created from the given item,
 --   with help @Doc@s
-reportErrorH :: MonadDiagnostics m => Doc -> [Doc] -> m ()
+reportErrorH :: (Pretty a, MonadDiagnostics m) => a -> [Doc] -> m ()
 reportErrorH = reportH Error
 
--- | Report a new @Warning@ @Diagnostic@ using the given @Doc@,
+-- | Report a new @Warning@ @Diagnostic@ using
+--   a @Doc@ created from the given item,
 --   with help @Doc@s
-reportWarningH :: MonadDiagnostics m => Doc -> [Doc] -> m ()
+reportWarningH :: (Pretty a, MonadDiagnostics m) => a -> [Doc] -> m ()
 reportWarningH = reportH Warning
 
--- | Report a new @Diagnostic@ using the given @DiagnosticKind@ and @Doc@
-report :: MonadDiagnostics m => DiagnosticKind -> Doc -> m ()
-report k d = reportH k d []
+-- | Report a new @Diagnostic@ using the given @DiagnosticKind@ and
+--   a @Doc@ created from the given item
+report :: (Pretty a, MonadDiagnostics m) => DiagnosticKind -> a -> m ()
+report k a = reportH k a []
 
--- | Report a new @Error@ @Diagnostic@ using the given @Doc@
-reportError :: MonadDiagnostics m => Doc -> m ()
+-- | Report a new @Error@ @Diagnostic@ using
+--   a @Doc@ created from the given item
+reportError :: (Pretty a, MonadDiagnostics m) => a -> m ()
 reportError = report Error
 
--- | Report a new @Warning@ @Diagnostic@ using the given @Doc@
-reportWarning :: MonadDiagnostics m => Doc -> m ()
+-- | Report a new @Warning@ @Diagnostic@ using
+--   a @Doc@ created from the given item
+reportWarning :: (Pretty a, MonadDiagnostics m) => a -> m ()
 reportWarning = report Warning
+
+
+-- | Run an @ExceptT e m ()@ computation,
+--   using @Pretty@ to convert @e@ to @Error@ @Diagnostic@s in @m@
+errorToDiagnostic :: (MonadDiagnostics m, Pretty e) => ExceptT e m ()  -> m ()
+errorToDiagnostic m = runExceptT m >>= liftEitherHandler reportError

@@ -34,21 +34,33 @@ import qualified Data.Text.Encoding.Error as TextErr
 
 lexFileWith ::
     ParserT L.LexStream (FileT (ExceptT SyntaxError IO)) a
-        -> FilePath -> IO (Either SyntaxError a)
-lexFileWith p fp = do
+        -> FilePath -> IO (Either Doc a)
+lexFileWith p fp = runExceptT do
     lx <- L.lexStreamFromFile fp
-    runExceptT (runFileT (evalParserT p lx) fp)
+    mapError pPrint $ runFileT (evalParserT p lx) fp
 
 parseFileWith ::
     ParserT TokenSeq (FileT (ExceptT SyntaxError IO)) a
-        -> FilePath -> IO (Either SyntaxError a)
-parseFileWith p fp = do
-    lexFileWith L.doc fp >>= \case
-        Left e -> pure $ Left e
-        Right ts -> do
-            putStrLn "toks:"
-            prettyPrint ts
-            runExceptT $ runFileT (evalParserT p ts) fp
+        -> FilePath -> IO (Either Doc a)
+parseFileWith p fp = lexFileWith L.doc fp >>= \case
+    Left e -> pure $ Left e
+    Right ts -> do
+        putStrLn "toks:"
+        prettyPrint ts
+        runExceptT $ mapError pPrint $
+            runFileT (evalParserT p ts) fp
+
+-- parseFile :: FilePath -> IO ()
+-- parseFile fp = do
+--     runExceptT (runFileT P.file fp) >>= \case
+--         Left diags -> do
+--             putStrLn "Diagnostics:"
+--             prettyPrint diags
+--         Right (g, u) -> do
+--             putStrLn "Group:"
+--             prettyPrint g
+--             putStrLn "UnresolvedImports:"
+--             prettyPrint u
 
 main :: IO ()
 main = putStrLn "Hello, Ribbon!"

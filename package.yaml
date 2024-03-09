@@ -13,6 +13,8 @@ default-extensions:
     - PartialTypeSignatures
     - FunctionalDependencies
     - TypeFamilies
+    - DataKinds
+    - ImpredicativeTypes
 
     - PatternSynonyms
     - ViewPatterns

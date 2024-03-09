@@ -181,19 +181,8 @@ instance Pretty QualifiedName where
                 RightAssociative ->
                     pPrintPrec lvl 0 name <+> pPrint precedence
 
--- | A @FixName@ and @Category@
-data SpecificName
-    = SpecificName
-    { category :: !Category
-    , name :: !(ATag FixName)
-    }
-    deriving (Eq, Ord, Show)
-
-instance Pretty SpecificName where
-    pPrintPrec lvl _ SpecificName{..} =
-        hsep [ pPrintPrec lvl 0 category
-             , pPrintPrec lvl 0 name
-             ]
+-- | @Categorical FixName@
+type SpecificName = Categorical FixName
 
 
 -- | A component of a @Path@,
@@ -222,25 +211,7 @@ instance HasFixity PathName where
 -- | A @FixName@ qualified with
 --   a @Visibility@, @Category@, @Associativity@, and @Precedence@
 --   used for binding elements in a @Group@
-data GroupName
-    = GroupName
-    {  category :: !Category
-    , qualified :: !QualifiedName
-    }
-    deriving (Eq, Ord, Show)
-
-instance Pretty GroupName where
-    pPrintPrec lvl _ GroupName{..} =
-        hsep [ pPrintPrec lvl 0 qualified
-             , pPrintPrec lvl 0 category
-             ]
-
-instance HasCategory GroupName where
-    getCategory = (.category)
-
-instance HasFixity GroupName where
-    getFixity = getFixity . (.qualified)
-
+type GroupName = Categorical QualifiedName
 
 
 -- | A @FixName@ associated with an import that has not been resolved yet

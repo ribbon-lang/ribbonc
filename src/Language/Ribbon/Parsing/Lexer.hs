@@ -19,6 +19,10 @@ import Control.Applicative
 import Control.Monad
 import Control.Monad.Error.Class
 import Control.Monad.Parser.Class
+import Control.Monad.IO.Class (MonadIO(..))
+import Control.Has
+
+import GHC.IO qualified as IO
 
 import Data.Tag
 import Data.Pos
@@ -36,8 +40,10 @@ import Language.Ribbon.Lexical
 import Language.Ribbon.Parsing.Text
 
 
+-- | Marker for @Has@ ie @Has m [Lex]@ ~ @MonadParser LexStream m@
+data Lex
 
-
+type instance Has m (Lex ': effs) = (MonadParser LexStream m, Has m effs)
 
 data LexStream
     = LexStream
@@ -102,20 +108,23 @@ lexStreamFromString = lexStreamFromText . Text.pack
 
 -- | Read a lazy @ByteString@ from a @FilePath@, lazily decode it to @Text@,
 --   and wrap it in a new @LexStream@
-lexStreamFromFile :: FilePath -> IO LexStream
+lexStreamFromFile :: (MonadError Doc m, MonadIO m) => FilePath -> m LexStream
 lexStreamFromFile fp =
-    lexStreamFromByteString <$> ByteString.readFile fp
+    liftEither . fmap lexStreamFromByteString =<< liftIO do
+        IO.catchAny (Right <$> ByteString.readFile fp) \e -> pure $ Left $
+            "could not read file" <+> pPrint fp
+                <+> "due to" <+> shown e
 
 
 -- | Lex a full document
-doc :: MonadParser LexStream m => m TokenSeq
-doc = reduceTokenSeq <$> do
+doc :: Has m '[Lex] => m TokenSeq
+doc = reduceDocTokenSeq <$> do
     option () shebang
     lineSeq 0
 
 
 -- | Lex a single token, including trees
-token :: MonadParser LexStream m => Word32 -> m Token
+token :: Has m '[Lex] => Word32 -> m Token
 token ind = asum do
     treeToken ind :
         [ TVersion <$> version
@@ -125,11 +134,11 @@ token ind = asum do
         ]
 
 -- | Lex a tree as a token
-treeToken :: MonadParser LexStream m => Word32 -> m Token
+treeToken :: Has m '[Lex] => Word32 -> m Token
 treeToken ind = tree ind <&> uncurry TTree
 
 -- | Lex a tree as a kind and a sequence
-tree :: MonadParser LexStream m => Word32 -> m (BlockKind, TokenSeq)
+tree :: Has m '[Lex] => Word32 -> m (BlockKind, TokenSeq)
 tree ind = asum
     [   (BkParen, ) <$> parenBlock ind
     ,   (BkBrace, ) <$> braceBlock ind
@@ -140,7 +149,7 @@ tree ind = asum
 
 
 -- | Lex a sequence of lines
-lineSeq :: MonadParser LexStream m => Word32 -> m TokenSeq
+lineSeq :: Has m '[Lex] => Word32 -> m TokenSeq
 lineSeq ind = do
     fLn <- tag $ line ind
     lns <- many do
@@ -152,12 +161,12 @@ lineSeq ind = do
         fmap (TTree BkLine)
 
 -- | Lex a single line
-line :: MonadParser LexStream m => Word32 -> m TokenSeq
+line :: Has m '[Lex] => Word32 -> m TokenSeq
 line ind = Seq.fromList <$> many (hScanning $ tag $ token ind)
 
 
 -- | Lex a tree delimited by an indentation block
-indentBlock :: MonadParser LexStream m => Word32 -> m TokenSeq
+indentBlock :: Has m '[Lex] => Word32 -> m TokenSeq
 indentBlock ind = expecting "an indented block" do
     lineEnd
     ind' <- lineStart
@@ -165,17 +174,17 @@ indentBlock ind = expecting "an indented block" do
     lineSeq ind'
 
 -- | Lex a tree delimited by a parenthesis block
-parenBlock :: MonadParser LexStream m => Word32 -> m TokenSeq
+parenBlock :: Has m '[Lex] => Word32 -> m TokenSeq
 parenBlock = expecting "parenthesis block" .
     delimited "(" ")"
 
 -- | Lex a tree delimited by a brace block
-braceBlock :: MonadParser LexStream m => Word32 -> m TokenSeq
+braceBlock :: Has m '[Lex] => Word32 -> m TokenSeq
 braceBlock = expecting "brace block" .
     delimited "{" "}"
 
 -- | Lex a tree delimited by a bracket block
-bracketBlock :: MonadParser LexStream m => Word32 -> m TokenSeq
+bracketBlock :: Has m '[Lex] => Word32 -> m TokenSeq
 bracketBlock = expecting "bracket block" .
     delimited "[" "]"
 
@@ -183,7 +192,7 @@ bracketBlock = expecting "bracket block" .
 
 
 -- | Lex a @Path@ sequence
-path :: MonadParser LexStream m => m Path
+path :: Has m '[Lex] => m Path
 path = do
     b <- optional $ tag pathBase
 
@@ -203,7 +212,7 @@ path = do
         }
 
 -- | Lex a @PathBase@
-pathBase :: MonadParser LexStream m => m PathBase
+pathBase :: Has m '[Lex] => m PathBase
 pathBase = expecting "a path base" $ asum
     [ PbRoot <$ expectSymbol "/"
     , PbThis <$ expectSymbols [".", "/"]
@@ -213,7 +222,7 @@ pathBase = expecting "a path base" $ asum
     ]
 
 -- | Lex a @PathName@
-pathComponent :: MonadParser LexStream m => m PathName
+pathComponent :: Has m '[Lex] => m PathName
 pathComponent = expecting "a path component" do
     c <- optional category
 
@@ -224,14 +233,14 @@ pathComponent = expecting "a path component" do
 
 
 -- | Lex a @FixName@ or a @SimpleName@
-name :: MonadParser LexStream m => m FixName
+name :: Has m '[Lex] => m FixName
 name = expecting "a name" $ asum
     [ fixName
     , FixName . Seq.singleton . FixSimple <$> simpleName
     ]
 
 -- | Lex a @FixName@
-fixName :: MonadParser LexStream m => m FixName
+fixName :: Has m '[Lex] => m FixName
 fixName = expecting "a fix name" do
     fn :@: at <- tag $ expect '`' >> noFail do
         components <- some do
@@ -246,7 +255,7 @@ fixName = expecting "a fix name" do
         _ -> pure fn
 
 -- | Lex a @SimpleName@
-simpleName :: MonadParser LexStream m => m SimpleName
+simpleName :: Has m '[Lex] => m SimpleName
 simpleName = expecting "a simple name" $ SimpleName <$> do
     n :@: at <- tag $ asum [ operator, identifier ]
     n <$ assertAt at (n `notElem` reservedSymbols) Recoverable
@@ -255,7 +264,7 @@ simpleName = expecting "a simple name" $ SimpleName <$> do
 
 
 -- | Lex a @Literal@
-literal :: MonadParser LexStream m => m Literal
+literal :: Has m '[Lex] => m Literal
 literal = expecting "a literal" $ asum
     [ LFloat <$> float
     , LInt <$> int
@@ -264,7 +273,7 @@ literal = expecting "a literal" $ asum
     ]
 
 -- | Lex a semantic @Version@
-version :: MonadParser LexStream m => m Version
+version :: Has m '[Lex] => m Version
 version = expecting "a version" do
     (major, minor, patch) :@: at <- tag $ liftA3 (,,)
         do decDigits
@@ -277,7 +286,7 @@ version = expecting "a version" do
         parseVersion $ filter (/= '_') val
 
 -- | Lex an operator, identifier, punctuation, or dot sequence
-symbol :: MonadParser LexStream m => m String
+symbol :: Has m '[Lex] => m String
 symbol = expecting "a symbol" $ asum
     [ operator
     , identifier
@@ -289,7 +298,7 @@ symbol = expecting "a symbol" $ asum
 
 
 -- | Lex a tree delimited by a given pair of symbols
-delimited :: MonadParser LexStream m => String -> String -> Word32 -> m TokenSeq
+delimited :: Has m '[Lex] => String -> String -> Word32 -> m TokenSeq
 delimited open close ind = do
     at <- attrOf $ expectSeq' open
     noFail do
@@ -322,31 +331,31 @@ delimited open close ind = do
         do expectSeq' close
 
 -- | Expect a specific symbol
-expectSymbol :: MonadParser LexStream m => String -> m ()
+expectSymbol :: Has m '[Lex] => String -> m ()
 expectSymbol s = expecting (backticks $ text s) do
     x <- symbol
     guard (x == s)
 
 -- | Expect any one of a set of symbols
-expectSymbols :: MonadParser LexStream m => [String] -> m String
+expectSymbols :: Has m '[Lex] => [String] -> m String
 expectSymbols ss = asum $ ss <&> \s -> s <$ expectSymbol s
 
 
-vScan :: MonadParser LexStream m => m ()
+vScan :: Has m '[Lex] => m ()
 vScan = option () $ nextWhile_ (`elem` ['\r','\n'])
 
-vScanning :: MonadParser LexStream m => m a -> m a
+vScanning :: Has m '[Lex] => m a -> m a
 vScanning = (vScan *>)
 
-hScan :: MonadParser LexStream m => m ()
+hScan :: Has m '[Lex] => m ()
 hScan = option () $ nextWhile_ (== ' ')
 
-hScanning :: MonadParser LexStream m => m a -> m a
+hScanning :: Has m '[Lex] => m a -> m a
 hScanning = (hScan *>)
 
 
 -- | Lex an indentation level (in spaces only)
-lineStart :: MonadParser LexStream m => m Word32
+lineStart :: Has m '[Lex] => m Word32
 lineStart = expecting "an indentation level" do
     sum <$> many do
         nextMap \case
@@ -354,47 +363,47 @@ lineStart = expecting "an indentation level" do
             _ -> Nothing
 
 -- | Expect a line ending (either @\\n@ or @\\r\\n@)
-lineEnd :: MonadParser LexStream m => m ()
+lineEnd :: Has m '[Lex] => m ()
 lineEnd = expecting "a line ending" $ hScanning do
     option () comment
     some_ $ expectAnySeq ["\n", "\r\n"]
 
 -- | Expect a shebang (from @#!@ to the end of the line)
-shebang :: MonadParser LexStream m => m ()
+shebang :: Has m '[Lex] => m ()
 shebang = expecting "a shebang" do
     expectSeq "#!"
     nextWhile_ (/= '\n')
 
 -- | Expect a comment (from @;;@ to the end of the line)
-comment :: MonadParser LexStream m => m ()
+comment :: Has m '[Lex] => m ()
 comment = expecting "a comment" do
     expectSeq ";;"
     nextWhile_ (/= '\n')
 
 -- | Lex a sequence of spaces with semantic implications,
 --   ie the spaces inside a @FixName@
-semSpace :: MonadParser LexStream m => m ()
+semSpace :: Has m '[Lex] => m ()
 semSpace = expecting "a semantic space" do
     nextWhile_ (== ' ')
 
 -- | Expect a binary digit
-binDigit :: MonadParser LexStream m => m Char
+binDigit :: Has m '[Lex] => m Char
 binDigit = expecting "binary digit" do
     nextIf (`elem` ['0','1'])
 
 -- | Expect a decimal digit
-decDigit :: MonadParser LexStream m => m Char
+decDigit :: Has m '[Lex] => m Char
 decDigit = expecting "decimal digit" do
     nextIf Char.isDigit
 
 -- | Expect a hexadecimal digit
-hexDigit :: MonadParser LexStream m => m Char
+hexDigit :: Has m '[Lex] => m Char
 hexDigit = expecting "hexadecimal digit" do
     nextIf Char.isHexDigit
 
 -- | Expect a sequence of binary digits,
 --   allowing underscores after the first digit
-binDigits :: MonadParser LexStream m => m String
+binDigits :: Has m '[Lex] => m String
 binDigits = expecting "binary digits" do
     liftA2 (:)
         do nextIf (`elem` ['0','1'])
@@ -402,7 +411,7 @@ binDigits = expecting "binary digits" do
 
 -- | Expect a sequence of decimal digits,
 --   allowing underscores after the first digit
-decDigits :: MonadParser LexStream m => m String
+decDigits :: Has m '[Lex] => m String
 decDigits = expecting "decimal digits" do
     liftA2 (:)
         do nextIf Char.isDigit
@@ -410,26 +419,26 @@ decDigits = expecting "decimal digits" do
 
 -- | Expect a sequence of hexadecimal digits,
 --   allowing underscores after the first digit
-hexDigits :: MonadParser LexStream m => m String
+hexDigits :: Has m '[Lex] => m String
 hexDigits = expecting "hexadecimal digits" do
     liftA2 (:)
         do nextIf Char.isHexDigit
         do option [] $ nextWhile (Char.isHexDigit ||| (=='_'))
 
 -- | Lex a binary integer literal
-binInt :: MonadParser LexStream m => m Word32
+binInt :: Has m '[Lex] => m Word32
 binInt = tag binDigits >>= \(digits :@: at) ->
     maybeError (seqErr digits "binary integer" at) do
         parseBinInt $ filter (/= '_') digits
 
 -- | Lex a decimal integer literal
-decInt :: MonadParser LexStream m => m Word32
+decInt :: Has m '[Lex] => m Word32
 decInt = tag decDigits >>= \(digits :@: at) ->
     maybeError (seqErr digits "decimal integer" at) do
         parseDecInt $ filter (/= '_') digits
 
 -- | Lex a hexadecimal integer literal
-hexInt :: MonadParser LexStream m => m Word32
+hexInt :: Has m '[Lex] => m Word32
 hexInt =
     tag hexDigits >>= \(digits :@: at) ->
         maybeError (seqErr digits "hexadecimal integer" at) do
@@ -438,7 +447,7 @@ hexInt =
 -- | Lex a character escape sequence,
 --   inside a @\'@-delimited character literal
 --   or a @\"@-delimited string literal
-escape :: MonadParser LexStream m => m Char
+escape :: Has m '[Lex] => m Char
 escape = expecting "a valid escape sequence" do
     s :@: at <- tag $ expect '\\' >> do
         ('\\' :) <$> asum
@@ -460,7 +469,7 @@ escape = expecting "a valid escape sequence" do
     simpleEsc = ['\\', '\'', '\"', '0', 'a', 'b', 'f', 'n', 'r', 't', 'v']
 
 -- | Lex an integer literal
-int :: MonadParser LexStream m => m Word32
+int :: Has m '[Lex] => m Word32
 int = expecting "an integer literal" $ asum
     [ expectSeq "0x" >> hexInt
     , expectSeq "0b" >> binInt
@@ -468,7 +477,7 @@ int = expecting "an integer literal" $ asum
     ]
 
 -- | Lex a floating point literal
-float :: MonadParser LexStream m => m Float
+float :: Has m '[Lex] => m Float
 float = expecting "a floating point literal" do
     (whole, frac, ex) :@: at <- tag $ liftA3 (,,)
         do decDigits
@@ -485,7 +494,7 @@ float = expecting "a floating point literal" do
         parseFloat $ filter (/= '_') val
 
 -- | Lex a character literal
-char :: MonadParser LexStream m => m Char
+char :: Has m '[Lex] => m Char
 char = expecting "a character literal" do
     expect '\''
     c <- asum
@@ -495,7 +504,7 @@ char = expecting "a character literal" do
     c <$ expect '\''
 
 -- | Lex a string literal
-string :: MonadParser LexStream m => m String
+string :: Has m '[Lex] => m String
 string = expecting "a string literal" do
     expect '\"'
     s <- many do
@@ -506,7 +515,7 @@ string = expecting "a string literal" do
     s <$ noFail (expect '\"')
 
 -- | Lex an @OverloadCategory@ (does not succeed on @OUnresolved@, use @option@)
-category :: MonadParser LexStream m => m OverloadCategory
+category :: Has m '[Lex] => m OverloadCategory
 category = asum
     [ ONamespace <$ expectSeq "namespace"
     , OInstance <$ expectSeq "instance"
@@ -517,24 +526,24 @@ category = asum
 
 -- | Lex an atomic punctuation symbol like @,@
 --  (not a block delimiter like @{@ or a dot sequence like @..@)
-punctuation :: MonadParser LexStream m => m String
+punctuation :: Has m '[Lex] => m String
 punctuation = expecting "punctuation" do
     ch <- nextIf (`elem` userPunctuations)
     [ch] <$ when (ch == ';') do -- avoid consuming comment start
         negativeLookahead (nextIf_ (== ';'))
 
 -- | Lex a sequence of dots
-dots :: MonadParser LexStream m => m String
+dots :: Has m '[Lex] => m String
 dots = expecting "dot or ellipsis" do
     nextWhile (== '.')
 
 -- | Lex an operator
-operator :: MonadParser LexStream m => m String
+operator :: Has m '[Lex] => m String
 operator = expecting "an operator" do
     nextWhile isSymbolic
 
 -- | Lex an identifier
-identifier :: MonadParser LexStream m => m String
+identifier :: Has m '[Lex] => m String
 identifier = expecting "an identifier" do
     liftA2 (:)
         do nextIf (Char.isAlpha ||| (=='_'))
