@@ -11,7 +11,7 @@ import Control.Has
 
 
 
--- | Marker for @Has@, ie @Has m [Bldr s]@ ~ @MonadBuilder s m@
+-- | Marker for @Has@, ie @Has m '[Bldr s]@ ~ @MonadBuilder s m@
 data Bldr a
 
 type instance Has m (Bldr s ': effs) = (MonadBuilder s m, Has m effs)

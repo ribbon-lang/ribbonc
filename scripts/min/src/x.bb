@@ -5,4 +5,8 @@ use ../Foo/{ bar
            , box/..
            , qubert/.. hiding llama
            , foo/.. hiding {a, b}
-           } as Foo
+           , module test
+           , ..
+           } as Quux
+
+

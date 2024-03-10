@@ -55,6 +55,10 @@ instance (Nil a, Nil b, Nil c, Nil d) => Nil (a, b, c, d) where
     isNil (a, b, c, d) = isNil a && isNil b && isNil c && isNil d
     nil = (nil, nil, nil, nil)
 
+instance {-# OVERLAPPABLE #-} (Eq a, Num a) => Nil a where
+    isNil = (== 0)
+    nil = 0
+
 -- | Pattern alias for types with a Nil instance
 pattern Nil :: Nil m => m
 pattern Nil <- (isNil -> True) where

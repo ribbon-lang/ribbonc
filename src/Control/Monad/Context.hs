@@ -44,6 +44,10 @@ instance Monad m => MonadContext c (ContextT c m) where
     getContext = ContextT ask
     localContext f (ContextT m) = ContextT (local f m)
 
+instance {-# OVERLAPPABLE #-} MonadContext c2 m => MonadContext c2 (ContextT c1 m) where
+    getContext = lift getContext
+    localContext f (ContextT m) = ContextT (localContext f m)
+
 
 runContextT :: ContextT c m a -> c -> m a
 runContextT (ContextT m) = runReaderT m

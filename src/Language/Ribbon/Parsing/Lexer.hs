@@ -40,7 +40,7 @@ import Language.Ribbon.Lexical
 import Language.Ribbon.Parsing.Text
 
 
--- | Marker for @Has@ ie @Has m [Lex]@ ~ @MonadParser LexStream m@
+-- | Marker for @Has@ ie @Has m '[Lex]@ ~ @MonadParser LexStream m@
 data Lex
 
 type instance Has m (Lex ': effs) = (MonadParser LexStream m, Has m effs)
@@ -196,29 +196,43 @@ path :: Has m '[Lex] => m Path
 path = do
     b <- optional $ tag pathBase
 
-    c <- case b of
-        Just base | requiresSlash base -> do
-            at <- attrOf $ connected base.tag $ expectSymbol "/"
-            tag (connected at pathComponent)
-        _ -> tag pathComponent
-
-    cs <- Seq.fromList <$> connectMany c.tag do
-        at' <- attrOf $ expectSymbol "/"
-        connected at' (tag pathComponent)
+    cs <- case b of
+        Just base -> option Nil do
+            if requiresSlash base
+                then do
+                    at <- attrOf $ connected base.tag $ expectSymbol "/"
+                    connected at body
+                else connected base.tag body
+        _ -> body
 
     pure $ Path
         { base = b
-        , components = c Seq.:<| cs
+        , components = cs
         }
+    where
+    body = do
+        fc@(_ :@: at) <- tag pathComponent
+        Seq.fromList . (fc :) <$> connectMany at do
+            at' <- attrOf $ expectSymbol "/"
+            connected at' (tag pathComponent)
 
 -- | Lex a @PathBase@
 pathBase :: Has m '[Lex] => m PathBase
 pathBase = expecting "a path base" $ asum
-    [ PbRoot <$ expectSymbol "/"
-    , PbThis <$ expectSymbols [".", "/"]
-    , PbModule <$> do expectSymbol "module"; hScanning simpleName
-    , PbFile <$> do expectSymbol "file"; noFail (hScanning string)
-    , PbUp <$> do length <$> some (expectSymbols ["..", "/"])
+    [ PbRoot <$ expectSymbol "~/"
+    , PbThis <$ do
+        expectSymbol "."
+        expectSymbol "/"
+    , PbModule <$> do
+        expectSymbol "module"
+        hScanning simpleName
+    , PbFile <$> do
+        expectSymbol "file"
+        noFail (hScanning string)
+    , PbUp <$> do
+        fromIntegral . length <$> some do
+            expectSymbol ".."
+            expectSymbol "/"
     ]
 
 -- | Lex a @PathName@

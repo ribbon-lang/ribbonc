@@ -17,6 +17,7 @@ import Language.Ribbon.Lexical.Category
 import Language.Ribbon.Lexical.Name
 import Data.Nil
 import qualified Data.Maybe as Maybe
+import Data.Word (Word32)
 
 
 
@@ -70,31 +71,60 @@ instance Pretty Path where
 
 instance RequiresSlash Path where
     requiresSlash lp
-        = requiresSlash lp.components
+         = requiresSlash lp.components
         || requiresSlash lp.base
 
 instance HasFixity Path where
     getFixity (Path _ (_ Seq.:|> c)) = getFixity c.value
     getFixity _ = Atom
 
-instance Semigroup Path where
-    Path b1 c1 <> Path b2 c2 =
-        case b2 of
-            Nothing -> Path b1 (c1 <> c2)
-            _ -> Path b2 c2
 
-instance Monoid Path where
-    mempty = Path Nothing Nil
+joinPath :: Path -> Path -> Maybe Path
+joinPath (Path b1 c1) (Path b2 c2) =
+        case b2 of
+            Nothing -> Just $ Path b1 (c1 <> c2)
+            Just b -> case b.value of
+                PbThis -> Just $ Path b1 (c1 <> c2)
+                PbUp lvls ->
+                    let lc = fromIntegral (Seq.length c1)
+                    in if lvls > lc
+                        then case b1 of
+                            Just (PbUp lvls' :@: _) ->
+                                Just $ Path (Just $ PbUp (lvls + lvls') :@: b.tag) c2
+                            Just (PbThis :@: _) ->
+                                Just $ Path (Just $ PbUp (lvls - lc) :@: b.tag) c2
+                            Nothing ->
+                                Just $ Path (Just $ PbUp (lvls - lc) :@: b.tag) c2
+                            _ -> Nothing
+                        else Just $ Path b1 (Seq.drop (fromIntegral lvls) c1 <> c2)
+                _ -> Just $ Path b2 c2
 
 instance Nil Path where
+    nil = Path Nothing Nil
     isNil p = Maybe.isNothing p.base && Seq.null p.components
 
+-- | Attempt to extract an @OverloadCategory@ from a @Path@;
+--   Fails if:
+--   + The @Path@ is empty (shouldn't happen)
+--   + The @Path@ has @PathName@s, but the final one has no @OverloadCategory@
+getPathCategory :: Path -> Maybe OverloadCategory
+getPathCategory (Path _ (_ Seq.:|> c)) = c.value.category
+getPathCategory (Path (Just _) Nil) = Just ONamespace
+getPathCategory _ = Nothing
 
-pathCategory :: Path -> Maybe OverloadCategory
-pathCategory (Path _ (_ Seq.:|> c)) = c.value.category
-pathCategory _ = Just ONamespace
-
-
+-- | Attempt to extract a @FixName@ from a @Path@;
+--   Fails if:
+--   + The @Path@ is empty (shouldn't happen)
+--   + The @Path@ has no @PathName@s, and its base is not a file or module
+--   + The @Path@ has no @PathName@s,
+--     and its base is a file that cannot be converted to a @SimpleName@
+getPathName :: Path -> Maybe (ATag FixName)
+getPathName (Path _ (c Seq.:<| _)) = Just (c.value.name <$ c)
+getPathName (Path (Just b) Nil) = case b.value of
+    PbModule n -> Just (SimpleFixName n <$ b)
+    PbFile f -> (<$ b) . SimpleFixName <$> simpleNameFromFile f
+    _ -> Nothing
+getPathName _ = Nothing
 
 -- | The base component of a @Path@,
 --   specifying where to begin looking up components
@@ -108,7 +138,7 @@ data PathBase
     -- | Start in a given file
     | PbFile !FilePath
     -- | Start a given number of levels above the current namespace
-    | PbUp !Int
+    | PbUp !Word32
     deriving (Eq, Ord, Show)
 
 instance Pretty PathBase where
@@ -117,7 +147,7 @@ instance Pretty PathBase where
         PbThis -> "./"
         PbModule n -> "module" <+> pPrint n
         PbFile f -> "file" <+> shown f
-        PbUp i -> text (concat $ replicate i "../")
+        PbUp i -> text (concat $ replicate (fromIntegral i) "../")
 
 instance RequiresSlash PathBase where
     requiresSlash = \case

@@ -12,6 +12,8 @@ import Control.Monad.Reader.Class
 import Control.Monad.Writer.Strict
 import Control.Monad.File.Class
 import Control.Monad.Parser.Class
+import Control.Monad.Context.Class
+import Control.Monad.Builder.Class
 import Control.Monad.Error.Class
 
 import Control.Monad.Diagnostics.Class as X
@@ -28,12 +30,19 @@ type Diagnostics = DiagnosticsT Identity
 newtype DiagnosticsT m a
     = DiagnosticsT
     ( WriterT [Diagnostic] m a )
-    deriving (Functor, Applicative, Monad, Alternative, MonadPlus, MonadFail, MonadTrans, MonadFile)
+    deriving
+        ( Functor, Applicative, Monad
+        , Alternative, MonadPlus, MonadFail
+        , MonadTrans, MonadFile
+        , MonadIO
+        )
 
 deriving instance MonadState s m => MonadState s (DiagnosticsT m)
 deriving instance MonadReader r m => MonadReader r (DiagnosticsT m)
 deriving instance MonadError e m => MonadError e (DiagnosticsT m)
 deriving instance MonadParser i m => MonadParser i (DiagnosticsT m)
+deriving instance MonadContext c m => MonadContext c (DiagnosticsT m)
+deriving instance MonadBuilder s m => MonadBuilder s (DiagnosticsT m)
 
 instance Monad m => MonadDiagnostics (DiagnosticsT m) where
     reportFull d = DiagnosticsT (tell [d])

@@ -25,7 +25,7 @@ import Language.Ribbon.Util
 
 
 
--- | Marker for @Has@, ie @Has m [Parses input]@ ~ @MonadParser input m@
+-- | Marker for @Has@, ie @Has m '[Parses input]@ ~ @MonadParser input m@
 newtype Parses a = Parse a
 
 type instance Has m (Parses i ': effs) = (MonadParser i m, Has m effs)

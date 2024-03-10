@@ -1,6 +1,7 @@
 module Language.Ribbon.Syntax.Module where
 
 import Data.Map.Strict (Map)
+import Data.Map.Strict qualified as Map
 
 import Data.Functor
 
@@ -95,14 +96,44 @@ instance (Pretty t, Pretty v, Pretty i)
     => Pretty (DefSet t v i) where
         pPrintPrec lvl _ DefSet{..} =
             vcat'
-                [ hang "groups" $ pPrintPrec lvl 0 groups
-                , hang "quantifiers" $ pPrintPrec lvl 0 quantifiers
-                , hang "qualifiers" $ pPrintPrec lvl 0 qualifiers
-                , hang "fields" $ pPrintPrec lvl 0 fields
-                , hang "types" $ pPrintPrec lvl 0 types
-                , hang "values" $ pPrintPrec lvl 0 values
-                , hang "imports" $ pPrintPrec lvl 0 imports
+                [ hang "groups" $ printMap groups
+                , hang "quantifiers" $ printMap quantifiers
+                , hang "qualifiers" $ printMap qualifiers
+                , hang "fields" $ printMap fields
+                , hang "types" $ printMap types
+                , hang "values" $ printMap values
+                , hang "imports" $ printMap imports
                 ]
+            where
+            printMap :: Pretty a => Map ItemId (Def a) -> Doc
+            printMap = compose Map.toList do
+                vcat' . fmap \(k, v) ->
+                    hang (("↓" <> pPrint k) <+> "=") do
+                        pPrintPrec lvl 0 v
+
+instance Semigroup (DefSet t v i) where
+    DefSet g1 q1 c1 f1 t1 v1 i1 <> DefSet g2 q2 c2 f2 t2 v2 i2 =
+        DefSet
+            (g1 <> g2)
+            (q1 <> q2)
+            (c1 <> c2)
+            (f1 <> f2)
+            (t1 <> t2)
+            (v1 <> v2)
+            (i1 <> i2)
+
+instance Monoid (DefSet t v i) where
+    mempty = DefSet mempty mempty mempty mempty mempty mempty mempty
+
+instance Nil (DefSet t v i) where
+    isNil DefSet{..}
+         = isNil groups
+        && isNil quantifiers
+        && isNil qualifiers
+        && isNil fields
+        && isNil types
+        && isNil values
+        && isNil imports
 
 
 data AnalysisModuleHeader
@@ -198,10 +229,10 @@ insertRef n r g =
 
 -- | A definition of some item in a module, with a parent.
 --   the parent is either the namespace or type the item was defined in,
---   or the module if it is the root namespace
+--   or @Nothing@ if it is the root namespace
 data Def v
     = Def
-    { parent :: !ItemId
+    { parent :: !(Maybe ItemId)
     , inner :: !(ATag v)
     }
     deriving (Eq, Ord, Show)
@@ -209,7 +240,7 @@ data Def v
 instance Pretty v => Pretty (Def v) where
     pPrintPrec lvl _ Def{..} =
         spaceWith "::"
-            do pPrintPrec lvl 0 parent
+            do "↖" <> maybe "()" (pPrintPrec lvl 0) parent
             do pPrintPrec lvl 0 inner
 
 
@@ -243,7 +274,7 @@ instance Pretty UnresolvedBlob where
 data UnresolvedImports
     = UnresolvedImports
     { aliases :: ![(Visible UnresolvedName, ATag Path)]
-    ,   blobs :: ![UnresolvedBlob]
+    ,   blobs :: ![Visible UnresolvedBlob]
     }
     deriving (Eq, Ord, Show)
 
@@ -265,14 +296,14 @@ lookupAlias ::
 lookupAlias n ui = Fold.find ((== n) . (.value.name.value) . fst) ui.aliases
 
 insertAlias ::
-    ATag Path -> Visible UnresolvedName -> UnresolvedImports ->
+    Visible UnresolvedName -> ATag Path -> UnresolvedImports ->
         Either (ATag Doc) UnresolvedImports
-insertAlias p n ui =
+insertAlias n p ui =
     case lookupAlias n.value.name.value ui of
         Just (ex, _) -> Left $
             ("alias" <+> pPrint n.value.name <+> "already exists")
                 :@: ex.value.name.tag
         _ -> Right $ ui { aliases = (n, p) : ui.aliases }
 
-insertBlob :: ATag Path -> [ATag PathName] -> UnresolvedImports -> UnresolvedImports
-insertBlob p h ui = ui { blobs = UnresolvedBlob p h : ui.blobs }
+insertBlob :: Visible (ATag Path) -> [ATag PathName] -> UnresolvedImports -> UnresolvedImports
+insertBlob p h ui = ui { blobs = (UnresolvedBlob p.value h <$ p) : ui.blobs }

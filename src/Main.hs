@@ -4,6 +4,7 @@ module Main where
 
 import Data.Functor
 import Control.Applicative
+import Control.Monad.Diagnostics
 
 import Data.ByteString.Lazy qualified as ByteString
 import Data.Text.Lazy qualified as Text
@@ -30,6 +31,8 @@ import Control.Monad
 import Data.SyntaxError
 import Control.Monad.Except
 import qualified Data.Text.Encoding.Error as TextErr
+import Language.Ribbon.Analysis
+import Data.Diagnostic
 
 
 lexFileWith ::
@@ -50,17 +53,16 @@ parseFileWith p fp = lexFileWith L.doc fp >>= \case
         runExceptT $ mapError pPrint $
             runFileT (evalParserT p ts) fp
 
--- parseFile :: FilePath -> IO ()
--- parseFile fp = do
---     runExceptT (runFileT P.file fp) >>= \case
---         Left diags -> do
---             putStrLn "Diagnostics:"
---             prettyPrint diags
---         Right (g, u) -> do
---             putStrLn "Group:"
---             prettyPrint g
---             putStrLn "UnresolvedImports:"
---             prettyPrint u
+parseFile ::
+    ModuleId -> ItemId -> FilePath ->
+        IO (Either Doc (ParserDefs, [Diagnostic]))
+parseFile mi ii
+    = runExceptT
+    . runDiagnosticsT
+    . flip runContextT mi
+    . P.file ii
+
+
 
 main :: IO ()
 main = putStrLn "Hello, Ribbon!"

@@ -282,7 +282,7 @@ instance Pretty RawDef where
 -- | Raw output from a parser of the body of a use declaration
 data RawUse
     = RawUse
-    { path :: !(ATag Path)
+    { basePath :: !(ATag Path)
     , tree :: !(ATag RawUseTree)
     , alias :: !(Maybe QualifiedName)
     }
@@ -290,9 +290,9 @@ data RawUse
 
 instance Pretty RawUse where
     pPrintPrec lvl _ RawUse{..} =
-        let pd = pPrintPrec lvl 0 path
+        let pd = pPrintPrec lvl 0 basePath
             td = pPrintPrec lvl 0 tree
-        in do if requiresSlash path && not (rawUseTreeIsSingle tree.value)
+        in do if requiresSlash basePath && not (rawUseTreeIsSingle tree.value)
                 then pd </> td
                 else pd <> td
             <+> maybeMEmpty (hang "as" . pPrintPrec lvl 0 <$> alias)
@@ -317,3 +317,30 @@ rawUseTreeIsSingle :: RawUseTree -> Bool
 rawUseTreeIsSingle = \case
     RawUseSingle -> True
     _ -> False
+
+-- | Extract a hidable @PathName@ from a @RawUse@;
+--   this is the path to be ignored by adjacent blobs
+--   Fails if:
+--   + @getPathName@ fails
+hidablePathNameFromUse :: RawUse -> Maybe (ATag PathName)
+hidablePathNameFromUse RawUse{..} =
+    let pathFixName = untag <$> getPathName basePath.value
+        pathCategory = getPathCategory basePath.value
+    in pathFixName <&> \f ->
+            PathName pathCategory f <$ basePath
+
+-- -- | Extract a @PathName@ from a @RawUse@;
+-- --   Fails if:
+-- --   + @getPathName@ fails and @alias@ is @Nothing@
+-- pathNameFromUse :: RawUse -> Maybe (ATag PathName)
+-- pathNameFromUse RawUse{..} =
+--     let pathFixName = untag <$> getPathName path.value
+--         pathCategory = getPathCategory path.value
+--         aliasPathName = alias <&> \a ->
+--             let c = case tree.value of
+--                     RawUseSingle -> Nothing
+--                     _ -> Just ONamespace
+--             in PathName (c <|> pathCategory) a.name.value <$ a.name
+--         pathPathName = pathFixName <&> \f ->
+--             PathName pathCategory f <$ path
+--     in aliasPathName <|> pathPathName

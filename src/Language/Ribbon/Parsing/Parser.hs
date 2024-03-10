@@ -13,6 +13,7 @@ import Data.Word (Word32)
 import Data.Nil
 import Data.Tag
 import Data.Attr
+import Data.Diagnostic
 
 import Control.Applicative
 import Control.Monad.State.Strict
@@ -28,21 +29,24 @@ import Language.Ribbon.Util
 
 
 import Language.Ribbon.Lexical
-import Language.Ribbon.Syntax
 import Control.Monad.Except
 import Data.SyntaxError
 import Data.Function
 
 import Language.Ribbon.Syntax.Raw
-import Language.Ribbon.Syntax.Module()
+import Language.Ribbon.Syntax.Ref
+import Language.Ribbon.Syntax.Scheme
+import Language.Ribbon.Syntax.Kind
+import Language.Ribbon.Syntax.Module (Def(..), ParserDefs, Group, UnresolvedImports)
 import Language.Ribbon.Parsing.Lexer qualified as L
 import Control.Monad.Parser
 import Control.Monad.Builder
-import Language.Ribbon.Analysis()
+import Language.Ribbon.Analysis
 import Control.Monad.Diagnostics
+import qualified Data.List as List
 
 
--- | Marker type for @Has@ ie @Has m [Parse]@ ~ @MonadParser TokenSeq m@
+-- | Marker type for @Has@ ie @Has m '[Parse]@ ~ @MonadParser TokenSeq m@
 data Parse
 
 type instance Has m (Parse ': effs) = (MonadParser TokenSeq m, Has m effs)
@@ -132,32 +136,73 @@ liftError m =
     runExceptT m >>= liftEitherMap pPrint
 
 
-file :: Has m [ ModuleId, ItemId, Diag, FailWith Doc, OS ] =>
-    FilePath -> m (Group, UnresolvedImports)
-file filePath = flip runFileT filePath do
-    liftError (L.lexStreamFromFile filePath)
-        >>= liftError . evalParserT L.doc
-        >>= liftError . evalParserT grabLines
-        >>= namespaceBody
+file :: Has m [ ModuleId, Diag, FailWith Doc, OS ] =>
+    ItemId -> FilePath -> m ParserDefs
+file i filePath = snd <$>
+    flip runContextT i do
+    flip execBuilderT (i + 1, Nil) do
+        flip runFileT filePath do
+            liftError (L.lexStreamFromFile filePath)
+                >>= liftError . evalParserT L.doc
+                >>= liftError . evalParserT grabLines
+                >>= \lns -> do
+                    let at = fileAttr filePath
 
-namespaceBody :: Has m [ ModuleId, FilePath, ItemId, Diag ] =>
-    [TokenSeq] -> m (Group, UnresolvedImports)
-namespaceBody lns = flip runBuilderT Nil $ flip execBuilderT Nil do
-    forM_ lns (errorToDiagnostic . evalParserT item)
+                    (newGroup, newUnresolvedImports) <-
+                        flip runBuilderT Nil $
+                        flip execBuilderT Nil $
+                        flip runContextT (StringFixName filePath) $
+                            namespaceBody lns
+
+                    bindGroup i $
+                        Def Nothing (newGroup :@: at)
+
+                    bindImports i $
+                        Def Nothing (newUnresolvedImports :@: at)
+
+inNewNamespace :: Has m [ Ref, ParserDefs, Diag ] =>
+    Attr -> BuilderT Group (BuilderT UnresolvedImports m) a -> m ItemId
+inNewNamespace at' action = do
+        selfId <- getItemId
+        newNamespaceId <- freshItemId
+
+        (newGroup, newUnresolvedImports) <- useItemId newNamespaceId do
+            runBuilderT (execBuilderT action Nil) Nil
+
+        bindGroup newNamespaceId $
+            Def (Just selfId) (newGroup :@: at')
+
+        bindImports newNamespaceId $
+            Def (Just selfId) (newUnresolvedImports :@: at')
+
+        pure newNamespaceId
+
+namespaceBody :: Has m
+    [ Location, FixName
+    , ParserDefs, Diag, Group, UnresolvedImports
+    ] => [TokenSeq] -> m ()
+namespaceBody lns = do
+    filePath <- getFilePath
+    name <- getFixName
+    currentLocation <- getRef
+    forM_ lns $ errorToDiagnostic
+        (attrFold' (fileAttr filePath) lns)
+        DiagnosticBinder
+            { kind = BadDefinition
+            , ref = currentLocation
+            , name = Just name
+            }
+        . evalParserT item
 
 
 
 item :: Has m
-    [ ModuleId, FilePath, ItemId
-    , Group, UnresolvedImports
+    [ Location
+    , ParserDefs, Group, UnresolvedImports
     , Diag, Parse
     ] => m ()
 item = asum
-    [ useDef >>= todo -- addUseDef
-    , todo -- do
-        -- vis <- option Private visibility
-        -- (fixity, prec, n) <- Todo
-        -- RawDefItem vis fixity prec n <$> def
+    [ tag useDef >>= addUseDef
     ]
 
 -- def :: Has m '[Parse] => m RawDef
@@ -272,6 +317,141 @@ item = asum
 -- valueDef = RdValue <$> grabWhitespaceDomain
 
 
+addUseDef :: Has m
+    [ Location
+    , ParserDefs, Group, UnresolvedImports
+    , Diag
+    ] => ATag (Visible RawUse) -> m ()
+addUseDef (Visible vis use :@: at) =
+    flip runContextT (Nil :: Path) do
+    flip runContextT (Nil :: [ATag PathName]) do
+        addUse vis (use :@: at)
+
+addUse :: Has m
+    [ Location
+    , ParserDefs, Group, UnresolvedImports
+    , Ctx [ATag PathName]
+    , Ctx Path
+    , Diag
+    ] => Visibility -> ATag RawUse -> m ()
+addUse vis (RawUse{..} :@: at) = do
+    previousPath <- getContext @Path
+    maybe
+        do reportErrorRef at BadDefinition ((.name.value) <$> alias) $
+            hang "cannot combine paths in compound use:" do
+                backticked previousPath <+> "and" <+> backticked basePath
+        (useBody . (<$ basePath))
+        (joinPath previousPath basePath.value)
+    where
+    useBody fullPath = case alias of
+        Just newName ->
+            flip runContextT newName.name.value case makeNewName fullPath newName of
+                Just unresolvedName -> case tree.value of
+                    RawUseSingle ->
+                        insertAlias (Visible vis unresolvedName) fullPath
+
+                    -- FIXME: code duplication
+                    RawUseBlob hidden ->
+                        let newFullPath = Maybe.fromJust $
+                                joinPath
+                                    (Path (Just $ PbUp 1 :@: basePath.tag) Nil)
+                                    fullPath.value
+                        in asNewNamespace unresolvedName do
+                            addUseBlob (newFullPath <$ basePath) hidden
+
+                    RawUseBranch subs ->
+                        let newFullPath = Maybe.fromJust $
+                                joinPath
+                                    (Path (Just $ PbUp 1 :@: basePath.tag) Nil)
+                                    fullPath.value
+                        in asNewNamespace unresolvedName do
+                            addUseBranch newFullPath subs
+
+                _ -> getFixName >>= reportInvalidCombo . Just
+
+        _ -> case tree.value of
+            RawUseBranch subs -> addUseBranch fullPath.value subs
+
+            RawUseBlob hidden -> addUseBlob fullPath hidden
+
+            RawUseSingle -> case getPathName fullPath.value of
+                Just name ->
+                    let category = getPathCategory fullPath.value
+                        unresolvedName = UnresolvedName category Nothing name
+                    in insertAlias (Visible vis unresolvedName) fullPath
+
+                _ -> reportInvalidCombo Nothing
+
+    addUseBlob :: Has m
+        [ Location
+        , ParserDefs, Group, UnresolvedImports
+        , Ctx [ATag PathName]
+        , Diag
+        ] => ATag Path -> [ATag PathName] -> m ()
+    addUseBlob fullPath explicit = do
+        context <- getContext
+        insertBlob (Visible vis fullPath)
+            if isNil basePath.value
+                then context <> explicit
+                else explicit
+
+    addUseBranch :: Has m
+        [ Location
+        , ParserDefs, Group, UnresolvedImports
+        , Ctx [ATag PathName]
+        , Ctx Path
+        , Diag
+        ] => Path -> [ATag RawUse] -> m ()
+    addUseBranch fullPath subs = do
+        let (blobs, rest) = subs & List.partition \u ->
+                case u.value.tree.value of
+                    RawUseBlob _ -> True
+                    _ -> False
+
+        -- TODO: should this report overlapping blobs?
+        -- it should get caught in the analysis phase anyways...
+
+        useContext fullPath do
+            names <- Maybe.catMaybes <$> forM rest \u ->
+                hidablePathNameFromUse u.value <$ addUse vis u
+
+            useContext names (forM_ blobs $ addUse vis)
+
+
+
+    asNewNamespace unresolvedName action =
+        case groupFromUnresolvedInCategory Namespace unresolvedName of
+            Just groupName -> do
+                newId <- inNewNamespace
+                    unresolvedName.name.tag
+                    action
+                modId <- getModuleId
+                insertRef (Visible Public groupName) (Ref modId newId)
+            _ -> getFixName >>= reportInvalidCombo . Just
+
+
+    makeNewName fullPath =
+        unresolvedFromQualified case tree.value of
+            RawUseSingle -> getPathCategory fullPath.value
+            _ -> Just ONamespace
+
+    reportInvalidCombo :: Has m '[Ref, Diag] => Maybe FixName -> m ()
+    reportInvalidCombo referenceName = do
+        reportErrorRefH
+            basePath.tag
+            BadDefinition
+            referenceName
+            (text "this use has an invalid alias & path or extension combination")
+            [ hang "potential problems:" $ bulletList
+                [ "you are aliasing a namespace or instance as a"
+                    <+> "non-atomic operator"
+                , "you have not provided an alias, but the tail of the path"
+                    <+> "cannot be used as a symbol,"
+                    <+> "such as certain file names"
+                ]
+            ]
+
+
 useDef :: Has m '[Parse] => m (Visible RawUse)
 useDef = sym "use" >> noFail do visible use where
     use = do
@@ -281,7 +461,7 @@ useDef = sym "use" >> noFail do visible use where
                     do option (RawUseSingle :@: p.tag)
                         if requiresSlash p
                             then do
-                                at <- attrOf $ connected p.tag (sym "/")
+                                at <- attrOf $ connected p.tag (simpleNameOf "/")
                                 noFail (connected at $ tag useTree)
                             else connected p.tag $ tag useTree
                     do alias

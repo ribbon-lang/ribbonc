@@ -11,7 +11,7 @@ import Control.Has
 
 
 
--- | Marker for @Has@, ie @Has m [Ctx c]@ ~ @MonadContext c m@
+-- | Marker for @Has@, ie @Has m '[Ctx c]@ ~ @MonadContext c m@
 data Ctx a
 
 type instance Has m (Ctx c ': effs) = (MonadContext c m, Has m effs)
@@ -57,3 +57,7 @@ instance MonadContext c m => MonadContext c (ExceptT e m) where
 -- | Access the @c@ of a @MonadContext c m@ using a function
 getsContext :: MonadContext c m => (c -> a) -> m a
 getsContext f = f <$> getContext
+
+-- | Overwrite the @c@ of a @MonadContext c m@ with a new value
+useContext :: MonadContext c m => c -> m a -> m a
+useContext = localContext . const

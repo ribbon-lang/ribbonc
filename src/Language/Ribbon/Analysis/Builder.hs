@@ -1,12 +1,46 @@
-module Language.Ribbon.Analysis.Builder where
+module Language.Ribbon.Analysis.Builder
+    ( module X
+    , DefsState
+
+    , MonadDefs
+    , defsState
+    , defsGet
+    , defsPut
+    , defsModify
+    , freshItemId
+    , withFreshItemId
+    , bindGroup
+    , bindQuantifier
+    , bindQualifier
+    , bindField
+    , bindType
+    , bindValue
+    , bindImports
+
+    , MonadGroup
+    , groupState
+    , groupGet
+    , groupPut
+    , groupModify
+    , insertRef
+
+    , MonadImports
+    , importsState
+    , importsGet
+    , importsPut
+    , importsModify
+    , insertAlias
+    , insertBlob
+    )where
 
 import Data.Bifunctor
 
 import Data.Tag
 import Data.Attr
+import Data.Diagnostic
 
 import Control.Monad.Diagnostics.Class
-import Control.Monad.Builder.Class
+import Control.Monad.Builder as X
 import Control.Has
 
 import Text.Pretty
@@ -19,6 +53,8 @@ import Language.Ribbon.Syntax.Scheme
 import Language.Ribbon.Syntax.Data
 import Language.Ribbon.Syntax.Module qualified as M
 import qualified Data.Map.Strict as Map
+
+import Language.Ribbon.Analysis.Context
 
 
 -- | State object for @MonadDefs@
@@ -120,16 +156,20 @@ groupModify = builderModify
 
 
 -- | Insert an unresolved definition by @GroupName@ and @Ref@
-insertRef :: (MonadDiagnostics m, MonadGroup m) =>
+insertRef :: Has m [ Ref, M.Group, Diag ] =>
     Visible GroupName -> Ref -> m ()
 insertRef n r =
     do groupState \g ->
         case M.insertRef n r g of
             Left e -> (Just e, g)
             Right g' -> (Nothing, g')
-    >>= whenJust \(err :@: at) -> reportErrorH
-        do hang ("at" <+> pPrint n.value.value.name.tag) err
-        ["it was first defined here:" <+> pPrint at]
+    >>= whenJust \(err :@: at) ->
+        reportErrorRefH
+            n.value.value.name.tag
+            ConflictingDefinition
+            (Just n.value.value.name.value)
+            err
+            ["it was first defined here:" <+> pPrint at]
 
 
 
@@ -159,20 +199,24 @@ importsModify = builderModify
 
 -- | Insert an unresolved import by @UnresolvedName@ and @Path@;
 --   Creates an error @Diagnostic@ if the name is already bound to an import
-insertAlias :: (MonadDiagnostics m, MonadImports m) =>
-    ATag Path -> Visible UnresolvedName -> m ()
-insertAlias p n =
+insertAlias :: Has m [Ref, M.UnresolvedImports, Diag] =>
+    Visible UnresolvedName -> ATag Path -> m ()
+insertAlias n p =
     do importsState \i ->
-        case M.insertAlias p n i of
+        case M.insertAlias n p i of
             Left e -> (Just e, i)
             Right i' -> (Nothing, i')
-    >>= whenJust \(err :@: at) -> reportErrorH
-        do hang ("at" <+> pPrint n.value.name.tag) err
-        ["it was first defined here:" <+> pPrint at]
+    >>= whenJust \(err :@: at) ->
+        reportErrorRefH
+            n.value.name.tag
+            ConflictingDefinition
+            (Just n.value.name.value)
+            err
+            ["it was first defined here:" <+> pPrint at]
 
 
 -- | Insert an unresolved blob import by @Path@;
 --   This cannot fail, as blobs are allowed to be duplicated
 insertBlob :: MonadImports m =>
-    ATag Path -> [ATag PathName] -> m ()
+    Visible (ATag Path) -> [ATag PathName] -> m ()
 insertBlob p h = importsModify (M.insertBlob p h)

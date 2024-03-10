@@ -215,6 +215,9 @@ liftEitherHandler f = Either.either f pure
 liftEitherMap :: MonadError e m => (a -> e) -> Either a b -> m b
 liftEitherMap f = Either.either (throwError . f) pure
 
+-- | Partition a foldable into two lists using a function returning Either
+partitionMap :: Foldable t => (a -> Either b c) -> t a -> ([b], [c])
+partitionMap f = Either.partitionEithers . foldr ((:) . f) mempty
 
 -- | Either -> Left with exception on Right
 forceLeft :: Either a b -> a
@@ -279,10 +282,6 @@ untilM_ p a = p >>= selecting
 pattern String :: String -> String
 pattern String s = s
 
--- | Force a string literal to be a @Doc@ under @OverloadedStrings@
-pattern Doc :: Doc -> Doc
-pattern Doc s = s
-
 -- | Utility class for the (</>) slash-connection concatenation operator
 class SlashConnect a where
     -- | Concatenate with a slash between the elements
@@ -296,7 +295,7 @@ instance SlashConnect String where
         | otherwise = a <> "/" <> b
 
 instance SlashConnect Doc where
-    (</>) a b = a <> "/" <> b
+    (</>) = joinWith "/"
 
 
 superscript :: Char -> Char

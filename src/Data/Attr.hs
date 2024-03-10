@@ -70,6 +70,17 @@ attrFold :: Foldable t => Attr -> t (ATag a) -> Attr
 attrFold = attrFoldBy tagOf
 
 
+-- | Fold a nested structure containing @ATag@ged items into a single @Attr@,
+--   using a given map function to extract the @Attr@s from elements
+attrFoldBy' :: (Foldable t1, Foldable t2) =>
+    (a -> Attr) -> Attr -> t1 (t2 a) -> Attr
+attrFoldBy' f = foldr (flip $ attrFoldBy f)
+
+-- | Fold a nested structure containing @ATag@ged items into a single @Attr@
+attrFold' :: (Foldable t1, Foldable t2) => Attr -> t1 (t2 (ATag a)) -> Attr
+attrFold' = attrFoldBy' tagOf
+
+
 -- | Create a new @Attr@ with a @Nil@ @Range@, for the given @FilePath@
 fileAttr :: FilePath -> Attr
 fileAttr f = Attr f mempty

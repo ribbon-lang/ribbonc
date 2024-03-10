@@ -2,8 +2,11 @@
 
 module Text.Pretty
     ( module X
+    , pattern Doc
+    , pTraceM, pTracedM, pShownM
     , shown
-    , vcat', vcatDouble, ($++$), with, joinWith, spaceWith, linesWith
+    , vcat', vcatDouble, bulletList, ($++$)
+    , with, joinWith, spaceWith, linesWith
     , hang, qual, qual', qualH
     , qualBrackets, qualParens, qualBraces
     , qualDoubleQuotes, qualQuotes, qualBackticks
@@ -45,7 +48,28 @@ import Control.Applicative
 
 import Data.Nil
 import Data.Traversable
+import Debug.Trace (traceM)
 
+
+
+pTraceM :: Monad m => Pretty a => a -> m ()
+pTraceM = traceM . render . pPrint
+
+pTracedM :: (Monad m, Pretty a) => Doc -> m a -> m a
+pTracedM d m = do
+    pTraceM d
+    a <- m
+    a <$ pTraceM a
+
+pShownM :: (Monad m, Show a) => Doc -> m a -> m a
+pShownM d m = do
+    pTraceM d
+    a <- m
+    a <$ pTraceM (shown a)
+
+-- | Force a string literal to be a @Doc@ under @OverloadedStrings@
+pattern Doc :: Doc -> Doc
+pattern Doc s = s
 
 
 
@@ -260,6 +284,10 @@ shown = text . show
 -- | list version of @($+$)@
 vcat' :: [Doc] -> Doc
 vcat' = foldr ($+$) Nil
+
+-- | Prepend "+" to each element, then combine with @vcat'@
+bulletList :: [Doc] -> Doc
+bulletList = vcat' . fmap ("+" <+>)
 
 -- | Concatenate two documents with double new lines between them
 ($++$) :: Doc -> Doc -> Doc

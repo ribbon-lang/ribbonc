@@ -12,11 +12,12 @@ import Control.Has
 import Text.Pretty
 
 import Language.Ribbon.Util
+import Data.Attr
 
 
 
 
--- | Marker for @Has@, ie @Has m [Diag]@ ~ @MonadDiagnostics m@
+-- | Marker for @Has@, ie @Has m '[Diag]@ ~ @MonadDiagnostics m@
 data Diag
 
 type instance Has m (Diag ': effs) = (MonadDiagnostics m, Has m effs)
@@ -53,38 +54,49 @@ instance MonadDiagnostics m => MonadDiagnostics (ExceptT e m) where
 -- | Report a new @Diagnostic@ using the given @DiagnosticKind@ and
 --   a @Doc@ created from the given item,
 --   with help @Doc@s
-reportH :: (Pretty a, MonadDiagnostics m) => DiagnosticKind -> a -> [Doc] -> m ()
-reportH k a h = reportFull (Diagnostic k (pPrint a) h)
+reportH :: (Pretty a, MonadDiagnostics m) => Attr -> DiagnosticKind -> a -> [Doc] -> m ()
+reportH at k a h = reportFull (Diagnostic at k (pPrint a) h)
 
 -- | Report a new @Error@ @Diagnostic@ using
 --   a @Doc@ created from the given item,
 --   with help @Doc@s
-reportErrorH :: (Pretty a, MonadDiagnostics m) => a -> [Doc] -> m ()
-reportErrorH = reportH Error
+reportErrorH :: (Pretty a, MonadDiagnostics m) => Attr -> DiagnosticBinder -> a -> [Doc] -> m ()
+reportErrorH at = reportH at . Error
 
 -- | Report a new @Warning@ @Diagnostic@ using
 --   a @Doc@ created from the given item,
 --   with help @Doc@s
-reportWarningH :: (Pretty a, MonadDiagnostics m) => a -> [Doc] -> m ()
-reportWarningH = reportH Warning
+reportWarningH :: (Pretty a, MonadDiagnostics m) => Attr -> a -> [Doc] -> m ()
+reportWarningH at = reportH at Warning
 
 -- | Report a new @Diagnostic@ using the given @DiagnosticKind@ and
 --   a @Doc@ created from the given item
-report :: (Pretty a, MonadDiagnostics m) => DiagnosticKind -> a -> m ()
-report k a = reportH k a []
+report :: (Pretty a, MonadDiagnostics m) => Attr -> DiagnosticKind -> a -> m ()
+report at k a = reportH at k a []
 
 -- | Report a new @Error@ @Diagnostic@ using
 --   a @Doc@ created from the given item
-reportError :: (Pretty a, MonadDiagnostics m) => a -> m ()
-reportError = report Error
+reportError :: (Pretty a, MonadDiagnostics m) => Attr -> DiagnosticBinder -> a -> m ()
+reportError at = report at . Error
 
 -- | Report a new @Warning@ @Diagnostic@ using
 --   a @Doc@ created from the given item
-reportWarning :: (Pretty a, MonadDiagnostics m) => a -> m ()
-reportWarning = report Warning
+reportWarning :: (Pretty a, MonadDiagnostics m) => Attr -> a -> m ()
+reportWarning at = report at Warning
 
 
 -- | Run an @ExceptT e m ()@ computation,
 --   using @Pretty@ to convert @e@ to @Error@ @Diagnostic@s in @m@
-errorToDiagnostic :: (MonadDiagnostics m, Pretty e) => ExceptT e m ()  -> m ()
-errorToDiagnostic m = runExceptT m >>= liftEitherHandler reportError
+errorToDiagnostic :: (MonadDiagnostics m, Pretty e) =>
+    Attr -> DiagnosticBinder -> ExceptT e m () -> m ()
+errorToDiagnostic at b m =
+    runExceptT m >>= liftEitherHandler (reportFull . diagnosticFromError at b)
+
+-- | Run an @ExceptT e m a@ computation,
+--   using @Pretty@ to convert @e@ to @Error@ @Diagnostic@s in @m@,
+--   and a provided function to extract an @Attr@ from @e@ for the @Diagnostic@
+errorExtractToDiagnostic :: (MonadDiagnostics m, Pretty e) =>
+    (e -> Attr) -> DiagnosticBinder -> ExceptT e m () -> m ()
+errorExtractToDiagnostic at b m =
+    runExceptT m >>= liftEitherHandler do
+        reportFull . \e -> diagnosticFromError (at e) b e

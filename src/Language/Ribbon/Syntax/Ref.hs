@@ -25,4 +25,6 @@ data Ref
 
 instance Pretty Ref where
     pPrintPrec _ _ (Ref m e) =
-        pPrint m <> "." <> pPrint e
+        joinWith "↓"
+            (pPrint m)
+            (pPrint e)
