@@ -3,7 +3,7 @@ module Language.Ribbon.Util where
 import Data.Foldable
 
 import Control.Applicative
-import Control.Monad.Except
+import Control.Monad.Error.Dynamic
 
 import Data.List qualified as List
 import Data.Maybe qualified as Maybe
@@ -200,10 +200,10 @@ maybeEmpty = Maybe.maybe empty pure
 maybeMEmpty :: Monoid a => Maybe a -> a
 maybeMEmpty = Maybe.fromMaybe mempty
 
--- | ExceptT based error mapping
-mapError :: (Functor m) => (e -> e') -> ExceptT e m a -> ExceptT e' m a
-mapError f m = ExceptT do
-    runExceptT m <&> \case
+-- | ErrorT based error mapping
+mapError :: (Functor m) => (e -> e') -> ErrorT e m a -> ErrorT e' m a
+mapError f m = ErrorT do
+    runErrorT m <&> \case
         Left e -> Left (f e)
         Right a -> Right a
 

@@ -1,12 +1,11 @@
 module Control.Monad.Diagnostics.Class where
 import Data.Diagnostic
 
-import Control.Monad.State.Strict qualified as Strict
-import Control.Monad.State.Lazy qualified as Lazy
-import Control.Monad.Writer.Strict qualified as Strict
-import Control.Monad.Writer.Lazy qualified as Lazy
-import Control.Monad.Reader
-import Control.Monad.Except
+import Control.Monad.Trans.Dynamic
+import Control.Monad.State.Dynamic
+import Control.Monad.Writer.Dynamic
+import Control.Monad.Reader.Dynamic
+import Control.Monad.Error.Dynamic
 import Control.Has
 
 import Text.Pretty
@@ -28,24 +27,17 @@ class Monad m => MonadDiagnostics m where
     -- | Report a @Diagnostic@
     reportFull :: Diagnostic -> m ()
 
-instance MonadDiagnostics m => MonadDiagnostics (Strict.StateT s m) where
-    reportFull = lift . reportFull
-
-instance MonadDiagnostics m => MonadDiagnostics (Lazy.StateT s m) where
+instance MonadDiagnostics m => MonadDiagnostics (StateT s m) where
     reportFull = lift . reportFull
 
 instance (Monoid w, MonadDiagnostics m)
-    => MonadDiagnostics (Strict.WriterT w m) where
-        reportFull = lift . reportFull
-
-instance (Monoid w, MonadDiagnostics m)
-    => MonadDiagnostics (Lazy.WriterT w m) where
+    => MonadDiagnostics (WriterT w m) where
         reportFull = lift . reportFull
 
 instance MonadDiagnostics m => MonadDiagnostics (ReaderT r m) where
     reportFull = lift . reportFull
 
-instance MonadDiagnostics m => MonadDiagnostics (ExceptT e m) where
+instance MonadDiagnostics m => MonadDiagnostics (ErrorT e m) where
     reportFull = lift . reportFull
 
 
@@ -85,18 +77,18 @@ reportWarning :: (Pretty a, MonadDiagnostics m) => Attr -> a -> m ()
 reportWarning at = report at Warning
 
 
--- | Run an @ExceptT e m ()@ computation,
+-- | Run an @ErrorT e m ()@ computation,
 --   using @Pretty@ to convert @e@ to @Error@ @Diagnostic@s in @m@
-errorToDiagnostic :: (MonadDiagnostics m, Pretty e) =>
-    Attr -> DiagnosticBinder -> ExceptT e m () -> m ()
+errorToDiagnostic :: forall e m. (MonadDiagnostics m, Pretty e) =>
+    Attr -> DiagnosticBinder -> ErrorT e m () -> m ()
 errorToDiagnostic at b m =
-    runExceptT m >>= liftEitherHandler (reportFull . diagnosticFromError at b)
+    runErrorT m >>= liftEitherHandler (reportFull . diagnosticFromError at b)
 
--- | Run an @ExceptT e m a@ computation,
+-- | Run an @ErrorT e m a@ computation,
 --   using @Pretty@ to convert @e@ to @Error@ @Diagnostic@s in @m@,
 --   and a provided function to extract an @Attr@ from @e@ for the @Diagnostic@
-errorExtractToDiagnostic :: (MonadDiagnostics m, Pretty e) =>
-    (e -> Attr) -> DiagnosticBinder -> ExceptT e m () -> m ()
+errorExtractToDiagnostic :: forall e m. (MonadDiagnostics m, Pretty e) =>
+    (e -> Attr) -> DiagnosticBinder -> ErrorT e m () -> m ()
 errorExtractToDiagnostic at b m =
-    runExceptT m >>= liftEitherHandler do
+    runErrorT m >>= liftEitherHandler do
         reportFull . \e -> diagnosticFromError (at e) b e

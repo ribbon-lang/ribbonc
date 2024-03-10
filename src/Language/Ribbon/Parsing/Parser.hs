@@ -16,11 +16,12 @@ import Data.Attr
 import Data.Diagnostic
 
 import Control.Applicative
-import Control.Monad.State.Strict
+import Control.Monad
+import Control.Monad.Trans.Dynamic
+
 
 import Control.Monad.File
 import Control.Monad.Parser.Class
-import Control.Has
 
 import Text.Pretty hiding (parens, brackets, backticks, braces, cat)
 import Text.Pretty qualified as Pretty
@@ -29,7 +30,7 @@ import Language.Ribbon.Util
 
 
 import Language.Ribbon.Lexical
-import Control.Monad.Except
+import Control.Monad.Error.Dynamic
 import Data.SyntaxError
 import Data.Function
 
@@ -40,11 +41,11 @@ import Language.Ribbon.Syntax.Kind
 import Language.Ribbon.Syntax.Module (Def(..), ParserDefs, Group, UnresolvedImports)
 import Language.Ribbon.Parsing.Lexer qualified as L
 import Control.Monad.Parser
-import Control.Monad.Builder
+import Control.Monad.State.Dynamic
 import Language.Ribbon.Analysis
 import Control.Monad.Diagnostics
 import qualified Data.List as List
-
+import Control.Has
 
 -- | Marker type for @Has@ ie @Has m '[Parse]@ ~ @MonadParser TokenSeq m@
 data Parse
@@ -131,27 +132,27 @@ moduleHead = expecting "a valid module header" do
         alias <- optional (sym "as" >> noFail (tag simpleName))
         pure (moduleName, moduleVersion, alias)
 
-liftError :: Has m [ FailWith Doc, With '[Pretty e] ] => ExceptT e m a -> m a
+liftError :: forall e m a. Has m [ Err Doc, With '[Pretty e] ] => ErrorT e m a -> m a
 liftError m =
-    runExceptT m >>= liftEitherMap pPrint
+    runErrorT m >>= liftEitherMap pPrint
 
 
-file :: Has m [ ModuleId, Diag, FailWith Doc, OS ] =>
+file :: Has m [ ModuleId, Diag, Err Doc, OS ] =>
     ItemId -> FilePath -> m ParserDefs
 file i filePath = snd <$>
-    flip runContextT i do
-    flip execBuilderT (i + 1, Nil) do
+    flip runReaderT i do
+    flip execStateT (i + 1, Nil) do
         flip runFileT filePath do
-            liftError (L.lexStreamFromFile filePath)
-                >>= liftError . evalParserT L.doc
-                >>= liftError . evalParserT grabLines
+            L.lexStreamFromFile filePath
+                >>= liftError @SyntaxError . evalParserT L.doc
+                >>= liftError @SyntaxError . evalParserT grabLines
                 >>= \lns -> do
                     let at = fileAttr filePath
 
                     (newGroup, newUnresolvedImports) <-
-                        flip runBuilderT Nil $
-                        flip execBuilderT Nil $
-                        flip runContextT (StringFixName filePath) $
+                        flip runStateT Nil $
+                        flip execStateT Nil $
+                        flip runReaderT (StringFixName filePath) $
                             namespaceBody lns
 
                     bindGroup i $
@@ -161,13 +162,13 @@ file i filePath = snd <$>
                         Def Nothing (newUnresolvedImports :@: at)
 
 inNewNamespace :: Has m [ Ref, ParserDefs, Diag ] =>
-    Attr -> BuilderT Group (BuilderT UnresolvedImports m) a -> m ItemId
+    Attr -> StateT Group (StateT UnresolvedImports m) a -> m ItemId
 inNewNamespace at' action = do
         selfId <- getItemId
         newNamespaceId <- freshItemId
 
-        (newGroup, newUnresolvedImports) <- useItemId newNamespaceId do
-            runBuilderT (execBuilderT action Nil) Nil
+        (newGroup, newUnresolvedImports) <- usingItemId newNamespaceId do
+            runStateT (execStateT action Nil) Nil
 
         bindGroup newNamespaceId $
             Def (Just selfId) (newGroup :@: at')
@@ -185,7 +186,7 @@ namespaceBody lns = do
     filePath <- getFilePath
     name <- getFixName
     currentLocation <- getRef
-    forM_ lns $ errorToDiagnostic
+    forM_ lns $ errorToDiagnostic @SyntaxError
         (attrFold' (fileAttr filePath) lns)
         DiagnosticBinder
             { kind = BadDefinition
@@ -323,19 +324,19 @@ addUseDef :: Has m
     , Diag
     ] => ATag (Visible RawUse) -> m ()
 addUseDef (Visible vis use :@: at) =
-    flip runContextT (Nil :: Path) do
-    flip runContextT (Nil :: [ATag PathName]) do
+    flip runReaderT (Nil :: Path) do
+    flip runReaderT (Nil :: [ATag PathName]) do
         addUse vis (use :@: at)
 
 addUse :: Has m
     [ Location
     , ParserDefs, Group, UnresolvedImports
-    , Ctx [ATag PathName]
-    , Ctx Path
+    , Rd [ATag PathName]
+    , Rd Path
     , Diag
     ] => Visibility -> ATag RawUse -> m ()
 addUse vis (RawUse{..} :@: at) = do
-    previousPath <- getContext @Path
+    previousPath <- ask @Path
     maybe
         do reportErrorRef at BadDefinition ((.name.value) <$> alias) $
             hang "cannot combine paths in compound use:" do
@@ -345,7 +346,7 @@ addUse vis (RawUse{..} :@: at) = do
     where
     useBody fullPath = case alias of
         Just newName ->
-            flip runContextT newName.name.value case makeNewName fullPath newName of
+            flip runReaderT newName.name.value case makeNewName fullPath newName of
                 Just unresolvedName -> case tree.value of
                     RawUseSingle ->
                         insertAlias (Visible vis unresolvedName) fullPath
@@ -385,11 +386,11 @@ addUse vis (RawUse{..} :@: at) = do
     addUseBlob :: Has m
         [ Location
         , ParserDefs, Group, UnresolvedImports
-        , Ctx [ATag PathName]
+        , Rd [ATag PathName]
         , Diag
         ] => ATag Path -> [ATag PathName] -> m ()
     addUseBlob fullPath explicit = do
-        context <- getContext
+        context <- ask
         insertBlob (Visible vis fullPath)
             if isNil basePath.value
                 then context <> explicit
@@ -398,8 +399,8 @@ addUse vis (RawUse{..} :@: at) = do
     addUseBranch :: Has m
         [ Location
         , ParserDefs, Group, UnresolvedImports
-        , Ctx [ATag PathName]
-        , Ctx Path
+        , Rd [ATag PathName]
+        , Rd Path
         , Diag
         ] => Path -> [ATag RawUse] -> m ()
     addUseBranch fullPath subs = do
@@ -411,11 +412,11 @@ addUse vis (RawUse{..} :@: at) = do
         -- TODO: should this report overlapping blobs?
         -- it should get caught in the analysis phase anyways...
 
-        useContext fullPath do
+        using fullPath do
             names <- Maybe.catMaybes <$> forM rest \u ->
                 hidablePathNameFromUse u.value <$ addUse vis u
 
-            useContext names (forM_ blobs $ addUse vis)
+            using names (forM_ blobs $ addUse vis)
 
 
 

@@ -5,13 +5,13 @@ module Language.Ribbon.Analysis.Context
     , getModuleId
     , getsModuleId
     , localModuleId
-    , useModuleId
+    , usingModuleId
 
     , MonadItem
     , getItemId
     , getsItemId
     , localItemId
-    , useItemId
+    , usingItemId
 
     , MonadRef
     , getRef
@@ -22,7 +22,7 @@ module Language.Ribbon.Analysis.Context
     , getFixName
     , getsFixName
     , localFixName
-    , useFixName
+    , usingFixName
     , reportErrorRefName
     , reportErrorRefNameH
 
@@ -35,7 +35,7 @@ import Data.Attr
 import Data.Diagnostic
 
 import Control.Monad.Diagnostics.Class
-import Control.Monad.Context as X
+import Control.Monad.Reader.Dynamic as X
 import Control.Has
 
 import Text.Pretty
@@ -46,48 +46,48 @@ import Control.Monad.File.Class
 
 
 
--- | @MonadContext ModuleId@
-type MonadModule = MonadContext ModuleId
+-- | @MonadReader ModuleId@
+type MonadModule = MonadReader ModuleId
 
 type instance Has m (ModuleId ': effs) = (MonadModule m, Has m effs)
 
--- | @getContext@ specialized to @ModuleId@
+-- | @ask@ specialized to @ModuleId@
 getModuleId :: MonadModule m => m ModuleId
-getModuleId = getContext
+getModuleId = ask
 
--- | @getsContext@ specialized to @ModuleId@
+-- | @asks@ specialized to @ModuleId@
 getsModuleId :: MonadModule m => (ModuleId -> a) -> m a
-getsModuleId = getsContext
+getsModuleId = asks
 
--- | @localContext@ specialized to @ModuleId@
+-- | @local@ specialized to @ModuleId@
 localModuleId :: MonadModule m => (ModuleId -> ModuleId) -> m a -> m a
-localModuleId = localContext
+localModuleId = local
 
--- | @useContext specialized to @ModuleId@
-useModuleId :: MonadModule m => ModuleId -> m a -> m a
-useModuleId = useContext
+-- | @using@ specialized to @ModuleId@
+usingModuleId :: MonadModule m => ModuleId -> m a -> m a
+usingModuleId = using
 
 
--- | @MonadContext ItemId@
-type MonadItem = MonadContext ItemId
+-- | @MonadReader ItemId@
+type MonadItem = MonadReader ItemId
 
 type instance Has m (ItemId ': effs) = (MonadItem m, Has m effs)
 
--- | @getContext@ specialized to @ItemId@
+-- | @ask@ specialized to @ItemId@
 getItemId :: MonadItem m => m ItemId
-getItemId = getContext
+getItemId = ask
 
--- | @getsContext@ specialized to @ItemId@
+-- | @asks@ specialized to @ItemId@
 getsItemId :: MonadItem m => (ItemId -> a) -> m a
-getsItemId = getsContext
+getsItemId = asks
 
--- | @localContext@ specialized to @ItemId@
+-- | @local@ specialized to @ItemId@
 localItemId :: MonadItem m => (ItemId -> ItemId) -> m a -> m a
-localItemId = localContext
+localItemId = local
 
--- | @useContext@ specialized to @ItemId@
-useItemId :: MonadItem m => ItemId -> m a -> m a
-useItemId = useContext
+-- | @using@ specialized to @ItemId@
+usingItemId :: MonadItem m => ItemId -> m a -> m a
+usingItemId = using
 
 
 -- | Combination of @MonadModule@ and @MonadItem@
@@ -121,26 +121,26 @@ reportErrorRefH at kind name doc help = do
 
 
 
--- | @MonadContext FixName@
-type MonadFixName = MonadContext FixName
+-- | @MonadReader FixName@
+type MonadFixName = MonadReader FixName
 
 type instance Has m (FixName ': effs) = (MonadFixName m, Has m effs)
 
--- | @getContext@ specialized to @FixName@
+-- | @ask@ specialized to @FixName@
 getFixName :: MonadFixName m => m FixName
-getFixName = getContext
+getFixName = ask
 
--- | @getsContext@ specialized to @FixName@
+-- | @asks@ specialized to @FixName@
 getsFixName :: MonadFixName m => (FixName -> a) -> m a
-getsFixName = getsContext
+getsFixName = asks
 
--- | @localContext@ specialized to @FixName@
+-- | @local@ specialized to @FixName@
 localFixName :: MonadFixName m => (FixName -> FixName) -> m a -> m a
-localFixName = localContext
+localFixName = local
 
--- | @useContext@ specialized to @FixName@
-useFixName :: MonadFixName m => FixName -> m a -> m a
-useFixName = useContext
+-- | @using@ specialized to @FixName@
+usingFixName :: MonadFixName m => FixName -> m a -> m a
+usingFixName = using
 
 -- | New error @Diagnostic@ using
 --   the current result of @getFixName@ and @getRef@

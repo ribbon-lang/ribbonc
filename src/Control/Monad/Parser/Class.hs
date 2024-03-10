@@ -9,18 +9,18 @@ import Data.Nil
 import Data.SyntaxError
 
 import Control.Applicative
-import Control.Monad.State.Strict qualified as Strict
-import Control.Monad.State.Lazy qualified as Lazy
-import Control.Monad.Writer.Strict qualified as Strict
-import Control.Monad.Writer.Lazy qualified as Lazy
-import Control.Monad.Except
-import Control.Monad.Reader
+import Control.Monad.Trans.Dynamic
+import Control.Monad.State.Dynamic
+import Control.Monad.Writer.Dynamic
+import Control.Monad.Error.Dynamic
+import Control.Monad.Reader.Dynamic
 import Control.Monad.File.Class
 import Control.Has
 
 import Text.Pretty
 
 import Language.Ribbon.Util
+import Control.Monad
 
 
 
@@ -54,7 +54,7 @@ type MonadSyntaxError m = (MonadError SyntaxError m, MonadFail m)
 type instance Has m (SyntaxError ': effs) = (MonadSyntaxError m, Has m effs)
 
 type MonadParserBase x m
-    = ( Alternative m, MonadPlus m
+    = ( MonadPlus m
       , MonadSyntaxError m, MonadFile m
       , ParseInput x
       )
@@ -66,16 +66,10 @@ class MonadParserBase x m => MonadParser x m | m -> x where
         --   associated with the current parser action
         parseState :: (x -> (a, x)) -> m a
 
-instance MonadParser x m => MonadParser x (Strict.StateT s m) where
+instance MonadParser x m => MonadParser x (StateT s m) where
     parseState = lift . parseState
 
-instance MonadParser x m => MonadParser x (Lazy.StateT s m) where
-    parseState = lift . parseState
-
-instance (Monoid w, MonadParser x m) => MonadParser x (Strict.WriterT w m) where
-    parseState = lift . parseState
-
-instance (Monoid w, MonadParser x m) => MonadParser x (Lazy.WriterT w m) where
+instance (Monoid w, MonadParser x m) => MonadParser x (WriterT w m) where
     parseState = lift . parseState
 
 instance MonadParser x m => MonadParser x (ReaderT r m) where
@@ -109,7 +103,7 @@ modifyParseState f = parseState \ts -> ((), f ts)
 recurseParserAll :: MonadParser x m => m a -> x -> m a
 recurseParserAll px toks = do
     ts <- parseState (, toks)
-    a <- consumesAll px `catchError` \e -> do
+    a <- catchError @SyntaxError (consumesAll px) \e -> do
         putParseState ts
         throwError e
     a <$ putParseState ts
@@ -118,7 +112,7 @@ recurseParserAll px toks = do
 recurseParser :: MonadParser x m => m a -> x -> m (a, x)
 recurseParser px toks = do
     ts <- parseState (, toks)
-    a <- px `catchError` \e -> do
+    a <- catchError @SyntaxError px \e -> do
         putParseState ts
         throwError e
     ts' <- parseState (, ts)
@@ -379,7 +373,7 @@ lookahead p = do
 negativeLookahead :: MonadParser x m => m a -> m ()
 negativeLookahead p = do
     ps <- getParseState
-    ok <- (False <$ p) `catchError` \_ -> True <$ putParseState ps
+    ok <- catchError @SyntaxError (False <$ p) \_ -> True <$ putParseState ps
     unless ok do
         fp <- getFilePath
         throwError $ SyntaxError Recoverable $ formatInput fp ps

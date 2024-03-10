@@ -21,11 +21,11 @@ import Language.Ribbon.Lexical.Literal
 import Language.Ribbon.Lexical.Path
 import Language.Ribbon.Lexical.Version
 import Language.Ribbon.Parsing.Text
-import Control.Monad.State (evalState)
-import Control.Monad.State.Class
+import Control.Monad.State.Dynamic
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Control.Applicative
+import Data.Functor.Identity
 
 -- | A lexical sequence of @Token@s ready for parsing
 type TokenSeq = Seq (ATag Token)
@@ -63,7 +63,7 @@ instance (Applicative m, MonadState BlockCounter m) => PrettyWith m Token where
 
 instance Pretty Token where
     pPrintPrec lvl prec t =
-        evalState (pPrintPrecWith lvl prec t) emptyBlockCounter
+        runIdentity $ evalStateT (pPrintPrecWith lvl prec t) emptyBlockCounter
 
 instance MonadState BlockCounter m => PrettyWith m TokenSeq where
     pPrintPrecWith lvl _ ts = fmap hsep do
@@ -76,7 +76,7 @@ instance MonadState BlockCounter m => PrettyWith m TokenSeq where
 
 instance Pretty TokenSeq where
     pPrintPrec lvl p ts =
-        evalState (pPrintPrecWith lvl p ts) emptyBlockCounter
+        runIdentity $ evalStateT (pPrintPrecWith lvl p ts) emptyBlockCounter
 
 
 data BlockKind
@@ -104,8 +104,8 @@ emptyBlockCounter = Map.fromList
 blockPrintWith :: MonadState BlockCounter m =>
     PrettyLevel -> BlockKind -> TokenSeq -> m Doc
 blockPrintWith lvl k ts = do
-    i <- fmap superscript . show <$> gets (Map.! k)
-    modify (Map.adjust (+1) k)
+    i <- fmap superscript . show <$> gets @BlockCounter (Map.! k)
+    modify @BlockCounter (Map.adjust (+1) k)
     (text i <>) . (<> text i) <$> case k of
         BkParen -> parens <$> pPrintPrecWith lvl 0 ts
         BkBrace -> braces <$> pPrintPrecWith lvl 0 ts
@@ -117,7 +117,7 @@ blockPrintWith lvl k ts = do
 
 blockPrint :: PrettyLevel -> BlockKind -> TokenSeq -> Doc
 blockPrint lvl k ts =
-    evalState (blockPrintWith lvl k ts) emptyBlockCounter
+    runIdentity $ evalStateT (blockPrintWith lvl k ts) emptyBlockCounter
 
 
 -- | Check if a token terminates expressions (ie @,@, @}@ etc)

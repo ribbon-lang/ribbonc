@@ -40,7 +40,7 @@ import Data.Attr
 import Data.Diagnostic
 
 import Control.Monad.Diagnostics.Class
-import Control.Monad.Builder as X
+import Control.Monad.State.Dynamic as X
 import Control.Has
 
 import Text.Pretty
@@ -60,27 +60,27 @@ import Language.Ribbon.Analysis.Context
 -- | State object for @MonadDefs@
 type DefsState = (ItemId, M.ParserDefs)
 
--- | @MonadBuilder ParserDefs@
-type MonadDefs = MonadBuilder DefsState
+-- | @MonadState ParserDefs@
+type MonadDefs = MonadState DefsState
 
 type instance Has m (M.ParserDefs ': effs) = (MonadDefs m, Has m effs)
 
--- | @builderState@ specialized to @ParserDefs@
+-- | @state@ specialized to @ParserDefs@
 defsState :: MonadDefs m =>
     (DefsState -> (a, DefsState)) -> m a
-defsState = builderState
+defsState = state
 
--- | @builderGet@ specialized to @ParserDefs@
+-- | @get@ specialized to @ParserDefs@
 defsGet :: MonadDefs m => m DefsState
-defsGet = builderGet
+defsGet = get
 
--- | @builderPut@ specialized to @ParserDefs@
+-- | @put@ specialized to @ParserDefs@
 defsPut :: MonadDefs m => DefsState -> m ()
-defsPut = builderPut
+defsPut = put
 
--- | @builderModify@ specialized to @ParserDefs@
+-- | @modify@ specialized to @ParserDefs@
 defsModify :: MonadDefs m => (DefsState -> DefsState) -> m ()
-defsModify = builderModify
+defsModify = modify
 
 
 -- | Get a fresh @ItemId@
@@ -131,28 +131,28 @@ bindImports eid def = defsModify $ second \defs ->
 
 
 
--- | @MonadBuilder Group@
-type MonadGroup = MonadBuilder M.Group
+-- | @MonadState Group@
+type MonadGroup = MonadState M.Group
 
 type instance Has m (M.Group ': effs) = (MonadGroup m, Has m effs)
 
--- | @builderState@ specialized to @Group@
+-- | @state@ specialized to @Group@
 groupState :: MonadGroup m =>
     (M.Group -> (a, M.Group)) -> m a
-groupState = builderState
+groupState = state
 
--- | @builderGet@ specialized to @Group@
+-- | @get@ specialized to @Group@
 groupGet :: MonadGroup m => m M.Group
-groupGet = builderGet
+groupGet = get
 
--- | @builderPut@ specialized to @Group@
+-- | @put@ specialized to @Group@
 groupPut :: MonadGroup m => M.Group -> m ()
-groupPut = builderPut
+groupPut = put
 
--- | @builderModify@ specialized to @Group@
+-- | @modify@ specialized to @Group@
 groupModify :: MonadGroup m =>
     (M.Group -> M.Group) -> m ()
-groupModify = builderModify
+groupModify = modify
 
 
 -- | Insert an unresolved definition by @GroupName@ and @Ref@
@@ -173,28 +173,28 @@ insertRef n r =
 
 
 
--- | @MonadBuilder UnresolvedImports@
-type MonadImports = MonadBuilder M.UnresolvedImports
+-- | @MonadState UnresolvedImports@
+type MonadImports = MonadState M.UnresolvedImports
 
 type instance Has m (M.UnresolvedImports ': effs) = (MonadImports m, Has m effs)
 
--- | @builderState@ specialized to @UnresolvedImports@
+-- | @state@ specialized to @UnresolvedImports@
 importsState :: MonadImports m =>
     (M.UnresolvedImports -> (a, M.UnresolvedImports)) -> m a
-importsState = builderState
+importsState = state
 
--- | @builderGet@ specialized to @UnresolvedImports@
+-- | @get@ specialized to @UnresolvedImports@
 importsGet :: MonadImports m => m M.UnresolvedImports
-importsGet = builderGet
+importsGet = get
 
--- | @builderPut@ specialized to @UnresolvedImports@
+-- | @put@ specialized to @UnresolvedImports@
 importsPut :: MonadImports m => M.UnresolvedImports -> m ()
-importsPut = builderPut
+importsPut = put
 
--- | @builderModify@ specialized to @UnresolvedImports@
+-- | @modify@ specialized to @UnresolvedImports@
 importsModify :: MonadImports m =>
     (M.UnresolvedImports -> M.UnresolvedImports) -> m ()
-importsModify = builderModify
+importsModify = modify
 
 
 -- | Insert an unresolved import by @UnresolvedName@ and @Path@;

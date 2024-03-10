@@ -1,11 +1,10 @@
 module Control.Monad.File.Class where
 
-import Control.Monad.State.Strict qualified as Strict
-import Control.Monad.State.Lazy qualified as Lazy
-import Control.Monad.Writer.Strict qualified as Strict
-import Control.Monad.Writer.Lazy qualified as Lazy
-import Control.Monad.Reader
-import Control.Monad.Except
+import Control.Monad.Trans.Dynamic
+import Control.Monad.State.Dynamic
+import Control.Monad.Writer.Dynamic
+import Control.Monad.Reader.Dynamic
+import Control.Monad.Error.Dynamic
 import Control.Has
 
 
@@ -20,26 +19,19 @@ class Monad m => MonadFile m where
     getFilePath :: m FilePath
 
 
-instance MonadFile m => MonadFile (Strict.StateT s m) where
-    withFilePath fp (Strict.StateT m) = Strict.StateT (withFilePath fp . m)
+instance MonadFile m => MonadFile (StateT s m) where
+    withFilePath fp (StateT m) = StateT (withFilePath fp . m)
     getFilePath = lift getFilePath
 
-instance MonadFile m => MonadFile (Lazy.StateT s m) where
-    withFilePath fp (Lazy.StateT m) = Lazy.StateT (withFilePath fp . m)
-    getFilePath = lift getFilePath
 
-instance (Monoid w, MonadFile m) => MonadFile (Strict.WriterT w m) where
-    withFilePath fp (Strict.WriterT m) = Strict.WriterT (withFilePath fp m)
-    getFilePath = lift getFilePath
-
-instance (Monoid w, MonadFile m) => MonadFile (Lazy.WriterT w m) where
-    withFilePath fp (Lazy.WriterT m) = Lazy.WriterT (withFilePath fp m)
+instance (Monoid w, MonadFile m) => MonadFile (WriterT w m) where
+    withFilePath fp (WriterT m) = WriterT (withFilePath fp m)
     getFilePath = lift getFilePath
 
 instance MonadFile m => MonadFile (ReaderT r m) where
     withFilePath fp (ReaderT m) = ReaderT (withFilePath fp . m)
     getFilePath = lift getFilePath
 
-instance MonadFile m => MonadFile (ExceptT e m) where
-    withFilePath fp (ExceptT m) = ExceptT (withFilePath fp m)
+instance MonadFile m => MonadFile (ErrorT e m) where
+    withFilePath fp (ErrorT m) = ErrorT (withFilePath fp m)
     getFilePath = lift getFilePath

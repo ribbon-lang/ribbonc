@@ -1,6 +1,5 @@
 module Control.Monad.Parser
     ( module X
-    , Parser, runParser, evalParser
     , ParserT, runParserT, evalParserT
     ) where
 
@@ -8,25 +7,22 @@ import Data.Tag
 import Data.SyntaxError
 
 import Control.Applicative
-import Control.Monad.Error.Class
-import Control.Monad.Reader.Class
-import Control.Monad.State.Strict
-import Control.Monad.Writer.Class
+import Control.Monad
+import Control.Monad.IO.Class
+import Control.Monad.Trans.Dynamic
+import Control.Monad.Error.Dynamic.Class
+import Control.Monad.Reader.Dynamic.Class
+import Control.Monad.State.Dynamic
+import Control.Monad.Writer.Dynamic.Class
 
 import Control.Monad.Parser.Class as X
 
 import Control.Monad.File
 import Control.Monad.Diagnostics.Class
-import Control.Monad.Context.Class
-import Control.Monad.Builder.Class
 
 import Text.Pretty
 
 
-
-
--- | A shortcut alias for a basic parser with a @FileT@ and @Either SyntaxError@
-type Parser i = ParserT i (FileT (Either SyntaxError))
 
 -- | Parsing monad
 newtype ParserT i m a
@@ -43,8 +39,6 @@ newtype ParserT i m a
 deriving instance MonadReader r m => MonadReader r (ParserT i m)
 deriving instance MonadError e m => MonadError e (ParserT i m)
 deriving instance MonadWriter w m => MonadWriter w (ParserT i m)
-deriving instance MonadBuilder s m => MonadBuilder s (ParserT i m)
-deriving instance MonadContext c m => MonadContext c (ParserT i m)
 
 instance ( MonadError SyntaxError m, MonadFile m
          , ParseInput i
@@ -76,8 +70,6 @@ instance (ParseInput i, MonadError SyntaxError m, MonadFile m)
                 SingleFailure (text msg) :@: attrInput fp ts
 
 instance MonadState s m => MonadState s (ParserT i m) where
-    get = ParserT (lift get)
-    put = ParserT . lift . put
     state = ParserT . lift . state
 
 instance (ParseInput i, MonadError SyntaxError m, MonadFile m)
@@ -99,15 +91,3 @@ evalParserT :: (ParseInput i, MonadError SyntaxError m, MonadFile m) =>
 evalParserT px toks =
     fst <$> runParserT (consumesAll px) toks
 
-
-
-
--- | Run a parser on a given @FilePath@ and @ParseInput@
-runParser :: Parser i a -> FilePath -> i -> Either SyntaxError (a, i)
-runParser px fp toks = runFileT (runParserT px toks) fp
-
--- | Evaluate a parser on a given @FilePath@ and @ParseInput@,
---   discarding the final input after ensuring it @isNil@
-evalParser :: ParseInput i =>
-    Parser i a -> FilePath -> i -> Either SyntaxError a
-evalParser px fp toks = fst <$> runParser (consumesAll px) fp toks

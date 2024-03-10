@@ -29,37 +29,37 @@ import Control.Monad.Parser
 import Language.Ribbon.Parsing.Parser qualified as P
 import Control.Monad
 import Data.SyntaxError
-import Control.Monad.Except
+import Control.Monad.Error.Dynamic
 import qualified Data.Text.Encoding.Error as TextErr
 import Language.Ribbon.Analysis
 import Data.Diagnostic
 
 
 lexFileWith ::
-    ParserT L.LexStream (FileT (ExceptT SyntaxError IO)) a
+    ParserT L.LexStream (FileT (ErrorT SyntaxError IO)) a
         -> FilePath -> IO (Either Doc a)
-lexFileWith p fp = runExceptT do
+lexFileWith p fp = runErrorT do
     lx <- L.lexStreamFromFile fp
     mapError pPrint $ runFileT (evalParserT p lx) fp
 
 parseFileWith ::
-    ParserT TokenSeq (FileT (ExceptT SyntaxError IO)) a
+    ParserT TokenSeq (FileT (ErrorT SyntaxError IO)) a
         -> FilePath -> IO (Either Doc a)
 parseFileWith p fp = lexFileWith L.doc fp >>= \case
     Left e -> pure $ Left e
     Right ts -> do
         putStrLn "toks:"
         prettyPrint ts
-        runExceptT $ mapError pPrint $
+        runErrorT $ mapError pPrint $
             runFileT (evalParserT p ts) fp
 
 parseFile ::
     ModuleId -> ItemId -> FilePath ->
         IO (Either Doc (ParserDefs, [Diagnostic]))
 parseFile mi ii
-    = runExceptT
+    = runErrorT
     . runDiagnosticsT
-    . flip runContextT mi
+    . flip runReaderT mi
     . P.file ii
 
 

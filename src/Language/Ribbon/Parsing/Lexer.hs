@@ -17,7 +17,7 @@ import Data.Functor ((<&>))
 
 import Control.Applicative
 import Control.Monad
-import Control.Monad.Error.Class
+import Control.Monad.Error.Dynamic.Class
 import Control.Monad.Parser.Class
 import Control.Monad.IO.Class (MonadIO(..))
 import Control.Has

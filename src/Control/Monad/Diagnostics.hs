@@ -1,30 +1,25 @@
 module Control.Monad.Diagnostics
     ( module X
-    , Diagnostics, runDiagnostics
     , DiagnosticsT, runDiagnosticsT
     , liftDiagnostics
     ) where
 
+import Control.Monad
+import Control.Monad.IO.Class
 import Control.Applicative
-import Control.Monad.Identity
-import Control.Monad.State.Class
-import Control.Monad.Reader.Class
-import Control.Monad.Writer.Strict
+import Control.Monad.Trans.Dynamic
+import Control.Monad.Writer.Dynamic
 import Control.Monad.File.Class
 import Control.Monad.Parser.Class
-import Control.Monad.Context.Class
-import Control.Monad.Builder.Class
-import Control.Monad.Error.Class
+import Control.Monad.Reader.Dynamic.Class
+import Control.Monad.State.Dynamic.Class
+import Control.Monad.Error.Dynamic.Class
 
 import Control.Monad.Diagnostics.Class as X
 
 import Data.Diagnostic
 
 
-
-
--- | @DiagnosticsT@ over the @Identity@
-type Diagnostics = DiagnosticsT Identity
 
 -- | A monad transformer that can report @Diagnostic@s
 newtype DiagnosticsT m a
@@ -41,8 +36,6 @@ deriving instance MonadState s m => MonadState s (DiagnosticsT m)
 deriving instance MonadReader r m => MonadReader r (DiagnosticsT m)
 deriving instance MonadError e m => MonadError e (DiagnosticsT m)
 deriving instance MonadParser i m => MonadParser i (DiagnosticsT m)
-deriving instance MonadContext c m => MonadContext c (DiagnosticsT m)
-deriving instance MonadBuilder s m => MonadBuilder s (DiagnosticsT m)
 
 instance Monad m => MonadDiagnostics (DiagnosticsT m) where
     reportFull d = DiagnosticsT (tell [d])
@@ -52,12 +45,6 @@ instance Monad m => MonadDiagnostics (DiagnosticsT m) where
 --   returning the result and a list of @Diagnostic@s
 runDiagnosticsT :: DiagnosticsT m a -> m (a, [Diagnostic])
 runDiagnosticsT (DiagnosticsT a) = runWriterT a
-
--- | Run a @Diagnostics@ computation,
---   returning the result and a list of @Diagnostic@s
-runDiagnostics :: Diagnostics a -> (a, [Diagnostic])
-runDiagnostics = runIdentity . runDiagnosticsT
-
 
 liftDiagnostics :: (MonadError [Diagnostic] m) =>
     DiagnosticsT m a -> m a
