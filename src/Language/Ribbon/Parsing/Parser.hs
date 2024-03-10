@@ -138,7 +138,7 @@ file :: Has m [ ModuleId, Diag, Err Doc, OS ] =>
     ItemId -> FilePath -> m M.ParserDefs
 file i filePath = snd <$>
     runReaderT' i do
-    flip execStateT (i + 1, Nil) do
+    execStateT' (i + 1, Nil) do
         runReaderT' filePath do
             L.lexStreamFromFile filePath
                 >>= liftError @SyntaxError . evalParserT L.doc
@@ -148,9 +148,8 @@ file i filePath = snd <$>
 
                     (newGroup, newUnresolvedImports) <-
                         runStateT' Nil $
-                        flip execStateT Nil $
-                        runReaderT' (StringFixName filePath) $
-                            namespaceBody lns
+                        execStateT' Nil $
+                            namespaceBody (StringFixName filePath) lns
 
                     bindGroup i $
                         M.Def Nothing (newGroup :@: at)
@@ -161,35 +160,37 @@ file i filePath = snd <$>
 inNewNamespace :: Has m [ Ref, M.ParserDefs, Diag ] =>
     Attr -> StateT M.Group (StateT M.UnresolvedImports m) a -> m ItemId
 inNewNamespace at' action = do
-        selfId <- getItemId
-        newNamespaceId <- freshItemId
+    selfId <- getItemId
+    newNamespaceId <- freshItemId
 
-        (newGroup, newUnresolvedImports) <- usingItemId newNamespaceId do
-            runStateT (execStateT action Nil) Nil
+    (newGroup, newUnresolvedImports) <- usingItemId newNamespaceId do
+        runStateT (execStateT action Nil) Nil
 
-        bindGroup newNamespaceId $
-            M.Def (Just selfId) (newGroup :@: at')
+    bindGroup newNamespaceId $
+        M.Def (Just selfId) (newGroup :@: at')
 
-        bindImports newNamespaceId $
-            M.Def (Just selfId) (newUnresolvedImports :@: at')
+    bindImports newNamespaceId $
+        M.Def (Just selfId) (newUnresolvedImports :@: at')
 
-        pure newNamespaceId
+    pure newNamespaceId
 
 namespaceBody :: Has m
-    [ Location, FixName
-    , M.ParserDefs, Diag, M.Group, M.UnresolvedImports
-    ] => [TokenSeq] -> m ()
-namespaceBody lns = do
+    [ Location
+    , M.ParserDefs, M.Group, M.UnresolvedImports
+    , Diag
+    ] => FixName -> [TokenSeq] -> m ()
+namespaceBody fn lns = runReaderT' fn do
     filePath <- getFilePath
     name <- getFixName
     currentLocation <- getRef
-    forM_ lns $ errorToDiagnostic @SyntaxError
-        (attrFold' (fileAttr filePath) lns)
-        DiagnosticBinder
-            { kind = BadDefinition
-            , ref = currentLocation
-            , name = Just name
-            }
+    forM_ lns $
+        errorToDiagnostic @SyntaxError
+            (attrFold' (fileAttr filePath) lns)
+            DiagnosticBinder
+                { kind = BadDefinition
+                , ref = currentLocation
+                , name = Just name
+                }
         . evalParserT item
 
 
@@ -201,36 +202,36 @@ item :: Has m
     ] => m ()
 item = asum
     [ tag useDef >>= addUseDef
+    , do
+        qn <- defHead << sym "="
+        asum $ ($ qn) <$>
+            [ namespaceDef
+            , valueDef
+            ]
     ]
 
--- def :: Has m '[Parse] => m RawDef
--- def = asum [ startsEq, decls ] where
---     startsEq = sym "=" >> noFail do
---         grabWhitespaceDomain >>= recurseParserAll do
---             asum
---                 [ namespaceDef
---                 , effectDef
---                 , classDef
---                 , instanceDef
---                 , typeAliasDef
---                 , structDef
---                 , unionDef
---                 , noFail valueDef
---                 ]
+namespaceDef :: Has m
+    [ Location
+    , M.ParserDefs, M.Group, M.UnresolvedImports
+    , Parse
+    , Diag
+    ] => Visible QualifiedName -> m ()
+namespaceDef vqn = sym "namespace" >> noFail do
+    diagAssertRefH (isSimpleQualifiedName vqn.value)
+        vqn.value.name.tag BadDefinition (Just vqn.value.name.value)
+        (text "namespace definitions must be bound to simple names")
+        [ backticked vqn <+> "is not a simple name, it should be more like"
+            <+> backticked (simplifyFixName vqn.value.name.value)
+        ]
 
---     decls = sym ":" >> noFail do
---         grabWhitespaceDomain >>= recurseParserAll do
---             (q, c) <- option mempty do
---                 sym "forall" >> noFail typeHead
---             t <- grabDomain (not . isSymbol "=" . untag)
---             option (RdDecl q c t) do
---                 sym "="
---                 RdDeclVal q c t <$> noFail grabWhitespaceDomain
+    lns <- grabBlock
+    let at = attrFold' vqn.value.name.tag lns
 
--- namespaceDef :: Has m '[Parse] => m RawDef
--- namespaceDef = sym "namespace" >> noFail do
---     RdNamespace . RawNamespace <$> do
---         grabWhitespaceDomain >>= recurseParserAll (many $ tag item)
+    modId <- getModuleId
+    newNamespaceId <- inNewNamespace at (namespaceBody vqn.value.name.value lns)
+    insertRef (Categorical Namespace <$> vqn) (Ref modId newNamespaceId)
+
+
 
 -- effectDef :: Has m '[Parse] => m RawDef
 -- effectDef = sym "effect" >> noFail do
@@ -311,8 +312,18 @@ item = asum
 --         do RawNamespace <$> noFail do
 --             grabWhitespaceDomain >>= recurseParserAll fields
 
--- valueDef :: Has m '[Parse] => m RawDef
--- valueDef = RdValue <$> grabWhitespaceDomain
+valueDef :: Has m
+    [ Location
+    , M.ParserDefs, M.Group, M.UnresolvedImports
+    , Parse
+    , Diag
+    ] => Visible QualifiedName -> m ()
+valueDef vqn = noFail do
+    body <- grabWhitespaceDomain
+    let at = attrFold vqn.value.name.tag body
+
+    insertNew (Categorical Value <$> vqn) do
+        withFreshItemId bindValueHere (body :@: at)
 
 
 addUseDef :: Has m
@@ -496,21 +507,14 @@ simpleNameOf s = expecting (Pretty.backticks $ text s) $ nextIf_ \case
     TPath (SingleSimplePath (SimpleName n)) -> n == s
     _ -> False
 
-
 visible :: Has m '[Parse] => m a -> m (Visible a)
 visible = liftA2 Visible (option Private visibility)
 
 visibility :: Has m '[Parse] => m Visibility
 visibility = Public <$ sym "pub"
 
-
--- overloadCategory :: Has m '[Parse] => m OverloadCategory
--- overloadCategory = asum
---     [ ONamespace <$ sym "namespace"
---     , OInstance <$ sym "instance"
---     , OType <$ sym "type"
---     , OValue <$ sym "value"
---     ]
+defHead :: Has m '[Parse] => m (Visible QualifiedName)
+defHead = visible qualifiedName
 
 qualifiedName :: Has m '[Parse] =>
     m QualifiedName
@@ -654,32 +658,25 @@ grabDomain p = do
     ts <- takeParseState
     case ts of
         toks | not (Seq.null toks) ->
-            let (a, b) = consume False toks
+            let (a, b) = consume toks
             in reduceTokenSeq a <$ putParseState (reduceTokenSeq b)
         _ -> do
             fp <- getFilePath
             throwError $ SyntaxError Recoverable $ EofFailure :@: attrInput fp ts
     where
-    consume recursed = \case
-        x@(t Seq.:<| ts) | p t ->
+    consume = \case
+        (t Seq.:<| ts) | p t ->
             case untag t of
-                TTree BkLine ts'
-                    | recursed -> block BkLine ts'
-                    | otherwise -> (Nil, x)
-
-                TTree BkIndent ts' -> block BkIndent ts'
-                _ -> recurse
+                TTree BkWhitespace ts' -> block BkWhitespace ts'
+                _ -> continue
             where
-            recurse =
-                let (as, bs) = consume recursed ts
+            continue =
+                let (as, bs) = consume ts
                 in (t Seq.<| as, bs)
 
             block k ts' =
-                let (as, bs) = consume True ts'
-                in buildSplit k t ts as bs
-                if recursed
-                    then recurse
-                    else (Seq.singleton t, Nil)
+                let (as, bs) = consume ts'
+                in buildSplit k t ts as bs continue
 
         ts -> (Nil, ts)
 
@@ -695,12 +692,20 @@ grabDomain p = do
 grabWhitespaceDomain :: Has m '[Parse] => m TokenSeq
 grabWhitespaceDomain = grabDomain (const True)
 
+-- | Get the rest of the input delimited by indentation,
+--   ensuring that this captures the remainder of the input
+grabWhitespaceDomainAll :: Has m '[Parse] => m TokenSeq
+grabWhitespaceDomainAll = consumesAll grabWhitespaceDomain
+
 -- | Consume a sequence of lines from the input
 grabLines :: Has m '[Parse] => m [TokenSeq]
-grabLines = do
-    some $ nextMap \case
-        TTree BkLine lns -> Just lns
-        _ -> Nothing
+grabLines = some $ nextMap \case
+    TTree BkWhitespace ln -> Just ln
+    _ -> Nothing
+
+-- | @grabWhitespaceDomainAll >>= recurseParserAll grabLines@
+grabBlock :: Has m '[Parse] => m [TokenSeq]
+grabBlock = grabWhitespaceDomainAll >>= recurseParserAll grabLines
 
 -- | @wsBlock<elem>++(sep?) | elem (sep elem)*@
 wsListBody :: Has m '[Parse] => Bool -> m sep -> m a -> m [a]

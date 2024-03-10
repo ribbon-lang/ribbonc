@@ -11,6 +11,7 @@ module Language.Ribbon.Analysis.Diagnostics
     , reportWarning
     , errorToDiagnostic
     , errorExtractToDiagnostic
+    , diagAssertH, diagAssert
     ) where
 
 
@@ -24,6 +25,7 @@ import Control.Monad.Error.Dynamic
 import Text.Pretty
 
 import Language.Ribbon.Util
+import Control.Monad
 
 
 
@@ -92,3 +94,14 @@ errorExtractToDiagnostic :: forall e m. (MonadDiagnostics m, Pretty e) =>
 errorExtractToDiagnostic at b m =
     runErrorT m >>= liftEitherHandler do
         reportFull . \e -> diagnosticFromError (at e) b e
+
+
+-- | Throw a @Diagnostic@ @Error@ if the given condition is not met
+diagAssertH :: (MonadDiagnostics m, Pretty a) =>
+    Bool -> Attr -> DiagnosticBinder -> a -> [Doc] -> m ()
+diagAssertH b at k a h = unless b do reportErrorH at k a h
+
+-- | Throw a @Diagnostic@ @Error@ if the given condition is not met
+diagAssert :: (MonadDiagnostics m, Pretty a) =>
+    Bool -> Attr -> DiagnosticBinder -> a -> m ()
+diagAssert b at k a = diagAssertH b at k a []

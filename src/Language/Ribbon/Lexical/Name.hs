@@ -89,6 +89,19 @@ fixNameSimples (FixName cs) = Fold.toList $ Fold.foldr f Nil cs where
     f (FixSimple n) ns = n Seq.<| ns
     f _ ns = ns
 
+-- | Extract only the @SimpleNames@ from a @FixName@ and concatenate them
+simplifyFixName :: FixName -> SimpleName
+simplifyFixName = SimpleName . concatMap (.value) . fixNameSimples
+
+-- | Test if a @FixName@ is a simple name,
+--   ie contains only a single @SimpleName@
+isSimpleFixName :: FixName -> Bool
+isSimpleFixName = \case SimpleFixName _ -> True; _ -> False
+
+-- | @not . isSimpleFixName@
+isCompoundFixName :: FixName -> Bool
+isCompoundFixName = not . isSimpleFixName
+
 instance Pretty FixName where
     pPrint fn@(FixName cs) = maybeBackticks (needsEscape fn) $
         hcat $ pPrint <$> Fold.toList cs
@@ -162,7 +175,7 @@ isFixOperand = \case
 
 
 -- | A @FixName@ qualified with
---   a @Visibility@, @Associativity@, and @Precedence@
+--   a @Associativity@, and @Precedence@
 data QualifiedName
     = QualifiedName
     { associativity :: !Associativity
@@ -170,6 +183,10 @@ data QualifiedName
     ,          name :: !(ATag FixName)
     }
     deriving Show
+
+pattern SimpleQualifiedName :: SimpleName -> QualifiedName
+pattern SimpleQualifiedName n <-
+    QualifiedName NonAssociative 0 (SimpleFixName n :@: _)
 
 instance Eq QualifiedName where
     (==) = (== EQ) .: compare
@@ -191,6 +208,14 @@ instance Pretty QualifiedName where
                     pPrint precedence <+> pPrintPrec lvl 0 name
                 RightAssociative ->
                     pPrintPrec lvl 0 name <+> pPrint precedence
+
+isSimpleQualifiedName :: QualifiedName -> Bool
+isSimpleQualifiedName QualifiedName{..} =
+    getFixity name == Atom
+    && associativity == NonAssociative
+    && precedence == 0
+    && isSimpleFixName name.value
+
 
 -- | @Categorical FixName@
 type SpecificName = Categorical FixName

@@ -9,13 +9,13 @@ module Language.Ribbon.Analysis.Builder
     , defsModify
     , freshItemId
     , withFreshItemId
-    , bindGroup
-    , bindQuantifier
-    , bindQualifier
-    , bindField
-    , bindType
-    , bindValue
-    , bindImports
+    , bindGroup, bindGroupHere
+    , bindQuantifier, bindQuantifierHere
+    , bindQualifier, bindQualifierHere
+    , bindField, bindFieldHere
+    , bindType, bindTypeHere
+    , bindValue, bindValueHere
+    , bindImports, bindImportsHere
 
     , MonadGroup
     , groupState
@@ -23,6 +23,7 @@ module Language.Ribbon.Analysis.Builder
     , groupPut
     , groupModify
     , insertRef
+    , insertNew
 
     , MonadImports
     , importsState
@@ -92,8 +93,10 @@ freshItemId = defsState \(i, d) -> (i, (i + 1, d))
 
 -- | Get a fresh @ItemId@, then call the given function to bind a @Def@ to it
 withFreshItemId :: MonadDefs m =>
-    (ItemId -> M.Def a -> m ()) -> M.Def a -> m ()
-withFreshItemId f def = freshItemId >>= (`f` def)
+    (ItemId -> x -> m ()) -> x -> m ItemId
+withFreshItemId f def = do
+    ii <- freshItemId
+    ii <$ f ii def
 
 
 -- | Insert a @Group@ by @ItemId@
@@ -131,6 +134,55 @@ bindImports :: MonadDefs m => ItemId -> M.Def M.UnresolvedImports -> m ()
 bindImports eid def = defsModify $ second \defs ->
     defs { M.imports = Map.insert eid def defs.imports }
 
+
+-- | Insert a @Group@ by @ItemId@
+bindGroupHere :: Has m [ItemId, M.ParserDefs] =>
+    ItemId -> ATag M.Group -> m ()
+bindGroupHere eid def = do
+    ci <- getItemId
+    bindGroup eid (M.Def (Just ci) def)
+
+-- | Insert a definition quantifier by @ItemId@
+bindQuantifierHere :: Has m [ItemId, M.ParserDefs] =>
+    ItemId -> ATag Quantifier -> m ()
+bindQuantifierHere eid def = do
+    ci <- getItemId
+    bindQuantifier eid (M.Def (Just ci) def)
+
+-- | Insert a definition qualifier by @ItemId@
+bindQualifierHere :: Has m [ItemId, M.ParserDefs] =>
+    ItemId -> ATag (Qualifier TokenSeq) -> m ()
+bindQualifierHere eid def = do
+    ci <- getItemId
+    bindQualifier eid (M.Def (Just ci) def)
+
+-- | Insert a field definition by @ItemId@
+bindFieldHere :: Has m [ItemId, M.ParserDefs] =>
+    ItemId -> ATag (FieldType TokenSeq) -> m ()
+bindFieldHere eid def = do
+    ci <- getItemId
+    bindField eid (M.Def (Just ci) def)
+
+-- | Insert a type definition by @ItemId@
+bindTypeHere :: Has m [ItemId, M.ParserDefs] =>
+    ItemId -> ATag TokenSeq -> m ()
+bindTypeHere eid def = do
+    ci <- getItemId
+    bindType eid (M.Def (Just ci) def)
+
+-- | Insert a value definition by @ItemId@
+bindValueHere :: Has m [ItemId, M.ParserDefs] =>
+    ItemId -> ATag TokenSeq -> m ()
+bindValueHere eid def = do
+    ci <- getItemId
+    bindValue eid (M.Def (Just ci) def)
+
+-- | Insert an @UnresolvedImports@ definition by @ItemId@
+bindImportsHere :: Has m [ItemId, M.ParserDefs] =>
+    ItemId -> ATag M.UnresolvedImports -> m ()
+bindImportsHere eid def = do
+    ci <- getItemId
+    bindImports eid (M.Def (Just ci) def)
 
 
 
@@ -173,6 +225,14 @@ insertRef n r =
             (Just n.value.value.name.value)
             err
             ["it was first defined here:" <+> pPrint at]
+
+-- | Insert a new @Ref@ into a @Group@, bound to a @Visible GroupName@,
+--   where the @Ref@ is generated from an action producing an @ItemId@
+insertNew :: Has m [ Ref, M.Group, Diag ] =>
+    Visible GroupName -> m ItemId -> m ()
+insertNew n m = do
+    mi <- getModuleId
+    m >>= insertRef n . Ref mi
 
 
 

@@ -326,8 +326,15 @@ hidablePathNameFromUse :: RawUse -> Maybe (ATag PathName)
 hidablePathNameFromUse RawUse{..} =
     let pathFixName = untag <$> getPathName basePath.value
         pathCategory = getPathCategory basePath.value
-    in pathFixName <&> \f ->
+    in if isHidableBase (untag <$> basePath.value.base)
+        then pathFixName <&> \f ->
             PathName pathCategory f <$ basePath
+        else Nothing
+    where
+    isHidableBase = \case
+        Nothing -> True
+        Just PbThis -> True
+        _ -> False
 
 -- -- | Extract a @PathName@ from a @RawUse@;
 -- --   Fails if:

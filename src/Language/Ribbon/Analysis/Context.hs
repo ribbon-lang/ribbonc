@@ -21,6 +21,8 @@ module Language.Ribbon.Analysis.Context
     , getRef
     , reportErrorRef
     , reportErrorRefH
+    , diagAssertRef
+    , diagAssertRefH
 
     , MonadFixName
     , getFixName
@@ -29,6 +31,8 @@ module Language.Ribbon.Analysis.Context
     , usingFixName
     , reportErrorRefName
     , reportErrorRefNameH
+    , diagAssertRefName
+    , diagAssertRefNameH
 
     , Location(..)
     , MonadLocation
@@ -125,11 +129,11 @@ getRef = Ref <$> getModuleId <*> getItemId
 -- | New error @Diagnostic@ using the current result of @getRef@
 reportErrorRef :: Has m [Ref, Diag, With '[Pretty a]] =>
     Attr -> DiagnosticBinderKind -> Maybe FixName -> a -> m ()
-reportErrorRef at kind name doc = do
-    currentLocation <- getRef
-    reportError at
-         (DiagnosticBinder kind currentLocation name)
-         doc
+reportErrorRef at kind name doc = reportErrorRefH at kind name doc []
+
+diagAssertRef :: Has m [Ref, Diag, With '[Pretty a]] =>
+    Bool -> Attr -> DiagnosticBinderKind -> Maybe FixName -> a -> m ()
+diagAssertRef b at kind name doc = diagAssertRefH b at kind name doc []
 
 -- | New error @Diagnostic@ using the current result of @getRef@, with help docs
 reportErrorRefH :: Has m [Ref, Diag, With '[Pretty a]] =>
@@ -141,6 +145,14 @@ reportErrorRefH at kind name doc help = do
          doc
          help
 
+diagAssertRefH :: Has m [Ref, Diag, With '[Pretty a]] =>
+    Bool -> Attr -> DiagnosticBinderKind -> Maybe FixName -> a -> [Doc] -> m ()
+diagAssertRefH b at kind name doc help = do
+    currentLocation <- getRef
+    diagAssertH b at
+         (DiagnosticBinder kind currentLocation name)
+         doc
+         help
 
 
 -- | @MonadReader FixName@
@@ -168,9 +180,11 @@ usingFixName = using
 --   the current result of @getFixName@ and @getRef@
 reportErrorRefName :: Has m [Ref, FixName, Diag, With '[Pretty a]] =>
     Attr -> DiagnosticBinderKind -> a -> m ()
-reportErrorRefName at kind doc = do
-    name <- getFixName
-    reportErrorRef at kind (Just name) doc
+reportErrorRefName at kind doc = reportErrorRefNameH at kind doc []
+
+diagAssertRefName :: Has m [Ref, FixName, Diag, With '[Pretty a]] =>
+    Bool -> Attr -> DiagnosticBinderKind -> a -> m ()
+diagAssertRefName b at kind doc = diagAssertRefNameH b at kind doc []
 
 -- | New error @Diagnostic@ using
 --   the current result of @getFixName@ and @getRef@, with help docs
@@ -179,6 +193,13 @@ reportErrorRefNameH :: Has m [Ref, FixName, Diag, With '[Pretty a]] =>
 reportErrorRefNameH at kind doc help = do
     name <- getFixName
     reportErrorRefH at kind (Just name) doc help
+
+
+diagAssertRefNameH :: Has m [Ref, FixName, Diag, With '[Pretty a]] =>
+    Bool -> Attr -> DiagnosticBinderKind -> a -> [Doc] -> m ()
+diagAssertRefNameH b at kind doc help = do
+    name <- getFixName
+    diagAssertRefH b at kind (Just name) doc help
 
 
 -- | Wrapper for data supplied together

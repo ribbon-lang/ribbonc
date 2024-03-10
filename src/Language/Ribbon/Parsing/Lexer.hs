@@ -142,7 +142,7 @@ tree ind = asum
     [   (BkParen, ) <$> parenBlock ind
     ,   (BkBrace, ) <$> braceBlock ind
     , (BkBracket, ) <$> bracketBlock ind
-    ,  (BkIndent, ) <$> indentBlock ind
+    ,  (BkWhitespace, ) <$> indentBlock ind
     ]
 
 
@@ -157,7 +157,7 @@ lineSeq ind = do
         guard (ind' == ind)
         tag $ line ind
     pure $ Seq.fromList $ filter (not . null . untag) (fLn : lns) <&>
-        fmap (TTree BkLine)
+        fmap (TTree BkWhitespace)
 
 -- | Lex a single line
 line :: Has m '[Lex] => Word32 -> m TokenSeq

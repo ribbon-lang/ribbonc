@@ -99,7 +99,7 @@ reservedSymbols =
     [ "type", "effect", "class", "instance", "struct"
     , "union", "namespace", "forall", "fun"
     , "module", "use", "file", "pub", "hiding"
-    , "let", "in", "as"
+    , "let", "in", "as", "do"
     , "match", "with"
     , "if", "then", "else"
     , "'", "`"
