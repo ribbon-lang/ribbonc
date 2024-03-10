@@ -63,23 +63,26 @@ instance ParseInput TokenSeq where
 
 
 
-moduleHead :: Has m '[Parse] => m RawModuleHeader
+moduleHead :: Has m '[Parse] => m (RawModuleHeader, [TokenSeq])
 moduleHead = expecting "a valid module header" do
-    moduleName <- sym "module" >> tag string
-    moduleVersion <- simpleNameOf "@" >> tag version
+    grabLines >>= \case
+        [] -> empty
+        (ln : lns) -> (, lns) <$> flip recurseParserAll ln do
+            moduleName <- sym "module" >> tag string
+            moduleVersion <- simpleNameOf "@" >> tag version
 
-    (sources, dependencies, meta) <- do
-        option mempty grabWhitespaceDomain
-            >>= recurseParserAll keyPairs
-            >>= processPairs
+            (sources, dependencies, meta) <- do
+                option mempty grabWhitespaceDomain
+                    >>= recurseParserAll keyPairs
+                    >>= processPairs
 
-    pure $ RawModuleHeader
-        { name = moduleName
-        , version = moduleVersion
-        , sources = sources.value
-        , dependencies = dependencies.value
-        , meta = meta
-        }
+            pure $ RawModuleHeader
+                { name = moduleName
+                , version = moduleVersion
+                , sources = sources.value
+                , dependencies = dependencies.value
+                , meta = meta
+                }
     where
     keyPairs = grabLines >>= mapM do
         recurseParserAll do
@@ -134,9 +137,9 @@ liftError m =
 file :: Has m [ ModuleId, Diag, Err Doc, OS ] =>
     ItemId -> FilePath -> m M.ParserDefs
 file i filePath = snd <$>
-    flip runReaderT i do
+    runReaderT' i do
     flip execStateT (i + 1, Nil) do
-        flip runReaderT filePath do
+        runReaderT' filePath do
             L.lexStreamFromFile filePath
                 >>= liftError @SyntaxError . evalParserT L.doc
                 >>= liftError @SyntaxError . evalParserT grabLines
@@ -144,9 +147,9 @@ file i filePath = snd <$>
                     let at = fileAttr filePath
 
                     (newGroup, newUnresolvedImports) <-
-                        flip runStateT Nil $
+                        runStateT' Nil $
                         flip execStateT Nil $
-                        flip runReaderT (StringFixName filePath) $
+                        runReaderT' (StringFixName filePath) $
                             namespaceBody lns
 
                     bindGroup i $
@@ -318,8 +321,8 @@ addUseDef :: Has m
     , Diag
     ] => ATag (Visible RawUse) -> m ()
 addUseDef (Visible vis use :@: at) =
-    flip runReaderT (Nil :: Path) do
-    flip runReaderT (Nil :: [ATag PathName]) do
+    runReaderT' (Nil :: Path) $
+    runReaderT' (Nil :: [ATag PathName]) $
         addUse vis (use :@: at)
 
 addUse :: Has m
@@ -340,32 +343,23 @@ addUse vis (RawUse{..} :@: at) = do
     where
     useBody fullPath = case alias of
         Just newName ->
-            flip runReaderT newName.name.value case makeNewName fullPath newName of
+            runReaderT' newName.name.value case makeNewName fullPath newName of
                 Just unresolvedName -> case tree.value of
                     RawUseSingle ->
                         insertAlias (Visible vis unresolvedName) fullPath
 
-                    -- FIXME: code duplication
                     RawUseBlob hidden ->
-                        let newFullPath = Maybe.fromJust $
-                                joinPath
-                                    (Path (Just $ PbUp 1 :@: basePath.tag) Nil)
-                                    fullPath.value
-                        in asNewNamespace unresolvedName do
-                            addUseBlob (newFullPath <$ basePath) hidden
+                        asNewNamespace fullPath unresolvedName
+                            (`addUseBlob` hidden)
 
                     RawUseBranch subs ->
-                        let newFullPath = Maybe.fromJust $
-                                joinPath
-                                    (Path (Just $ PbUp 1 :@: basePath.tag) Nil)
-                                    fullPath.value
-                        in asNewNamespace unresolvedName do
-                            addUseBranch newFullPath subs
+                        asNewNamespace fullPath unresolvedName
+                            (`addUseBranch` subs)
 
                 _ -> getFixName >>= reportInvalidCombo . Just
 
         _ -> case tree.value of
-            RawUseBranch subs -> addUseBranch fullPath.value subs
+            RawUseBranch subs -> addUseBranch fullPath subs
 
             RawUseBlob hidden -> addUseBlob fullPath hidden
 
@@ -396,30 +390,29 @@ addUse vis (RawUse{..} :@: at) = do
         , Rd [ATag PathName]
         , Rd Path
         , Diag
-        ] => Path -> [ATag RawUse] -> m ()
+        ] => ATag Path -> [ATag RawUse] -> m ()
     addUseBranch fullPath subs = do
         let (blobs, rest) = subs & List.partition \u ->
                 case u.value.tree.value of
                     RawUseBlob _ -> True
                     _ -> False
 
-        -- TODO: should this report overlapping blobs?
-        -- it should get caught in the analysis phase anyways...
-
-        using fullPath do
+        using fullPath.value do
             names <- Maybe.catMaybes <$> forM rest \u ->
                 hidablePathNameFromUse u.value <$ addUse vis u
 
             using names (forM_ blobs $ addUse vis)
 
 
-
-    asNewNamespace unresolvedName action =
+    asNewNamespace fullPath unresolvedName action = do
+        let newFullPath = Maybe.fromJust $
+                joinPath
+                    (Path (Just $ PbUp 1 :@: basePath.tag) Nil)
+                    fullPath.value
         case groupFromUnresolvedInCategory Namespace unresolvedName of
             Just groupName -> do
-                newId <- inNewNamespace
-                    unresolvedName.name.tag
-                    action
+                newId <- inNewNamespace unresolvedName.name.tag do
+                    action (newFullPath <$ basePath)
                 modId <- getModuleId
                 insertRef (Visible Public groupName) (Ref modId newId)
             _ -> getFixName >>= reportInvalidCombo . Just

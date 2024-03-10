@@ -28,6 +28,7 @@ import Language.Ribbon.Parsing.Monad
 import Language.Ribbon.Parsing.Lexer qualified as L
 import Language.Ribbon.Parsing.Parser qualified as P
 import Language.Ribbon.Analysis
+import Language.Ribbon.Syntax.Raw (RawModuleHeader)
 
 
 lexFileWith ::
@@ -47,6 +48,11 @@ parseFileWith p fp = lexFileWith L.doc fp >>= \case
         prettyPrint ts
         runErrorT $ mapError pPrint $
             runReaderT (evalParserT p ts) fp
+
+
+parseModuleHead ::
+    FilePath -> IO (Either Doc (RawModuleHeader, [TokenSeq]))
+parseModuleHead = parseFileWith P.moduleHead
 
 parseFile ::
     ModuleId -> ItemId -> FilePath ->
