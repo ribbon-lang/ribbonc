@@ -1,12 +1,13 @@
 {-# OPTIONS_GHC -Wno-orphans #-}
 module Language.Ribbon.Parsing.Parser where
 
+import Data.Function
+
 import Data.Map.Strict qualified as Map
 import Data.Maybe qualified as Maybe
-
 import Data.Sequence qualified as Seq
-
 import Data.Foldable qualified as Fold
+import Data.List qualified as List
 
 import Data.Word (Word32)
 
@@ -14,38 +15,31 @@ import Data.Nil
 import Data.Tag
 import Data.Attr
 import Data.Diagnostic
+import Data.SyntaxError
 
+import Control.Has
 import Control.Applicative
 import Control.Monad
 import Control.Monad.Trans.Dynamic
-
-
-import Control.Monad.File
-import Control.Monad.Parser.Class
+import Control.Monad.State.Dynamic
+import Control.Monad.Error.Dynamic
 
 import Text.Pretty hiding (parens, brackets, backticks, braces, cat)
 import Text.Pretty qualified as Pretty
 
 import Language.Ribbon.Util
-
-
-import Language.Ribbon.Lexical
-import Control.Monad.Error.Dynamic
-import Data.SyntaxError
-import Data.Function
-
 import Language.Ribbon.Syntax.Raw
 import Language.Ribbon.Syntax.Ref
 import Language.Ribbon.Syntax.Scheme
 import Language.Ribbon.Syntax.Kind
-import Language.Ribbon.Syntax.Module (Def(..), ParserDefs, Group, UnresolvedImports)
+import Language.Ribbon.Syntax.Module qualified as M
+import Language.Ribbon.Parsing.Monad
 import Language.Ribbon.Parsing.Lexer qualified as L
-import Control.Monad.Parser
-import Control.Monad.State.Dynamic
+import Language.Ribbon.Lexical
 import Language.Ribbon.Analysis
-import Control.Monad.Diagnostics
-import qualified Data.List as List
-import Control.Has
+
+
+
 
 -- | Marker type for @Has@ ie @Has m '[Parse]@ ~ @MonadParser TokenSeq m@
 data Parse
@@ -138,11 +132,11 @@ liftError m =
 
 
 file :: Has m [ ModuleId, Diag, Err Doc, OS ] =>
-    ItemId -> FilePath -> m ParserDefs
+    ItemId -> FilePath -> m M.ParserDefs
 file i filePath = snd <$>
     flip runReaderT i do
     flip execStateT (i + 1, Nil) do
-        flip runFileT filePath do
+        flip runReaderT filePath do
             L.lexStreamFromFile filePath
                 >>= liftError @SyntaxError . evalParserT L.doc
                 >>= liftError @SyntaxError . evalParserT grabLines
@@ -156,13 +150,13 @@ file i filePath = snd <$>
                             namespaceBody lns
 
                     bindGroup i $
-                        Def Nothing (newGroup :@: at)
+                        M.Def Nothing (newGroup :@: at)
 
                     bindImports i $
-                        Def Nothing (newUnresolvedImports :@: at)
+                        M.Def Nothing (newUnresolvedImports :@: at)
 
-inNewNamespace :: Has m [ Ref, ParserDefs, Diag ] =>
-    Attr -> StateT Group (StateT UnresolvedImports m) a -> m ItemId
+inNewNamespace :: Has m [ Ref, M.ParserDefs, Diag ] =>
+    Attr -> StateT M.Group (StateT M.UnresolvedImports m) a -> m ItemId
 inNewNamespace at' action = do
         selfId <- getItemId
         newNamespaceId <- freshItemId
@@ -171,16 +165,16 @@ inNewNamespace at' action = do
             runStateT (execStateT action Nil) Nil
 
         bindGroup newNamespaceId $
-            Def (Just selfId) (newGroup :@: at')
+            M.Def (Just selfId) (newGroup :@: at')
 
         bindImports newNamespaceId $
-            Def (Just selfId) (newUnresolvedImports :@: at')
+            M.Def (Just selfId) (newUnresolvedImports :@: at')
 
         pure newNamespaceId
 
 namespaceBody :: Has m
     [ Location, FixName
-    , ParserDefs, Diag, Group, UnresolvedImports
+    , M.ParserDefs, Diag, M.Group, M.UnresolvedImports
     ] => [TokenSeq] -> m ()
 namespaceBody lns = do
     filePath <- getFilePath
@@ -199,7 +193,7 @@ namespaceBody lns = do
 
 item :: Has m
     [ Location
-    , ParserDefs, Group, UnresolvedImports
+    , M.ParserDefs, M.Group, M.UnresolvedImports
     , Diag, Parse
     ] => m ()
 item = asum
@@ -320,7 +314,7 @@ item = asum
 
 addUseDef :: Has m
     [ Location
-    , ParserDefs, Group, UnresolvedImports
+    , M.ParserDefs, M.Group, M.UnresolvedImports
     , Diag
     ] => ATag (Visible RawUse) -> m ()
 addUseDef (Visible vis use :@: at) =
@@ -330,7 +324,7 @@ addUseDef (Visible vis use :@: at) =
 
 addUse :: Has m
     [ Location
-    , ParserDefs, Group, UnresolvedImports
+    , M.ParserDefs, M.Group, M.UnresolvedImports
     , Rd [ATag PathName]
     , Rd Path
     , Diag
@@ -385,7 +379,7 @@ addUse vis (RawUse{..} :@: at) = do
 
     addUseBlob :: Has m
         [ Location
-        , ParserDefs, Group, UnresolvedImports
+        , M.ParserDefs, M.Group, M.UnresolvedImports
         , Rd [ATag PathName]
         , Diag
         ] => ATag Path -> [ATag PathName] -> m ()
@@ -398,7 +392,7 @@ addUse vis (RawUse{..} :@: at) = do
 
     addUseBranch :: Has m
         [ Location
-        , ParserDefs, Group, UnresolvedImports
+        , M.ParserDefs, M.Group, M.UnresolvedImports
         , Rd [ATag PathName]
         , Rd Path
         , Diag

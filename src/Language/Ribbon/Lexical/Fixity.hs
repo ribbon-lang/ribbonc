@@ -5,6 +5,8 @@ import Data.Tag
 import Text.Pretty
 
 
+
+
 -- | Class for name-likes to extract their fixity
 class HasFixity a where
     -- | Extract the fixity of a name-like

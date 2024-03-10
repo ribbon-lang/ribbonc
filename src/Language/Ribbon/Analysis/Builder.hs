@@ -35,13 +35,14 @@ module Language.Ribbon.Analysis.Builder
 
 import Data.Bifunctor
 
+import qualified Data.Map.Strict as Map
+
 import Data.Tag
 import Data.Attr
 import Data.Diagnostic
 
-import Control.Monad.Diagnostics.Class
-import Control.Monad.State.Dynamic as X
 import Control.Has
+import Control.Monad.State.Dynamic as X
 
 import Text.Pretty
 
@@ -52,9 +53,11 @@ import Language.Ribbon.Syntax.Ref
 import Language.Ribbon.Syntax.Scheme
 import Language.Ribbon.Syntax.Data
 import Language.Ribbon.Syntax.Module qualified as M
-import qualified Data.Map.Strict as Map
 
+import Language.Ribbon.Analysis.Diagnostics
 import Language.Ribbon.Analysis.Context
+
+
 
 
 -- | State object for @MonadDefs@

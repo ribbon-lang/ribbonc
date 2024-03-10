@@ -1,17 +1,29 @@
-module Control.Monad.Diagnostics.Class where
-import Data.Diagnostic
+module Language.Ribbon.Analysis.Diagnostics
+    ( module X
+    , Diag
+    , MonadDiagnostics
+    , reportFull
+    , reportH
+    , reportErrorH
+    , reportWarningH
+    , report
+    , reportError
+    , reportWarning
+    , errorToDiagnostic
+    , errorExtractToDiagnostic
+    ) where
 
-import Control.Monad.Trans.Dynamic
-import Control.Monad.State.Dynamic
-import Control.Monad.Writer.Dynamic
-import Control.Monad.Reader.Dynamic
-import Control.Monad.Error.Dynamic
+
+import Data.Diagnostic
+import Data.Attr
+
 import Control.Has
+import Control.Monad.Writer.Dynamic as X
+import Control.Monad.Error.Dynamic
 
 import Text.Pretty
 
 import Language.Ribbon.Util
-import Data.Attr
 
 
 
@@ -22,26 +34,14 @@ data Diag
 type instance Has m (Diag ': effs) = (MonadDiagnostics m, Has m effs)
 
 
--- | A monad that can report @Diagnostic@s
-class Monad m => MonadDiagnostics m where
-    -- | Report a @Diagnostic@
-    reportFull :: Diagnostic -> m ()
-
-instance MonadDiagnostics m => MonadDiagnostics (StateT s m) where
-    reportFull = lift . reportFull
-
-instance (Monoid w, MonadDiagnostics m)
-    => MonadDiagnostics (WriterT w m) where
-        reportFull = lift . reportFull
-
-instance MonadDiagnostics m => MonadDiagnostics (ReaderT r m) where
-    reportFull = lift . reportFull
-
-instance MonadDiagnostics m => MonadDiagnostics (ErrorT e m) where
-    reportFull = lift . reportFull
+-- | @MonadWriter [Diagnostic] m@
+type MonadDiagnostics = MonadWriter [Diagnostic]
 
 
 
+-- | Report a @Diagnostic@
+reportFull :: MonadDiagnostics m => Diagnostic -> m ()
+reportFull d = tell [d]
 
 -- | Report a new @Diagnostic@ using the given @DiagnosticKind@ and
 --   a @Doc@ created from the given item,

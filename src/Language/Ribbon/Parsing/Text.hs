@@ -1,17 +1,15 @@
 module Language.Ribbon.Parsing.Text where
 
-import Numeric
+import Data.Foldable qualified as Fold
 
 import Data.Word (Word32)
-
 import Data.Char qualified as Char
-
-import Data.Foldable qualified as Fold
 
 import Data.Nil
 
-import Language.Ribbon.Util
+import Numeric
 
+import Language.Ribbon.Util
 import Language.Ribbon.Lexical.Version
 
 

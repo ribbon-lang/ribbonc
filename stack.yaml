@@ -3,4 +3,4 @@ resolver: lts-21.25
 
 extra-deps:
     - github: noxabellus/dmtl
-      commit: f7760890f4968f86b6233e5d507da47861dfb585
+      commit: ee10026a538e7b1bcb9534862d54f3216589025e

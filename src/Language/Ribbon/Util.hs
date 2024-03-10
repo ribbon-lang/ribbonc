@@ -1,9 +1,7 @@
 module Language.Ribbon.Util where
 
+import Data.Functor
 import Data.Foldable
-
-import Control.Applicative
-import Control.Monad.Error.Dynamic
 
 import Data.List qualified as List
 import Data.Maybe qualified as Maybe
@@ -15,8 +13,10 @@ import Data.ByteString.Lazy qualified as ByteString
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text
 
+import Control.Applicative
+import Control.Monad.Error.Dynamic
+
 import Text.Pretty
-import Data.Functor
 
 
 

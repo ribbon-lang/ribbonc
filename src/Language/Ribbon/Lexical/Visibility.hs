@@ -2,6 +2,9 @@ module Language.Ribbon.Lexical.Visibility where
 
 import Text.Pretty
 
+
+
+
 -- | A binding with a visibility level
 data Visible a
     = Visible

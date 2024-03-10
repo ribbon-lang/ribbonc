@@ -1,27 +1,29 @@
 module Language.Ribbon.Lexical.Name where
 
+import Data.Function
+import Data.Foldable qualified as Fold
+
 import Data.Char qualified as Char
 
 import Data.Sequence (Seq)
 import Data.Sequence qualified as Seq
 
-import Data.Foldable qualified as Fold
-
+import Data.Attr
+import Data.Tag
 import Data.Nil
+
+import Control.Monad
+
+import System.FilePath
 
 import Text.Pretty
 
+import Language.Ribbon.Util
 import Language.Ribbon.Lexical.Fixity
 import Language.Ribbon.Lexical.Associativity
 import Language.Ribbon.Lexical.Precedence
 import Language.Ribbon.Lexical.Category
-import Language.Ribbon.Util
-import Data.Function
-import Data.Attr
-import Data.Tag
-import System.FilePath
 import Language.Ribbon.Parsing.Text
-import Control.Monad
 
 
 

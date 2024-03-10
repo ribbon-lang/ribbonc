@@ -1,9 +1,4 @@
-module Data.SyntaxError
-    ( DecodeProblem(..)
-    , SyntaxInput(..), SyntaxError(..), Recoverability(..), SyntaxFail(..)
-    , formatProblem, formatFailure
-    , seqErr
-    ) where
+module Data.SyntaxError where
 
 import Data.List qualified as List
 
@@ -13,7 +8,6 @@ import Data.Attr
 import Text.Pretty
 
 import Language.Ribbon.Util ( select, escapeChar )
-
 
 
 

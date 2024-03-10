@@ -1,22 +1,22 @@
 module Language.Ribbon.Syntax.Raw where
 
+import Data.Functor ((<&>))
+
 import Data.Map.Strict qualified as Map
 
 import Data.Word (Word32)
-
-import Data.Functor ((<&>))
 
 import Data.Tag
 import Data.Attr
 
 import Text.Pretty
 
-import Language.Ribbon.Lexical
-
-import Language.Ribbon.Syntax.Scheme
 import Language.Ribbon.Util
-
+import Language.Ribbon.Lexical
+import Language.Ribbon.Syntax.Scheme
 import Language.Ribbon.Syntax.Module
+
+
 
 
 -- | A qualifier with its body not yet fully parsed

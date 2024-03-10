@@ -1,26 +1,26 @@
 module Language.Ribbon.Syntax.Module where
 
+import Data.Functor
+import qualified Data.Foldable as Fold
+
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 
-import Data.Functor
-
 import Data.Tag
 import Data.Attr
+import Data.Nil
+
+import Control.Monad
 
 import Text.Pretty
 
+import Language.Ribbon.Util
 import Language.Ribbon.Lexical
-
 import Language.Ribbon.Syntax.Ref
 import Language.Ribbon.Syntax.Data
 import Language.Ribbon.Syntax.Scheme
 import Language.Ribbon.Syntax.Type
 import Language.Ribbon.Syntax.Value
-import qualified Data.Foldable as Fold
-import Data.Nil
-import Language.Ribbon.Util
-import Control.Monad
 
 
 

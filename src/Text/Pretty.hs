@@ -34,6 +34,7 @@ import Text.PrettyPrint.HughesPJClass as X hiding
 
 import Data.Functor((<&>))
 import Data.Foldable qualified as Fold
+import Data.Traversable
 
 import Data.Word (Word8, Word32, Word64)
 
@@ -44,11 +45,12 @@ import Data.Set (Set)
 import Data.Set qualified as Set
 
 import Data.Sequence (Seq)
+import Data.Nil
+
 import Control.Applicative
 
-import Data.Nil
-import Data.Traversable
 import Debug.Trace (traceM)
+
 
 
 
@@ -66,6 +68,8 @@ pShownM d m = do
     pTraceM d
     a <- m
     a <$ pTraceM (shown a)
+
+
 
 -- | Force a string literal to be a @Doc@ under @OverloadedStrings@
 pattern Doc :: Doc -> Doc

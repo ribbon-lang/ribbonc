@@ -5,19 +5,21 @@ import Data.Foldable qualified as Fold
 import Data.Sequence (Seq)
 import Data.Sequence qualified as Seq
 
+import qualified Data.Maybe as Maybe
+
+import Data.Word (Word32)
+
 import Data.Tag
+import Data.Nil
 import Data.Attr
 
 import Text.Pretty
 
 import Language.Ribbon.Util
-
 import Language.Ribbon.Lexical.Fixity
 import Language.Ribbon.Lexical.Category
 import Language.Ribbon.Lexical.Name
-import Data.Nil
-import qualified Data.Maybe as Maybe
-import Data.Word (Word32)
+
 
 
 

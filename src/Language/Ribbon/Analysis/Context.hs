@@ -1,6 +1,10 @@
 module Language.Ribbon.Analysis.Context
     ( module X
 
+    , MonadFile
+    , withFilePath
+    , getFilePath
+
     , MonadModule
     , getModuleId
     , getsModuleId
@@ -34,15 +38,33 @@ module Language.Ribbon.Analysis.Context
 import Data.Attr
 import Data.Diagnostic
 
-import Control.Monad.Diagnostics.Class
-import Control.Monad.Reader.Dynamic as X
 import Control.Has
+import Control.Monad.Reader.Dynamic as X
 
 import Text.Pretty
 
+import Language.Ribbon.Analysis.Diagnostics
 import Language.Ribbon.Lexical.Name
 import Language.Ribbon.Syntax.Ref
-import Control.Monad.File.Class
+
+
+
+
+type instance Has m (FilePath ': effs) = (MonadFile m, Has m effs)
+
+
+-- | @MonadReader FilePath m@
+type MonadFile = MonadReader FilePath
+
+
+-- | @using@ specialized to @FilePath@
+withFilePath :: MonadFile m => FilePath -> m a -> m a
+withFilePath = using
+
+-- | @ask@ specialized to @FilePath@
+getFilePath :: MonadFile m => m FilePath
+getFilePath = ask
+
 
 
 

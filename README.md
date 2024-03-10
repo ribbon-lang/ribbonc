@@ -119,8 +119,10 @@ under [Apache 2.0](LICENSE)
 
 For a full list see [package.yaml](package.yaml), but in short, as far as
 libraries included via source, I have the basic boilerplate dependencies such as
-`containers`, `mtl`, `bytestring`, `text`, as well as some quality of life stuff
-like `directory`, `pretty`, and `parallel-io` for concurrent parsing
+`containers`, `bytestring`, `text`, as well as some quality of life stuff
+like `directory`, and `pretty`. I'm using `parallel-io` for concurrent parsing.
+Additionally, I am using [`dmtl`](https://github.com/noxabellus/dmtl),
+an "mtl-light" without functional dependencies, which I made myself.
 
 The Stack configuration is locked to `lts-21.25`, using GHC `9.4.8`
 

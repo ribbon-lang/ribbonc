@@ -3,8 +3,6 @@
 module Main where
 
 import Data.Functor
-import Control.Applicative
-import Control.Monad.Diagnostics
 
 import Data.ByteString.Lazy qualified as ByteString
 import Data.Text.Lazy qualified as Text
@@ -13,37 +11,34 @@ import Data.Text.Encoding.Error qualified as Text
 import Data.Sequence (Seq)
 
 import Data.Attr
+import Data.Diagnostic
+import Data.SyntaxError
 import Data.Nil
+
+import Control.Applicative
+import Control.Monad
+import Control.Monad.Error.Dynamic
 
 import Text.Pretty as Pretty
 
 import Language.Ribbon.Util
-
 import Language.Ribbon.Syntax
 import Language.Ribbon.Lexical
-
+import Language.Ribbon.Parsing.Monad
 import Language.Ribbon.Parsing.Lexer qualified as L
-import Control.Monad.File
-import Control.Monad.Parser
-
 import Language.Ribbon.Parsing.Parser qualified as P
-import Control.Monad
-import Data.SyntaxError
-import Control.Monad.Error.Dynamic
-import qualified Data.Text.Encoding.Error as TextErr
 import Language.Ribbon.Analysis
-import Data.Diagnostic
 
 
 lexFileWith ::
-    ParserT L.LexStream (FileT (ErrorT SyntaxError IO)) a
+    ParserT L.LexStream (ReaderT FilePath (ErrorT SyntaxError IO)) a
         -> FilePath -> IO (Either Doc a)
 lexFileWith p fp = runErrorT do
     lx <- L.lexStreamFromFile fp
-    mapError pPrint $ runFileT (evalParserT p lx) fp
+    mapError pPrint $ runReaderT (evalParserT p lx) fp
 
 parseFileWith ::
-    ParserT TokenSeq (FileT (ErrorT SyntaxError IO)) a
+    ParserT TokenSeq (ReaderT FilePath (ErrorT SyntaxError IO)) a
         -> FilePath -> IO (Either Doc a)
 parseFileWith p fp = lexFileWith L.doc fp >>= \case
     Left e -> pure $ Left e
@@ -51,15 +46,15 @@ parseFileWith p fp = lexFileWith L.doc fp >>= \case
         putStrLn "toks:"
         prettyPrint ts
         runErrorT $ mapError pPrint $
-            runFileT (evalParserT p ts) fp
+            runReaderT (evalParserT p ts) fp
 
 parseFile ::
     ModuleId -> ItemId -> FilePath ->
         IO (Either Doc (ParserDefs, [Diagnostic]))
 parseFile mi ii
     = runErrorT
-    . runDiagnosticsT
-    . flip runReaderT mi
+    . runWriterT
+    . runReaderT' mi
     . P.file ii
 
 

@@ -4,8 +4,11 @@ import Data.Bifunctor
 
 import Data.Nil
 
-import Text.Pretty
 import Control.Applicative
+
+import Text.Pretty
+
+
 
 
 -- | Wrapper for objects, with attribute

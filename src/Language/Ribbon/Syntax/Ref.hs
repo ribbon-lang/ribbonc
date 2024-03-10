@@ -6,6 +6,7 @@ import Text.Pretty
 
 
 
+
 -- | A reference to a specific module
 newtype ModuleId = ModuleId Word32
     deriving (Eq, Ord, Num, Enum, Bounded, Show, Pretty)

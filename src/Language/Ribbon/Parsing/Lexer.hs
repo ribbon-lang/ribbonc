@@ -11,18 +11,10 @@ import Data.Text.Encoding.Error qualified as Text
 import Data.Char qualified as Char
 import Data.Sequence qualified as Seq
 import Data.Maybe qualified as Maybe
+
 import Data.Word (Word32)
 
 import Data.Functor ((<&>))
-
-import Control.Applicative
-import Control.Monad
-import Control.Monad.Error.Dynamic.Class
-import Control.Monad.Parser.Class
-import Control.Monad.IO.Class (MonadIO(..))
-import Control.Has
-
-import GHC.IO qualified as IO
 
 import Data.Tag
 import Data.Pos
@@ -31,12 +23,19 @@ import Data.Attr
 import Data.SyntaxError
 import Data.Nil
 
+import Control.Applicative
+import Control.Monad
+import Control.Monad.Error.Dynamic.Class
+import Control.Monad.IO.Class (MonadIO(..))
+import Control.Has
+
+import GHC.IO qualified as IO
+
 import Text.Pretty
 
 import Language.Ribbon.Util
-
 import Language.Ribbon.Lexical
-
+import Language.Ribbon.Parsing.Monad
 import Language.Ribbon.Parsing.Text
 
 

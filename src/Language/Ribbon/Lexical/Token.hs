@@ -1,31 +1,34 @@
 module Language.Ribbon.Lexical.Token where
 
+import Data.Functor.Identity
+import Data.Foldable
+
 import Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
 
-import Data.Foldable
-
-import Control.Monad
+import Data.Map.Strict (Map)
+import Data.Map.Strict qualified as Map
 
 import Data.Tag
 import Data.Attr
 import Data.Nil
 import Data.SyntaxError
 
+import Control.Monad
+import Control.Applicative
+import Control.Monad.State.Dynamic
+
 
 import Text.Pretty
 
 import Language.Ribbon.Util
-
 import Language.Ribbon.Lexical.Literal
 import Language.Ribbon.Lexical.Path
 import Language.Ribbon.Lexical.Version
 import Language.Ribbon.Parsing.Text
-import Control.Monad.State.Dynamic
-import Data.Map.Strict (Map)
-import Data.Map.Strict qualified as Map
-import Control.Applicative
-import Data.Functor.Identity
+
+
+
 
 -- | A lexical sequence of @Token@s ready for parsing
 type TokenSeq = Seq (ATag Token)
