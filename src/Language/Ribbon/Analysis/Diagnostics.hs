@@ -2,6 +2,7 @@ module Language.Ribbon.Analysis.Diagnostics
     ( module X
     , Diag
     , MonadDiagnostics
+    , reportAll
     , reportFull
     , reportH
     , reportErrorH
@@ -39,7 +40,9 @@ type instance Has m (Diag ': effs) = (MonadDiagnostics m, Has m effs)
 -- | @MonadWriter [Diagnostic] m@
 type MonadDiagnostics = MonadWriter [Diagnostic]
 
-
+-- | @tell@ specialized to @[Diagnostic]@
+reportAll :: MonadDiagnostics m => [Diagnostic] -> m ()
+reportAll = tell
 
 -- | Report a @Diagnostic@
 reportFull :: MonadDiagnostics m => Diagnostic -> m ()

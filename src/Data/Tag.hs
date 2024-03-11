@@ -63,7 +63,7 @@ instance {-# OVERLAPPABLE #-} (Monoid t, Monoid a) => Monoid (Tag t a) where
     mempty = Tag mempty mempty
 
 instance {-# OVERLAPPABLE #-} (Nil t, Nil a) => Nil (Tag t a) where
-    isNil (Tag t a) = isNil t && isNil a
+    isNil (Tag _ a) = isNil a
     nil = Tag Nil Nil
 
 -- | Lift @:\@:@ over a functor, ie @fmap (a :\@:) t@

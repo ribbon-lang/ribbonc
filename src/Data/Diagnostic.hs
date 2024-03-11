@@ -6,6 +6,7 @@ import Text.Pretty
 
 import Language.Ribbon.Syntax.Ref (Ref)
 import Language.Ribbon.Lexical.Name (FixName)
+import Language.Ribbon.Util
 
 
 
@@ -31,7 +32,8 @@ data DiagnosticBinder
     deriving (Eq, Ord, Show)
 
 instance Pretty DiagnosticBinder where
-    pPrint DiagnosticBinder{..} = pPrint kind
+    pPrint DiagnosticBinder{..} =
+        pPrint kind <+> qualBackticks (maybeMEmpty $ pPrint <$> name)
 
 data DiagnosticBinderKind
     = BadDefinition

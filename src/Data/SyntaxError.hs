@@ -8,6 +8,7 @@ import Data.Attr
 import Text.Pretty
 
 import Language.Ribbon.Util ( select, escapeChar )
+import Data.Nil
 
 
 
@@ -147,7 +148,7 @@ formatFailure ignore = \case
                 vcat' (go ignore <$> subs)
     where
     go ig (f :@: x) =
-        if x `elem` ig
+        if x `elem` ig || isNil x.range
             then formatFailure ig f
             else hang ("at" <+> (pPrint x <> ":")) do
                 formatFailure (x : ig) f

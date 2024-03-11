@@ -226,13 +226,15 @@ insertRef n r =
             err
             ["it was first defined here:" <+> pPrint at]
 
+
 -- | Insert a new @Ref@ into a @Group@, bound to a @Visible GroupName@,
 --   where the @Ref@ is generated from an action producing an @ItemId@
 insertNew :: Has m [ Ref, M.Group, Diag ] =>
-    Visible GroupName -> m ItemId -> m ()
+    Visible GroupName -> m ItemId -> m ItemId
 insertNew n m = do
     mi <- getModuleId
-    m >>= insertRef n . Ref mi
+    ii <- m
+    ii <$ insertRef n (Ref mi ii)
 
 
 

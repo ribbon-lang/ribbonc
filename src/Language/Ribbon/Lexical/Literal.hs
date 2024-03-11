@@ -22,12 +22,11 @@ data Literal
     deriving (Eq, Ord, Show)
 
 instance SyntaxInput Literal where
-    inputPretty l = text (inputIdentity l) <+> backticked l where
-        inputIdentity = \case
-            LInt _ -> "integer literal"
-            LFloat _ -> "float literal"
-            LString _ -> "string literal"
-            LChar _ -> "character literal"
+    inputPretty = \case
+        LInt x -> "integer literal" <> backticked x
+        LFloat x -> "float literal" <> backticked x
+        LString x -> "string literal" <> shown x
+        LChar x -> "character literal" <> shown x
 
 instance Pretty Literal where
     pPrint = \case

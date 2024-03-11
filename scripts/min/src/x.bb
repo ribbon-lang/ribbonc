@@ -10,6 +10,10 @@ Llama = namespace
                , module test
                , ..
                } as Quux
+
     bar = with Console
             printLn | msg => continue ()
         do foo(1, 2)
+
+    qubert = effect a =>
+        ` qube ` : a -> a

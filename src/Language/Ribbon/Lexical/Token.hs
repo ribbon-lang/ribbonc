@@ -50,11 +50,11 @@ data Token
 
 instance SyntaxInput Token where
     inputPretty = \case
-        TSymbol _ -> "symbol"
+        TSymbol n -> "symbol" <+> backticks (text n)
         TLiteral l -> inputPretty l
-        TVersion _ -> "version"
-        TTree k _ -> pPrint k <> " tree"
-        TPath _ -> "path"
+        TVersion v -> "version" <+> backticked v
+        TTree k _ -> pPrint k <+> "tree"
+        TPath p -> "path" <+> backticked p
 
 instance (Applicative m, MonadState BlockCounter m) => PrettyWith m Token where
     pPrintPrecWith lvl prec = \case

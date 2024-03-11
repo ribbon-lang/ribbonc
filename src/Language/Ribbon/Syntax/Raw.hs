@@ -20,7 +20,7 @@ import Language.Ribbon.Syntax.Module
 
 
 -- | A qualifier with its body not yet fully parsed
-type RawQualifier = Qualifier Token
+type RawQualifier = Qualifier TokenSeq
 
 -- | Raw output from a parser of the head section of a module
 data RawModuleHeader

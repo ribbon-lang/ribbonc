@@ -20,7 +20,6 @@ import Data.SyntaxError
 import Control.Has
 import Control.Applicative
 import Control.Monad
-import Control.Monad.Trans.Dynamic
 import Control.Monad.State.Dynamic
 import Control.Monad.Error.Dynamic
 
@@ -37,6 +36,7 @@ import Language.Ribbon.Parsing.Monad
 import Language.Ribbon.Parsing.Lexer qualified as L
 import Language.Ribbon.Lexical
 import Language.Ribbon.Analysis
+import Debug.Trace (trace)
 
 
 
@@ -49,7 +49,7 @@ type instance Has m (Parse ': effs) = (MonadParser TokenSeq m, Has m effs)
 instance ParseInput TokenSeq where
     type InputElement TokenSeq = Token
     formatInput fp ts = Tag (attrInput fp ts) case ts of
-        (t :@: _) Seq.:<| _ -> UnexpectedFailure (inputPretty t)
+        (t :@: _) Seq.:<| _ -> UnexpectedFailure (inputPretty t $+$ pPrint ts)
         _ -> EofFailure
     unconsInput = \case
         (t :@: _) Seq.:<| ts -> Right (t, ts)
@@ -142,20 +142,22 @@ file i filePath = snd <$>
         runReaderT' filePath do
             L.lexStreamFromFile filePath
                 >>= liftError @SyntaxError . evalParserT L.doc
-                >>= liftError @SyntaxError . evalParserT grabLines
-                >>= \lns -> do
+                >>= pTracedM "doc lines" . liftError @SyntaxError . evalParserT grabLines
+                >>= runReaderT' (StringFixName filePath) . \lns -> do
                     let at = fileAttr filePath
 
                     (newGroup, newUnresolvedImports) <-
                         runStateT' Nil $
                         execStateT' Nil $
-                            namespaceBody (StringFixName filePath) lns
+                            namespaceBody lns
 
-                    bindGroup i $
-                        M.Def Nothing (newGroup :@: at)
+                    unless (isNil newGroup) do
+                        bindGroup i $
+                            M.Def Nothing (newGroup :@: at)
 
-                    bindImports i $
-                        M.Def Nothing (newUnresolvedImports :@: at)
+                    unless (isNil newUnresolvedImports) do
+                        bindImports i $
+                            M.Def Nothing (newUnresolvedImports :@: at)
 
 inNewNamespace :: Has m [ Ref, M.ParserDefs, Diag ] =>
     Attr -> StateT M.Group (StateT M.UnresolvedImports m) a -> m ItemId
@@ -166,84 +168,171 @@ inNewNamespace at' action = do
     (newGroup, newUnresolvedImports) <- usingItemId newNamespaceId do
         runStateT (execStateT action Nil) Nil
 
-    bindGroup newNamespaceId $
-        M.Def (Just selfId) (newGroup :@: at')
+    unless (isNil newGroup) do
+        bindGroup newNamespaceId $
+            M.Def (Just selfId) (newGroup :@: at')
 
-    bindImports newNamespaceId $
-        M.Def (Just selfId) (newUnresolvedImports :@: at')
+    unless (isNil newUnresolvedImports) do
+        bindImports newNamespaceId $
+            M.Def (Just selfId) (newUnresolvedImports :@: at')
 
     pure newNamespaceId
 
+inNewGroup :: Has m [ Ref, M.ParserDefs, Diag ] =>
+    Attr -> StateT M.Group m a -> m ItemId
+inNewGroup at' action = do
+    selfId <- getItemId
+    newGroupId <- freshItemId
+
+    newGroup <- usingItemId newGroupId do
+        execStateT action Nil
+
+    bindGroup newGroupId $
+        M.Def (Just selfId) (newGroup :@: at')
+
+    pure newGroupId
+
 namespaceBody :: Has m
-    [ Location
+    [ Location, FixName
     , M.ParserDefs, M.Group, M.UnresolvedImports
     , Diag
-    ] => FixName -> [TokenSeq] -> m ()
-namespaceBody fn lns = runReaderT' fn do
-    filePath <- getFilePath
+    ] => [TokenSeq] -> m ()
+namespaceBody = lineParser item
+
+diagnosticFromSyntaxError :: DiagnosticBinder -> SyntaxError -> Diagnostic
+diagnosticFromSyntaxError b (SyntaxError _ (f :@: at)) =
+    Diagnostic
+    { at
+    , kind = Error b
+    , doc = formatFailure [at] f
+    , help = []
+    }
+
+-- | Run an @ErrorT e m ()@ computation,
+--   using @Pretty@ to convert @e@ to @Error@ @Diagnostic@s in @m@
+liftSyntaxErrorT :: MonadDiagnostics m =>
+    DiagnosticBinder -> ErrorT SyntaxError m () -> m ()
+liftSyntaxErrorT b m =
+    runErrorT m >>= liftEitherHandler (reportFull . diagnosticFromSyntaxError b)
+
+-- | Run an @ErrorT e m ()@ computation,
+--   using @Pretty@ to convert @e@ to @Error@ @Diagnostic@s in @m@
+liftSyntaxError :: MonadDiagnostics m =>
+    DiagnosticBinder -> SyntaxError -> m ()
+liftSyntaxError b =
+    reportFull . diagnosticFromSyntaxError b
+
+liftSyntaxErrorHere :: Has m [Location, FixName, Diag] =>
+    SyntaxError -> m ()
+liftSyntaxErrorHere e = do
     name <- getFixName
-    currentLocation <- getRef
-    forM_ lns $
-        errorToDiagnostic @SyntaxError
-            (attrFold' (fileAttr filePath) lns)
-            DiagnosticBinder
-                { kind = BadDefinition
-                , ref = currentLocation
-                , name = Just name
-                }
-        . evalParserT item
+    ref <- getRef
+    liftSyntaxError
+        DiagnosticBinder
+            { kind = BadDefinition
+            , ref = ref
+            , name = Just name
+            }
+        e
+
+diagParser :: Has m
+    [ Location, FixName
+    , Diag
+    ] => TokenSeq -> ParserT TokenSeq (ErrorT SyntaxError m) () -> m ()
+diagParser sq p = diagGeneric (evalParserT p sq)
+
+
+diagGeneric :: Has m
+    [ Location, FixName
+    , Diag
+    ] => ErrorT SyntaxError m () -> m ()
+diagGeneric g = do
+    name <- getFixName
+    ref <- getRef
+    liftSyntaxErrorT
+        DiagnosticBinder
+            { kind = BadDefinition
+            , ref = ref
+            , name = Just name
+            }
+        g
+
+lineParser :: Has m
+    [ Location, FixName
+    , Diag
+    ] => ParserT TokenSeq (ErrorT SyntaxError m) () -> [TokenSeq] -> m ()
+lineParser p lns = forM_ lns (`diagParser` p)
 
 
 
 item :: Has m
-    [ Location
+    [ Location, FixName
     , M.ParserDefs, M.Group, M.UnresolvedImports
     , Diag, Parse
     ] => m ()
-item = asum
-    [ tag useDef >>= addUseDef
-    , do
-        qn <- defHead << sym "="
-        asum $ ($ qn) <$>
-            [ namespaceDef
-            , valueDef
-            ]
-    ]
+item = do
+    diag <- execWriterT $ asum
+        [ tag useDef >>= addUseDef
+        , do
+            vqn <- defHead
+            runReaderT' vqn.value.name.value $ catchError do
+                    sym "="
+                    asum $ ($ vqn) <$>
+                        [ namespaceDef
+                        , effectDef
+                        , valueDef
+                        ]
+                liftSyntaxErrorHere
+        ]
+    unless (isNil diag) do
+        void takeParseState
+    reportAll diag
 
 namespaceDef :: Has m
-    [ Location
+    [ Location, FixName
     , M.ParserDefs, M.Group, M.UnresolvedImports
     , Parse
     , Diag
     ] => Visible QualifiedName -> m ()
 namespaceDef vqn = sym "namespace" >> noFail do
-    diagAssertRefH (isSimpleQualifiedName vqn.value)
-        vqn.value.name.tag BadDefinition (Just vqn.value.name.value)
-        (text "namespace definitions must be bound to simple names")
-        [ backticked vqn <+> "is not a simple name, it should be more like"
-            <+> backticked (simplifyFixName vqn.value.name.value)
-        ]
+        diagAssertRefNameH (isSimpleQualifiedName vqn.value)
+            vqn.value.name.tag BadDefinition
+            (text "namespace definitions must be bound to simple names")
+            [ backticked vqn <+> "is not a simple name, it should be more like"
+                <+> backticked (simplifyFixName vqn.value.name.value)
+            ]
 
-    lns <- grabBlock
-    let at = attrFold' vqn.value.name.tag lns
+        lns <- tag grabBlock
 
-    modId <- getModuleId
-    newNamespaceId <- inNewNamespace at (namespaceBody vqn.value.name.value lns)
-    insertRef (Categorical Namespace <$> vqn) (Ref modId newNamespaceId)
-
+        void $ insertNew (Categorical Namespace <$> vqn) do
+            inNewNamespace lns.tag do
+                namespaceBody lns.value
 
 
--- effectDef :: Has m '[Parse] => m RawDef
--- effectDef = sym "effect" >> noFail do
---     (q, c) <- option mempty typeHead
---     RdEffect q c . RawNamespace <$> do
---         grabWhitespaceDomain >>= recurseParserAll (many $ tag effectItem)
---     where
---     effectItem = do
---         (fixity, prec, n) <- Todo
---         sym ":"
---         RawEffectItem fixity prec n <$>
---             noFail grabWhitespaceDomain
+effectDef :: Has m
+    [ Location, FixName
+    , M.ParserDefs, M.Group, M.UnresolvedImports
+    , Parse
+    , Diag
+    ] => Visible QualifiedName -> m ()
+effectDef vqn = sym "effect" >> noFail do
+    (q, c) <- option mempty typeHead
+    lns <- tag grabBlock
+    pTraceM $ "effectDef: " <> pPrint lns
+    newGroupId <- insertNew (Categorical Effect <$> vqn) do
+        inNewGroup lns.tag do
+            lineParser caseDef lns.value
+    bindQuantifierHere newGroupId q
+    bindQualifierHere newGroupId c
+    where
+    caseDef = do
+        pTracedM "caseDef: " getParseState
+        qn <- qualifiedName
+        pTraceM $ "caseDef: " <> pPrint qn
+        sym ":"
+        body <- tag grabWhitespaceDomainAll
+        void $ insertNew (Categorical Case <$> Visible Public qn) do
+            withFreshItemId bindTypeHere body
 
 -- classDef :: Has m '[Parse] => m RawDef
 -- classDef = sym "class" >> noFail do
@@ -313,7 +402,7 @@ namespaceDef vqn = sym "namespace" >> noFail do
 --             grabWhitespaceDomain >>= recurseParserAll fields
 
 valueDef :: Has m
-    [ Location
+    [ Location, FixName
     , M.ParserDefs, M.Group, M.UnresolvedImports
     , Parse
     , Diag
@@ -322,7 +411,7 @@ valueDef vqn = noFail do
     body <- grabWhitespaceDomain
     let at = attrFold vqn.value.name.tag body
 
-    insertNew (Categorical Value <$> vqn) do
+    void $ insertNew (Categorical Value <$> vqn) do
         withFreshItemId bindValueHere (body :@: at)
 
 
@@ -601,32 +690,33 @@ precedence = do
 --         pure (RawField (idx :@: n.tag) n)
 
 
--- typeHead :: Has m '[Parse] => m (Quantifier, RawQualifier)
--- typeHead = typeHeadOf $ liftA2 (,)
---     do option mempty quantifier
---     do option mempty qualifier
+typeHead :: Has m '[Parse] => m (ATag Quantifier, ATag RawQualifier)
+typeHead = typeHeadOf $ liftA2 (,)
+    do option Nil $ tag quantifier
+    do option Nil $ tag qualifier
 
--- typeHeadOf :: Nil a => Parser a -> Parser a
--- typeHeadOf p = do
---     r :@: at <- tag $ option Nil p
---     guard (not (isNil r))
---     r <$ expectingAt at "to close type head" (sym "=>")
+typeHeadOf :: Has m '[Parse, With '[Nil a, Pretty a]] => m a -> m a
+typeHeadOf p = do
+    r :@: at <- tag p
+    guard (not $ isNil r)
+    r <$ noFail do
+        expectingAt at "to close type head" (sym "=>")
 
 
 
 quantifier :: Has m '[Parse] => m Quantifier
-quantifier = flip evalStateT 0 do
-    Quantifier <$> listSome (lift $ sym ",") (tag typeBinder)
+quantifier = evalStateT' (0 :: KindVar) do
+    Quantifier <$> listSome (sym ",") (tag typeBinder)
 
-qualifier :: Has m '[Parse] => m (Qualifier TokenSeq)
+qualifier :: Has m '[Parse] => m RawQualifier
 qualifier = sym "where" >> noFail do
     Qualifier . pure <$> tag do
         grabDomain (not . isSymbol "=>" . untag)
 
-typeBinder :: Has m '[Parse] => StateT KindVar m TypeBinder
+typeBinder :: Has m [St KindVar, Parse] => m TypeBinder
 typeBinder = do
     n <- tag simpleName
-    k <- optional $ lift do
+    k <- optional do
         sym ":" >> tag kind
     case k of
         Just k' -> pure (n `Of` k')
@@ -654,7 +744,7 @@ kind = tag atom >>= arrows where
 
 
 grabDomain :: Has m '[Parse] => (ATag Token -> Bool) -> m TokenSeq
-grabDomain p = do
+grabDomain p = expecting "a whitespace block" do
     ts <- takeParseState
     case ts of
         toks | not (Seq.null toks) ->
@@ -705,7 +795,8 @@ grabLines = some $ nextMap \case
 
 -- | @grabWhitespaceDomainAll >>= recurseParserAll grabLines@
 grabBlock :: Has m '[Parse] => m [TokenSeq]
-grabBlock = grabWhitespaceDomainAll >>= recurseParserAll grabLines
+grabBlock = do
+    pTracedM "dom" grabWhitespaceDomainAll >>= pTracedM "lines" . recurseParserAll grabLines
 
 -- | @wsBlock<elem>++(sep?) | elem (sep elem)*@
 wsListBody :: Has m '[Parse] => Bool -> m sep -> m a -> m [a]

@@ -38,6 +38,25 @@ lexFileWith p fp = runErrorT do
     lx <- L.lexStreamFromFile fp
     mapError pPrint $ runReaderT (evalParserT p lx) fp
 
+lexStringWith ::
+    ParserT L.LexStream (ReaderT FilePath (ErrorT SyntaxError IO)) a
+        -> String -> IO (Either Doc a)
+lexStringWith p s = runErrorT do
+    let lx = L.lexStreamFromString s
+    mapError pPrint $ runReaderT (evalParserT p lx) "stdin"
+
+parseStringWith ::
+    ParserT TokenSeq (ReaderT FilePath (ErrorT SyntaxError IO)) a
+        -> String -> IO (Either Doc a)
+parseStringWith p s = lexStringWith L.doc s >>= \case
+    Left e -> pure $ Left e
+    Right ts -> do
+        putStrLn "toks:"
+        prettyPrint ts
+        runErrorT $ mapError pPrint $
+            runReaderT (evalParserT p ts) "stdin"
+
+
 parseFileWith ::
     ParserT TokenSeq (ReaderT FilePath (ErrorT SyntaxError IO)) a
         -> FilePath -> IO (Either Doc a)

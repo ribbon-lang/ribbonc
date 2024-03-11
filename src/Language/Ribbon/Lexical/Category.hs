@@ -33,6 +33,8 @@ data Category
     | Value
     -- | A value declaration
     | Decl
+    -- | An effect case
+    | Case
     -- | A struct field projection
     | Projection
     -- | A union field injection
@@ -53,6 +55,7 @@ instance Pretty Category where
         Alias -> "type"
         Value -> "value"
         Decl -> "decl"
+        Case -> "case"
         Projection -> "projection"
         Injection -> "injection"
 
@@ -88,6 +91,7 @@ overloadedCategory = \case
     Alias -> OType
     Value -> OValue
     Decl -> OValue
+    Case -> OValue
     Projection -> OValue
     Injection -> OValue
 
