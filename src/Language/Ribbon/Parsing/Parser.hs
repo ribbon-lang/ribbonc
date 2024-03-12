@@ -36,7 +36,6 @@ import Language.Ribbon.Parsing.Monad
 import Language.Ribbon.Parsing.Lexer qualified as L
 import Language.Ribbon.Lexical
 import Language.Ribbon.Analysis
-import Debug.Trace (trace)
 
 
 
@@ -142,7 +141,7 @@ file i filePath = snd <$>
         runReaderT' filePath do
             L.lexStreamFromFile filePath
                 >>= liftError @SyntaxError . evalParserT L.doc
-                >>= pTracedM "doc lines" . liftError @SyntaxError . evalParserT grabLines
+                >>= liftError @SyntaxError . evalParserT grabLines
                 >>= runReaderT' (StringFixName filePath) . \lns -> do
                     let at = fileAttr filePath
 
@@ -318,7 +317,6 @@ effectDef :: Has m
 effectDef vqn = sym "effect" >> noFail do
     (q, c) <- option mempty typeHead
     lns <- tag grabBlock
-    pTraceM $ "effectDef: " <> pPrint lns
     newGroupId <- insertNew (Categorical Effect <$> vqn) do
         inNewGroup lns.tag do
             lineParser caseDef lns.value
@@ -326,9 +324,7 @@ effectDef vqn = sym "effect" >> noFail do
     bindQualifierHere newGroupId c
     where
     caseDef = do
-        pTracedM "caseDef: " getParseState
         qn <- qualifiedName
-        pTraceM $ "caseDef: " <> pPrint qn
         sym ":"
         body <- tag grabWhitespaceDomainAll
         void $ insertNew (Categorical Case <$> Visible Public qn) do
@@ -795,8 +791,8 @@ grabLines = some $ nextMap \case
 
 -- | @grabWhitespaceDomainAll >>= recurseParserAll grabLines@
 grabBlock :: Has m '[Parse] => m [TokenSeq]
-grabBlock = do
-    pTracedM "dom" grabWhitespaceDomainAll >>= pTracedM "lines" . recurseParserAll grabLines
+grabBlock = grabWhitespaceDomainAll >>= recurseParserAll do
+    asum [grabLines, pure <$> takeParseState]
 
 -- | @wsBlock<elem>++(sep?) | elem (sep elem)*@
 wsListBody :: Has m '[Parse] => Bool -> m sep -> m a -> m [a]
