@@ -10,7 +10,6 @@ import Data.Text.Encoding.Error qualified as Text
 
 import Data.Char qualified as Char
 import Data.Sequence qualified as Seq
-import Data.Maybe qualified as Maybe
 
 import Data.Word (Word32)
 
@@ -94,7 +93,7 @@ instance ParseInput LexStream where
 --   @Text.lenientDecode@ as the markers for invalid characters it generates
 --   are checked for by @ParseInput@ implementation
 lexStreamFromText :: Text -> LexStream
-lexStreamFromText = LexStream Nil
+lexStreamFromText = LexStream (Pos 0 1 1)
 
 -- | Lazily decode a @ByteString@ into @Text@, and wrap it in a new @LexStream@
 lexStreamFromByteString :: ByteString -> LexStream
@@ -156,7 +155,7 @@ lineSeq ind = do
         ind' <- lineStart
         guard (ind' == ind)
         tag $ line ind
-    pure $ Seq.fromList $ filter (not . null . untag) (fLn : lns) <&>
+    pure $ Seq.fromList (fLn : lns) <&>
         fmap (TTree BkWhitespace)
 
 -- | Lex a single line
@@ -210,10 +209,10 @@ path = do
         }
     where
     body = do
-        fc@(_ :@: at) <- tag pathComponent
+        fc@(_ :@: at) <- tag pathName
         Seq.fromList . (fc :) <$> connectMany at do
             at' <- attrOf $ expectSymbol "/"
-            connected at' (tag pathComponent)
+            connected at' (tag pathName)
 
 -- | Lex a @PathBase@
 pathBase :: Has m '[Lex] => m PathBase
@@ -235,13 +234,11 @@ pathBase = expecting "a path base" $ asum
     ]
 
 -- | Lex a @PathName@
-pathComponent :: Has m '[Lex] => m PathName
-pathComponent = expecting "a path component" do
-    c <- optional category
-
-    when (Maybe.isJust c) hScan
-
-    PathName c <$> name
+pathName :: Has m '[Lex] => m PathName
+pathName = expecting "a path component" do
+    liftA2 PathName
+        do name
+        do optional (hScanning category)
 
 
 
@@ -391,7 +388,7 @@ shebang = expecting "a shebang" do
 comment :: Has m '[Lex] => m ()
 comment = expecting "a comment" do
     expectSeq ";;"
-    nextWhile_ (/= '\n')
+    option () $ nextWhile_ (/= '\n')
 
 -- | Lex a sequence of spaces with semantic implications,
 --   ie the spaces inside a @FixName@

@@ -35,7 +35,7 @@ PathExt tail
     | tail
 
 WsList sep elem = wsBlock<wsBlock<elem>++(sep?) | elem (sep elem)*>
-
+WsLines elem = wsBlock<wsBlock<elem>*>
 
 
 Module = ModuleHead Doc
@@ -63,29 +63,30 @@ Def = Visibility? (Use | Namespace | TypeDef | ValueDef) where
     TypeDef = FixNameDecl "=" TypeBody where
         EffectDec = FixNameDecl ":" wsBlock<Type>
         FieldDec = Field<":" wsBlock<Type>>
+        StructFields
+            = WsBlock<",", wsBlock<Type>>
+            | WsBlock<",", SimpleName ":" wsBlock<Type>>
         ClassDec
-            = FixNameDecl ":" (("forall" TypeHead "=>")? Type | "type" TypeHead?)
+            = FixNameDecl ":" (("for" TypeHead "=>")? Type | "type" TypeHead?)
         InstanceDef
             = FixNameDecl "=" (wsBlock<Value> | "type" (TypeHead "=>"?) Type)
         TypeBody
             = "type" (TypeHead "=>")? wsBlock<Type>
-            | "struct" (TypeHead "=>")? WsList<",", FieldDec>
-            | "union" (TypeHead "=>")? WsList<",", FieldDec>
-            | "effect" (TypeHead "=>")? WsList<",", EffectDec>
-            | "class" (TypeHead "=>")? WsList<",", ClassDec>
-            | "instance" TypeHead? "for" Type "=>" WsList<",", InstanceDef>
+            | "struct" (TypeHead "=>")? StructFields
+            | "union" (TypeHead "=>")? WsBlock<",", FieldDec>
+            | "effect" (TypeHead "=>")? WsLines<EffectDec>
+            | "class" (TypeHead "=>")? WsLines<ClassDec>
+            | "instance" TypeHead? "for" Type "=>" WsLines<InstanceDef>
 
     ValueDef = FixNameDecl (ValueType? ValueExpr | ValueType) where
-        ValueType = ":" ("forall" TypeHead)? wsBlock<Type>
+        ValueType = ":" ("for" TypeHead)? wsBlock<Type>
         ValueExpr = "=" wsBlock<Value>
 
 Kind
-    = "type"
-    | "effect"
-    | "value" ("Int" | "String")
-    | "data"
-    | "effects"
-    | "constraint"
+    = "Type" | "Effect"
+    | "Int" | "String"
+    | "Data" | "Effects"
+    | "Constraint"
     | Kind "->" Kind
     | "(" Kind ")"
 

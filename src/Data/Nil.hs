@@ -67,3 +67,6 @@ pattern Nil <- (isNil -> True) where
 {-# COMPLETE (Seq.:|>), Nil #-}
 {-# COMPLETE (Seq.:<|), Nil #-}
 {-# COMPLETE (:), Nil #-}
+
+notNil :: Nil m => m -> Bool
+notNil = not . isNil

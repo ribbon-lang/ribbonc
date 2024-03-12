@@ -8,6 +8,7 @@ module Text.Pretty
     , vcat', vcatDouble, bulletList, ($++$)
     , with, joinWith, spaceWith, linesWith
     , hang, qual, qual', qualH
+    , surround, surrounded, qualSurround, maybeSurround, maybeSurrounded
     , qualBrackets, qualParens, qualBraces
     , qualDoubleQuotes, qualQuotes, qualBackticks
     , indent, lsep, lcat
@@ -253,29 +254,32 @@ qualH :: Doc -> Doc -> Doc
 qualH _ Nil = Nil
 qualH a b = hang a b
 
+qualSurround :: Doc -> Doc -> Doc -> Doc
+qualSurround o c x = maybeSurround (notNil x) o c x
+
 -- | Enclose a @Doc@ in brackets [] if it is not empty
 qualBrackets :: Doc -> Doc
-qualBrackets d = maybeBrackets (not $ isNil d) d
+qualBrackets d = maybeBrackets (notNil d) d
 
 -- | Enclose a @Doc@ in parens () if it is not empty
 qualParens :: Doc -> Doc
-qualParens d = maybeParens (not $ isNil d) d
+qualParens d = maybeParens (notNil d) d
 
 -- | Enclose a @Doc@ in braces {} if it is not empty
 qualBraces :: Doc -> Doc
-qualBraces d = maybeBraces (not $ isNil d) d
+qualBraces d = maybeBraces (notNil d) d
 
 -- | Enclose a @Doc@ in double quotes "" if it is not empty
 qualDoubleQuotes :: Doc -> Doc
-qualDoubleQuotes d = maybeDoubleQuotes (not $ isNil d) d
+qualDoubleQuotes d = maybeDoubleQuotes (notNil d) d
 
 -- | Enclose a @Doc@ in single quotes '' if it is not empty
 qualQuotes :: Doc -> Doc
-qualQuotes d = maybeQuotes (not $ isNil d) d
+qualQuotes d = maybeQuotes (notNil d) d
 
 -- | Enclose a @Doc@ in backticks \`\` if it is not empty
 qualBackticks :: Doc -> Doc
-qualBackticks d = maybeBackticks (not $ isNil d) d
+qualBackticks d = maybeBackticks (notNil d) d
 
 -- | The usual `nest` with a consistent indentation of 4 spaces
 indent :: Doc -> Doc
@@ -327,6 +331,14 @@ lsep = fsep . punctuate ","
 lcat :: Doc -> Doc -> Doc
 lcat a b = lsep [a, b]
 
+-- | Enclose a @Doc@ in surrounding documents
+surround :: Doc -> Doc -> Doc -> Doc
+surround o c x = o <> x <> c
+
+-- | Pretty print a value and enclose it in surrounding documents
+surrounded :: Pretty a => Doc -> Doc -> a -> Doc
+surrounded o c = surround o c . pPrint
+
 -- | Enclose a @Doc@ in backticks ``
 backticks :: Doc -> Doc
 backticks d = "`" <> d <> "`"
@@ -334,6 +346,16 @@ backticks d = "`" <> d <> "`"
 -- | Pretty print a value and enclose it in backticks ``
 backticked :: Pretty a => a -> Doc
 backticked = backticks . pPrint
+
+-- | Enclose a @Doc@ in surrounding documents if the boolean is true
+maybeSurround :: Bool -> Doc -> Doc -> Doc -> Doc
+maybeSurround True o c x = surround o c x
+maybeSurround False _ _ x = x
+
+-- | Pretty print a value and enclose it in surrounding documents
+--   if the boolean is true
+maybeSurrounded :: Pretty a => Bool -> Doc -> Doc -> a -> Doc
+maybeSurrounded p o c = maybeSurround p o c . pPrint
 
 -- | Enclose a @Doc@ in backticks `` if the boolean is true
 maybeBackticks :: Bool -> Doc -> Doc

@@ -96,12 +96,12 @@ mustEscapes =  "\\\a\b\f\n\r\t\v\0"
 -- | List of @String@s that are lexically reserved, ie keywords and special ops
 reservedSymbols :: [String]
 reservedSymbols =
-    [ "type", "effect", "class", "instance", "struct"
-    , "union", "namespace", "forall", "fun"
+    [ "alias", "effect", "class", "instance", "struct"
+    , "union", "namespace"
+    , "type", "value"
     , "module", "use", "file", "pub", "hiding"
-    , "let", "in", "as", "do"
-    , "match", "with"
-    , "if", "then", "else"
+    , "in", "as", "do", "with", "where", "for"
+    , "fun", "let", "match", "if", "then", "else"
     , "'", "`"
     , "=", ":", "=>", ";", ",", "|"
     , "{", "}", "(", ")", "[", "]"

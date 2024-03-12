@@ -225,24 +225,24 @@ type SpecificName = Categorical FixName
 --   specifying a name to look up, at a particular fixity and category
 data PathName
     = PathName
-    { category :: !(Maybe OverloadCategory)
-    , name :: !FixName
+    { name :: !FixName
+    , category :: !(Maybe OverloadCategory)
     }
     deriving (Eq, Ord, Show)
 
 -- | Pattern alias for a @PathName@ with no @Category@
 pattern FixPathName :: FixName -> PathName
-pattern FixPathName n = PathName Nothing n
+pattern FixPathName n = PathName n Nothing
 
 instance Pretty PathName where
     pPrintPrec lvl _ = \case
-        PathName k n -> hsep
-            [ maybeMEmpty (pPrintPrec lvl 0 <$> k)
-            , pPrintPrec lvl 0 n
+        PathName n k -> hsep
+            [ pPrintPrec lvl 0 n
+            , maybeMEmpty (pPrintPrec lvl 0 <$> k)
             ]
 
 instance HasFixity PathName where
-    getFixity (PathName _ n) = getFixity n
+    getFixity (PathName n _) = getFixity n
 
 -- | A @FixName@ qualified with
 --   a @Visibility@, @Category@, @Associativity@, and @Precedence@

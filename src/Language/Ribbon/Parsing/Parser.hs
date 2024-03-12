@@ -36,33 +36,41 @@ import Language.Ribbon.Parsing.Monad
 import Language.Ribbon.Parsing.Lexer qualified as L
 import Language.Ribbon.Lexical
 import Language.Ribbon.Analysis
+import Language.Ribbon.Syntax.Type
+import Language.Ribbon.Syntax.Data
 
 
 
 
--- | Marker type for @Has@ ie @Has m '[Parse]@ ~ @MonadParser TokenSeq m@
+-- | Marker type for @Has@
+--   ie @Has m '[Parse]@ ~ @MonadParser (ATag TokenSeq) m@
 data Parse
 
-type instance Has m (Parse ': effs) = (MonadParser TokenSeq m, Has m effs)
+type instance Has m (Parse ': effs) =
+    (MonadParser (ATag TokenSeq) m, Has m effs)
 
-instance ParseInput TokenSeq where
-    type InputElement TokenSeq = Token
-    formatInput fp ts = Tag (attrInput fp ts) case ts of
-        (t :@: _) Seq.:<| _ -> UnexpectedFailure (inputPretty t $+$ pPrint ts)
+instance ParseInput (ATag TokenSeq) where
+    type InputElement (ATag TokenSeq) = Token
+    formatInput fp ts = Tag (attrInput fp ts) case untag ts of
+        t :@: _ Seq.:<| _ -> UnexpectedFailure (inputPretty t $+$ pPrint ts)
         _ -> EofFailure
     unconsInput = \case
-        (t :@: _) Seq.:<| ts -> Right (t, ts)
+        (t :@: _ Seq.:<| ts) :@: at -> Right (t, ts :@: at)
         _ -> Left DecodeEof
-    attrInput fp ts = case ts of
-        t Seq.:<| _ -> t.tag
-        _ -> Attr fp Nil
-    attrInputDiff fp ts ts' = attrFold (fileAttr fp) do
-        Seq.take (Seq.length ts - Seq.length ts') ts
+    attrInput _ ts = case untag ts of
+        t Seq.:<| _-> t.tag
+        _ -> attrFlattenToEnd ts.tag
+    attrInputDiff fp ts ts' =
+        let tx = Seq.take (Seq.length ts.value - Seq.length ts'.value) ts.value
+        in if notNil tx
+            then attrFold (fileAttr fp) tx
+            else attrFlattenToStart ts'.tag
 
 
 
 
-moduleHead :: Has m '[Parse] => m (RawModuleHeader, [TokenSeq])
+-- | Parse a @RawModuleHeader@, and return the rest of the file as a line list
+moduleHead :: Has m '[Parse] => m (RawModuleHeader, [ATag TokenSeq])
 moduleHead = expecting "a valid module header" do
     grabLines >>= \case
         [] -> empty
@@ -88,15 +96,14 @@ moduleHead = expecting "a valid module header" do
             liftA2 (,) (tag simpleName) grabWhitespaceDomain
 
     processPairs =
-        flip (foldWithM mempty) \(k, toks) (sources, dependencies, meta) -> do
-            f <- getFilePath
+        foldWithM' mempty \(k, toks) (sources, dependencies, meta) ->
             case k.value.value of
                 "sources" ->
-                    (, dependencies, meta) . Tag (attrFold (fileAttr f) toks) <$>
+                    (, dependencies, meta) . Tag toks.tag <$>
                         processSources (tagOf k) sources toks
 
                 "dependencies" ->
-                    (sources, , meta) . Tag (attrFold (fileAttr f) toks) <$>
+                    (sources, , meta) . Tag toks.tag <$>
                         processDependencies (tagOf k) dependencies toks
 
                 _ -> (sources, dependencies, ) <$> processMeta k meta toks
@@ -105,13 +112,13 @@ moduleHead = expecting "a valid module header" do
         assertAt at (null existing.value) Unrecoverable $
             hang "multiple `sources` fields in module head"
                 $ "original is here:" <+> pPrint (tagOf existing)
-        recurseParserAll (wsListBody True (sym ",") (tag string)) toks
+        recurseParserAll (wsList True "," (tag string)) toks
 
     processDependencies at existing toks = do
         assertAt at (null existing.value) Unrecoverable $
             hang "multiple `dependencies` fields in module head"
                 $ "original is here:" <+> pPrint (tagOf existing)
-        recurseParserAll (wsListBody True (sym ",") dependency) toks
+        recurseParserAll (wsList True "," dependency) toks
 
     processMeta key meta toks = do
         assertAt key.tag (Map.notMember key meta) Unrecoverable $
@@ -128,19 +135,15 @@ moduleHead = expecting "a valid module header" do
         alias <- optional (sym "as" >> noFail (tag simpleName))
         pure (moduleName, moduleVersion, alias)
 
-liftError :: forall e m a. Has m [ Err Doc, With '[Pretty e] ] => ErrorT e m a -> m a
-liftError m =
-    runErrorT m >>= liftEitherMap pPrint
-
-
-file :: Has m [ ModuleId, Diag, Err Doc, OS ] =>
+-- | Parse a source file
+sourceFile :: Has m [ ModuleId, Diag, Err Doc, OS ] =>
     ItemId -> FilePath -> m M.ParserDefs
-file i filePath = snd <$>
+sourceFile i filePath = snd <$>
     runReaderT' i do
     execStateT' (i + 1, Nil) do
         runReaderT' filePath do
             L.lexStreamFromFile filePath
-                >>= liftError @SyntaxError . evalParserT L.doc
+                >>= liftError @SyntaxError . evalParserT (tag L.doc)
                 >>= liftError @SyntaxError . evalParserT grabLines
                 >>= runReaderT' (StringFixName filePath) . \lns -> do
                     let at = fileAttr filePath
@@ -148,7 +151,7 @@ file i filePath = snd <$>
                     (newGroup, newUnresolvedImports) <-
                         runStateT' Nil $
                         execStateT' Nil $
-                            namespaceBody lns
+                            lineParser item lns
 
                     unless (isNil newGroup) do
                         bindGroup i $
@@ -158,6 +161,530 @@ file i filePath = snd <$>
                         bindImports i $
                             M.Def Nothing (newUnresolvedImports :@: at)
 
+
+
+-- | Parse a top-level item declaration or definition
+item :: Has m
+    [ Location, FixName
+    , M.ParserDefs, M.Group, M.UnresolvedImports
+    , Diag, Parse
+    ] => m ()
+item = asum
+    [ useDef
+    , do
+        vqn <- defHead
+        usingFixName vqn.value.name.value $
+            liftedSyntaxErrorRefName BadDefinition $
+                optionalIndent $ asum
+                    [ sym "=" >> noFail do
+                        asum $ ($ vqn) <$>
+                            [ namespaceDef
+                            , effectDef
+                            , classDef
+                            , instanceDef
+                            , typeDef
+                            , structDef
+                            , unionDef
+                            , valueDef
+                            ]
+                    , do
+                        newDeclId <- optionalIndent $ sym ":" >> noFail do
+                            valueDec vqn
+                        consumesAll $ option () do
+                            optionalIndent $ sym "=" >> noFail do
+                                body <- grabWhitespaceDomainAll
+                                bindValueHere newDeclId body
+                    ]
+    ]
+
+
+
+
+-- | Parse a use declaration
+--   @ "use" ... @
+useDef :: Has m
+    [ Location, M.ParserDefs, M.Group, M.UnresolvedImports
+    , Parse
+    , Diag
+    ] => m ()
+useDef = sym "use" >> do
+    liftingSyntaxErrorRef BadDefinition Nothing
+        (tag parseUseDef)
+        discardParseState
+        \(Visible vis use :@: at) ->
+            runReaderT' (Nil :: Path) $
+            runReaderT' (Nil :: [ATag PathName]) $
+                addUse vis (use :@: at)
+    where
+    parseUseDef = noFail (consumesAll $ visible use) where
+        use = optional (tag path) >>= \case
+            Just p -> do
+                liftA2 (RawUse p)
+                    do option (RawUseSingle :@: p.tag)
+                        if requiresSlash p
+                            then do
+                                at <- attrOf do
+                                    connected p.tag (simpleNameOf "/")
+                                noFail (connected at $ tag useTree)
+                            else connected p.tag $ tag useTree
+                    do alias
+            _ -> liftA3 RawUse
+                do Path Nothing Nil <@> attr
+                do tag useTree
+                do alias
+        useTree = asum
+            [ RawUseBlob <$> do
+                sym ".." >> option [] do
+                    sym "hiding" >> asum
+                        [ braces $ wsList True "," (tag pathName)
+                        , pure <$> tag pathName
+                        ]
+            , RawUseBranch <$> braces do
+                wsList True "," (tag use)
+            ]
+
+        alias = optional $ sym "as" >> noFail qualifiedName
+
+    addUse :: Has m
+        [ Location
+        , M.ParserDefs, M.Group, M.UnresolvedImports
+        , Rd [ATag PathName]
+        , Rd Path
+        , Diag
+        ] => Visibility -> ATag RawUse -> m ()
+    addUse vis (RawUse{..} :@: at) = do
+        previousPath <- ask @Path
+        maybe
+            do reportErrorRef at
+                BadDefinition (prettyShow . (.name.value) <$> alias) $
+                hang "cannot combine paths in compound use:" do
+                    backticked previousPath <+> "and" <+> backticked basePath
+            (useBody . (<$ basePath))
+            (joinPath previousPath basePath.value)
+        where
+        useBody fullPath = case alias of
+            Just newName ->
+                runReaderT' newName.name.value
+                case makeNewName fullPath newName of
+                    Just unresolvedName -> case tree.value of
+                        RawUseSingle ->
+                            insertAlias (Visible vis unresolvedName) fullPath
+
+                        RawUseBlob hidden ->
+                            asNewNamespace fullPath unresolvedName
+                                (`addUseBlob` hidden)
+
+                        RawUseBranch subs ->
+                            asNewNamespace fullPath unresolvedName
+                                (`addUseBranch` subs)
+
+                    _ -> getFixName >>= reportInvalidCombo . Just
+
+            _ -> case tree.value of
+                RawUseBranch subs -> addUseBranch fullPath subs
+
+                RawUseBlob hidden -> addUseBlob fullPath hidden
+
+                RawUseSingle -> case getPathName fullPath.value of
+                    Just name ->
+                        let category = getPathCategory fullPath.value
+                            unresolvedName =
+                                UnresolvedName category Nothing name
+                        in insertAlias (Visible vis unresolvedName) fullPath
+
+                    _ -> reportInvalidCombo Nothing
+
+        addUseBlob :: Has m
+            [ Location
+            , M.ParserDefs, M.Group, M.UnresolvedImports
+            , Rd [ATag PathName]
+            , Diag
+            ] => ATag Path -> [ATag PathName] -> m ()
+        addUseBlob fullPath explicit = do
+            context <- ask
+            insertBlob (Visible vis fullPath)
+                if isNil basePath.value
+                    then context <> explicit
+                    else explicit
+
+        addUseBranch :: Has m
+            [ Location
+            , M.ParserDefs, M.Group, M.UnresolvedImports
+            , Rd [ATag PathName]
+            , Rd Path
+            , Diag
+            ] => ATag Path -> [ATag RawUse] -> m ()
+        addUseBranch fullPath subs = do
+            let (blobs, rest) = subs & List.partition \u ->
+                    case u.value.tree.value of
+                        RawUseBlob _ -> True
+                        _ -> False
+
+            using fullPath.value do
+                names <- Maybe.catMaybes <$> forM rest \u ->
+                    hidablePathNameFromUse u.value <$ addUse vis u
+
+                using names (forM_ blobs $ addUse vis)
+
+
+        asNewNamespace fullPath unresolvedName action = do
+            let newFullPath = Maybe.fromJust $
+                    joinPath
+                        (Path (Just $ PbUp 1 :@: basePath.tag) Nil)
+                        fullPath.value
+            case groupFromUnresolvedInCategory Namespace unresolvedName of
+                Just groupName -> do
+                    newId <- inNewNamespace unresolvedName.name.tag do
+                        action (newFullPath <$ basePath)
+                    modId <- getModuleId
+                    insertRef (Visible Public groupName) (Ref modId newId)
+                _ -> getFixName >>= reportInvalidCombo . Just
+
+
+        makeNewName fullPath =
+            unresolvedFromQualified case tree.value of
+                RawUseSingle -> getPathCategory fullPath.value
+                _ -> Just ONamespace
+
+        reportInvalidCombo :: Has m '[Ref, Diag] => Maybe FixName -> m ()
+        reportInvalidCombo referenceName = do
+            reportErrorRefH
+                basePath.tag
+                BadDefinition
+                (prettyShow <$> referenceName)
+                (text "this use has an invalid alias &"
+                    <+> "path or extension combination")
+                [ hang "potential problems:" $ bulletList
+                    [ "you are aliasing a namespace or instance as a"
+                        <+> "non-atomic operator"
+                    , "you have not provided an alias, but the tail of the path"
+                        <+> "cannot be used as a symbol,"
+                        <+> "such as certain file names"
+                    ]
+                ]
+
+
+-- | Parse a namespace definition
+--   @ "namespace" ... @
+namespaceDef :: Has m
+    [ Location, FixName
+    , M.ParserDefs, M.Group, M.UnresolvedImports
+    , Parse
+    , Diag
+    ] => Visible QualifiedName -> m ()
+namespaceDef vqn = sym "namespace" >> noFail do
+    diagAssertRefNameH (isSimpleQualifiedName vqn.value)
+        vqn.value.name.tag BadDefinition
+        (text "namespace definitions must be bound to simple names")
+        [ backticked vqn <+> "is not a simple name, it should be more like"
+            <+> backticked (simplifyFixName vqn.value.name.value)
+        ]
+
+    lns <- tryGrabBlock vqn.value.name.tag
+
+    void $ insertNew (Categorical Namespace <$> vqn) do
+        inNewNamespace lns.tag do
+            lineParser item lns.value
+
+-- | Parse an effect type definition
+--   @ "effect" (... "=>")? ... @
+effectDef :: Has m
+    [ Location, FixName
+    , M.ParserDefs, M.Group, M.UnresolvedImports
+    , Parse
+    , Diag
+    ] => Visible QualifiedName -> m ()
+effectDef vqn = sym "effect" >> noFail do
+    (q, c) <- option Nil typeHeadArrow
+
+    lns <- tryGrabBlock vqn.value.name.tag
+
+    newGroupId <- insertNew (Categorical Effect <$> vqn) do
+        inNewGroup lns.tag do
+            lineParser caseDef lns.value
+
+    unless (isNil q) (bindQuantifierHere newGroupId q)
+    unless (isNil c) (bindQualifierHere newGroupId c)
+    where
+    caseDef = noFail do
+        qn <- qualifiedName
+        usingFixName qn.name.value $
+            liftedSyntaxErrorRefName BadDefinition do
+                sym ":"
+                body <- grabWhitespaceDomainAll
+                void $ insertNew (Categorical Case <$> Visible Public qn) do
+                    withFreshItemId bindTypeHere body
+
+
+-- | Parse a type class definition
+--   @ "class" (... "=>")? ... @
+classDef :: Has m
+    [ Location, FixName
+    , M.ParserDefs, M.Group, M.UnresolvedImports
+    , Parse
+    , Diag
+    ] => Visible QualifiedName -> m ()
+classDef vqn = sym "class" >> noFail do
+    (q, c) <- option Nil typeHeadArrow
+
+    lns <- tryGrabBlock vqn.value.name.tag
+
+    newGroupId <- insertNew (Categorical Class <$> vqn) do
+        inNewGroup lns.tag do
+            lineParser classItem lns.value
+
+    unless (isNil q) (bindQuantifierHere newGroupId q)
+    unless (isNil c) (bindQualifierHere newGroupId c)
+    where
+    classItem = noFail do
+        qn <- qualifiedName
+        usingFixName qn.name.value $
+            liftedSyntaxErrorRefName BadDefinition do
+                sym ":"
+                grabWhitespaceDomainAll >>= recurseParserAll do
+                    asum
+                        [ classType qn
+                        , classValue qn
+                        ]
+
+    classType qn = sym "type" >> noFail do
+        (q, c) <- consumesAll (option Nil typeHeadNoDelim)
+        newAliasId <- insertNew
+            (Visible Public $ Categorical Alias qn) freshItemId
+        unless (isNil q) (bindQuantifierHere newAliasId q)
+        unless (isNil c) (bindQualifierHere newAliasId c)
+
+    classValue qn = noFail do
+        (q, c) <- option Nil forTypeHead
+        body <- grabWhitespaceDomainAll
+        newDeclId <- insertNew (Visible Public $ Categorical Decl qn) do
+            withFreshItemId bindTypeHere body
+        unless (isNil q) (bindQuantifierHere newDeclId q)
+        unless (isNil c) (bindQualifierHere newDeclId c)
+
+
+-- | Parse a class instance definition
+--   @ "instance" (... "=>")? ... @
+instanceDef :: Has m
+    [ Location, FixName
+    , M.ParserDefs, M.Group, M.UnresolvedImports
+    , Parse
+    , Diag
+    ] => Visible QualifiedName -> m ()
+instanceDef vqn = do
+    sym "instance" >> noFail do
+        (q, c) <- option Nil (typeHeadDelim "for")
+
+        for <- grabDomain (not . isSymbol "=>" . untag) << sym "=>"
+
+        lns <- tryGrabBlock vqn.value.name.tag
+
+        newGroupId <- insertNew (Categorical Instance <$> vqn) do
+            inNewGroup lns.tag do
+                lineParser instanceItem lns.value
+
+        unless (isNil q) (bindQuantifierHere newGroupId q)
+        unless (isNil c) (bindQualifierHere newGroupId c)
+        bindTypeHere newGroupId for
+    where
+    instanceItem = noFail do
+        qn <- qualifiedName
+        usingFixName qn.name.value $
+            liftedSyntaxErrorRefName BadDefinition do
+                sym "="
+                grabWhitespaceDomainAll >>= recurseParserAll do
+                    asum
+                        [ instanceType qn
+                        , instanceValue qn
+                        ]
+
+    instanceType qn = sym "type" >> noFail do
+        q <- option Nil $ typeHeadOf (Just "=>") $ const do
+           option Nil $ tag quantifier
+        body <- grabWhitespaceDomainAll
+        newAliasId <- insertNew (Visible Public $ Categorical Alias qn) do
+            withFreshItemId bindTypeHere body
+        unless (isNil q) (bindQuantifierHere newAliasId q)
+
+    instanceValue qn = noFail do
+        body <- grabWhitespaceDomainAll
+        void $ insertNew (Visible Public $ Categorical Value qn) do
+            withFreshItemId bindValueHere body
+
+
+-- | Parse a type alias definition
+--   @ "type" (... "=>")? ... @
+typeDef :: Has m
+    [ Location, FixName
+    , M.ParserDefs, M.Group, M.UnresolvedImports
+    , Parse
+    , Diag
+    ] => Visible QualifiedName -> m ()
+typeDef vqn = sym "type" >> noFail do
+    q <- option Nil typeQuantifierArrow
+    body <- grabWhitespaceDomainAll
+    newAliasId <- insertNew (Categorical Alias <$> vqn) do
+        withFreshItemId bindTypeHere body
+    unless (isNil q) (bindQuantifierHere newAliasId q)
+
+
+-- | Parse a struct type definition
+--   @ "struct" (... "=>")? ... @
+structDef :: Has m
+    [ Location, FixName
+    , M.ParserDefs, M.Group, M.UnresolvedImports
+    , Parse
+    , Diag
+    ] => Visible QualifiedName -> m ()
+structDef vqn = sym "struct" >> noFail do
+    q <- option Nil typeQuantifierArrow
+
+    lns <- tryWsListBody vqn.value.name.tag True ","
+
+    newGroupId <- insertNew (Categorical Struct <$> vqn) do
+        inNewGroup lns.tag do
+            (named, diag) <- runWriterT do
+                fields (bindingField Projection namedField) lns.value
+            if any isError diag
+                then fields (bindingField Projection tupleField) lns.value
+                else named <$ reportAll diag
+
+    unless (isNil q) (bindQuantifierHere newGroupId q)
+    where
+    namedField idx = do
+        n <- tag simpleName
+        sym ":"
+        (idx :@: n.tag, n, )
+            <$> grabWhitespaceDomainAll
+
+    tupleField idx = do
+        body <- grabWhitespaceDomainAll
+        pure
+            ( idx :@: body.tag
+            , SimpleName (show idx) :@: body.tag
+            , body
+            )
+
+
+-- | Parse a union type definition
+--   @ "union" (... "=>")? ... @
+unionDef :: Has m
+    [ Location, FixName
+    , M.ParserDefs, M.Group, M.UnresolvedImports
+    , Parse
+    , Diag
+    ] => Visible QualifiedName -> m ()
+unionDef vqn = sym "union" >> noFail do
+    q <- option Nil typeQuantifierArrow
+
+    lns <- tryWsListBody vqn.value.name.tag True ","
+
+    newGroupId <- insertNew (Categorical Union <$> vqn) do
+        inNewGroup lns.tag do
+            fields (bindingField Injection field) lns.value
+
+    unless (isNil q) (bindQuantifierHere newGroupId q)
+    where
+    field idx = do
+        lbl <- asum [ numbered, nameOnly ]
+        noFail do
+            sym ":"
+            lbl <$> grabWhitespaceDomainAll
+        where
+        numbered = do
+            off <- tag int
+            n <- option (SimpleName (show off.value) :@: off.tag) do
+                simpleNameOf "\\" >> noFail (tag simpleName)
+            pure (off, n, )
+
+        nameOnly = do
+            n <- tag simpleName
+            pure (idx :@: n.tag, n, )
+
+-- | Parse a value declaration
+--   @ ":" ("for" ... "=>")? ... @
+valueDec :: Has m
+    [ Location, FixName
+    , M.ParserDefs, M.Group, M.UnresolvedImports
+    , Parse
+    , Diag
+    ] => Visible QualifiedName -> m ItemId
+valueDec vqn = noFail do
+    (q, c) <- option Nil forTypeHead
+    header <- grabDomain (not . isSymbol "=" . untag)
+    newDeclId <- insertNew (Categorical Decl <$> vqn) do
+        withFreshItemId bindTypeHere header
+    unless (isNil q) (bindQuantifierHere newDeclId q)
+    unless (isNil c) (bindQualifierHere newDeclId c)
+    pure newDeclId
+
+-- | Parse a value definition body
+--   @ "=" ... @
+valueDef :: Has m
+    [ Location, FixName
+    , M.ParserDefs, M.Group, M.UnresolvedImports
+    , Parse
+    , Diag
+    ] => Visible QualifiedName -> m ()
+valueDef vqn = noFail do
+    body <- grabWhitespaceDomainAll
+
+    void $ insertNew (Categorical Value <$> vqn) do
+        withFreshItemId bindValueHere body
+
+
+
+
+-- | Helper for @structDef@ and @unionDef@
+bindingField :: Has m
+    [ Location, FixName
+    , M.ParserDefs, M.Group, M.UnresolvedImports
+    , Parse
+    , Diag
+    ] => Category ->
+        (Word32 -> m (ATag Word32, ATag SimpleName, ATag TokenSeq)) ->
+            Word32 -> m Word32
+bindingField c fm i = do
+    (off, n, f) :@: at <- tag $ fm i
+    let lbl = Label
+            (TConstant . CInt <$> off)
+            (TConstant . CString . (.value) <$> n)
+    void $ insertNew (Visible Public $
+            Categorical c $ QualifiedName NonAssociative 0 $
+                SimpleFixName <$> n) do
+        withFreshItemId bindFieldHere (Field lbl f :@: at)
+    pure off.value
+
+-- | Helper for @structDef@ and @unionDef@
+fields :: Has m '[Location, FixName, Parse, Diag] =>
+    (Word32 -> WriterT [Diagnostic] m Word32) -> [ATag TokenSeq] -> m ()
+fields fm = loop 0 where
+    loop _ [] = pure ()
+    loop i (ln:lns) = do
+        name <- getFixName
+        ref <- getRef
+        liftingSyntaxError
+            DiagnosticBinder
+                { kind = BadDefinition
+                , ref = ref
+                , name = Just (prettyShow name)
+                }
+            (recurseParserAll (fm i) ln)
+            (loop i lns)
+            (\i' -> loop (i' + 1) lns)
+
+
+-- | Lift an @ErrorT e@ where @Pretty e@ to a @Doc@ error
+liftError :: forall e m a.
+    Has m [ Err Doc, With '[Pretty e] ] =>
+        ErrorT e m a -> m a
+liftError m =
+    runErrorT m >>= liftEitherMap pPrint
+
+
+-- | Run an action inside a new namespace,
+--   binding any group or unresolved imports created therein,
+--   and returning the id
 inNewNamespace :: Has m [ Ref, M.ParserDefs, Diag ] =>
     Attr -> StateT M.Group (StateT M.UnresolvedImports m) a -> m ItemId
 inNewNamespace at' action = do
@@ -177,433 +704,94 @@ inNewNamespace at' action = do
 
     pure newNamespaceId
 
+
 inNewGroup :: Has m [ Ref, M.ParserDefs, Diag ] =>
     Attr -> StateT M.Group m a -> m ItemId
-inNewGroup at' action = do
-    selfId <- getItemId
+inNewGroup at action = do
     newGroupId <- freshItemId
 
     newGroup <- usingItemId newGroupId do
         execStateT action Nil
 
-    bindGroup newGroupId $
-        M.Def (Just selfId) (newGroup :@: at')
+    unless (isNil newGroup) do
+        bindGroupHere newGroupId (newGroup :@: at)
 
     pure newGroupId
 
-namespaceBody :: Has m
-    [ Location, FixName
-    , M.ParserDefs, M.Group, M.UnresolvedImports
-    , Diag
-    ] => [TokenSeq] -> m ()
-namespaceBody = lineParser item
 
-diagnosticFromSyntaxError :: DiagnosticBinder -> SyntaxError -> Diagnostic
-diagnosticFromSyntaxError b (SyntaxError _ (f :@: at)) =
-    Diagnostic
-    { at
-    , kind = Error b
-    , doc = formatFailure [at] f
-    , help = []
-    }
-
--- | Run an @ErrorT e m ()@ computation,
---   using @Pretty@ to convert @e@ to @Error@ @Diagnostic@s in @m@
-liftSyntaxErrorT :: MonadDiagnostics m =>
-    DiagnosticBinder -> ErrorT SyntaxError m () -> m ()
-liftSyntaxErrorT b m =
-    runErrorT m >>= liftEitherHandler (reportFull . diagnosticFromSyntaxError b)
-
--- | Run an @ErrorT e m ()@ computation,
---   using @Pretty@ to convert @e@ to @Error@ @Diagnostic@s in @m@
-liftSyntaxError :: MonadDiagnostics m =>
-    DiagnosticBinder -> SyntaxError -> m ()
-liftSyntaxError b =
-    reportFull . diagnosticFromSyntaxError b
-
-liftSyntaxErrorHere :: Has m [Location, FixName, Diag] =>
-    SyntaxError -> m ()
-liftSyntaxErrorHere e = do
-    name <- getFixName
-    ref <- getRef
-    liftSyntaxError
-        DiagnosticBinder
-            { kind = BadDefinition
-            , ref = ref
-            , name = Just name
-            }
-        e
-
-diagParser :: Has m
+-- | Helper for line parsing inside @Diag@;
+--   Line failures do not stop the rest of the lines from parsing
+lineParser :: Has m
     [ Location, FixName
     , Diag
-    ] => TokenSeq -> ParserT TokenSeq (ErrorT SyntaxError m) () -> m ()
-diagParser sq p = diagGeneric (evalParserT p sq)
-
-
-diagGeneric :: Has m
-    [ Location, FixName
-    , Diag
-    ] => ErrorT SyntaxError m () -> m ()
-diagGeneric g = do
+    ] => ParserT (ATag TokenSeq) (ErrorT SyntaxError m) () ->
+        [ATag TokenSeq] -> m ()
+lineParser p lns = forM_ lns \ln -> do
     name <- getFixName
     ref <- getRef
     liftSyntaxErrorT
         DiagnosticBinder
             { kind = BadDefinition
             , ref = ref
-            , name = Just name
+            , name = Just (prettyShow name)
             }
-        g
-
-lineParser :: Has m
-    [ Location, FixName
-    , Diag
-    ] => ParserT TokenSeq (ErrorT SyntaxError m) () -> [TokenSeq] -> m ()
-lineParser p lns = forM_ lns (`diagParser` p)
+        (evalParserT p ln)
 
 
 
-item :: Has m
-    [ Location, FixName
-    , M.ParserDefs, M.Group, M.UnresolvedImports
-    , Diag, Parse
-    ] => m ()
-item = do
-    diag <- execWriterT $ asum
-        [ tag useDef >>= addUseDef
-        , do
-            vqn <- defHead
-            runReaderT' vqn.value.name.value $ catchError do
-                    sym "="
-                    asum $ ($ vqn) <$>
-                        [ namespaceDef
-                        , effectDef
-                        , valueDef
-                        ]
-                liftSyntaxErrorHere
-        ]
-    unless (isNil diag) do
-        void takeParseState
-    reportAll diag
-
-namespaceDef :: Has m
-    [ Location, FixName
-    , M.ParserDefs, M.Group, M.UnresolvedImports
-    , Parse
-    , Diag
-    ] => Visible QualifiedName -> m ()
-namespaceDef vqn = sym "namespace" >> noFail do
-        diagAssertRefNameH (isSimpleQualifiedName vqn.value)
-            vqn.value.name.tag BadDefinition
-            (text "namespace definitions must be bound to simple names")
-            [ backticked vqn <+> "is not a simple name, it should be more like"
-                <+> backticked (simplifyFixName vqn.value.name.value)
-            ]
-
-        lns <- tag grabBlock
-
-        void $ insertNew (Categorical Namespace <$> vqn) do
-            inNewNamespace lns.tag do
-                namespaceBody lns.value
-
-
-effectDef :: Has m
-    [ Location, FixName
-    , M.ParserDefs, M.Group, M.UnresolvedImports
-    , Parse
-    , Diag
-    ] => Visible QualifiedName -> m ()
-effectDef vqn = sym "effect" >> noFail do
-    (q, c) <- option mempty typeHead
-    lns <- tag grabBlock
-    newGroupId <- insertNew (Categorical Effect <$> vqn) do
-        inNewGroup lns.tag do
-            lineParser caseDef lns.value
-    bindQuantifierHere newGroupId q
-    bindQualifierHere newGroupId c
-    where
-    caseDef = do
-        qn <- qualifiedName
-        sym ":"
-        body <- tag grabWhitespaceDomainAll
-        void $ insertNew (Categorical Case <$> Visible Public qn) do
-            withFreshItemId bindTypeHere body
-
--- classDef :: Has m '[Parse] => m RawDef
--- classDef = sym "class" >> noFail do
---     (q, c) <- option mempty typeHead
---     RdClass q c . RawNamespace <$> do
---         grabWhitespaceDomain >>= recurseParserAll (many $ tag classItem)
---     where
---     classItem = do
---         (fixity, prec, n) <- Todo
---         sym ":"
---         grabWhitespaceDomain >>= recurseParserAll do
---             asum [ classValue fixity prec n
---                  , classType fixity prec n
---                  ]
-
---     classValue fixity prec n = do
---         (q, c) <- option mempty typeHead
---         RawClassValue fixity prec n q c <$>
---             noFail grabWhitespaceDomain
-
---     classType fixity prec n = sym "type" >>
---         liftA2 (RawClassAssociate fixity prec n)
---             do option mempty quantifier
---             do option mempty qualifier
-
--- instanceDef :: Has m '[Parse] => m RawDef
--- instanceDef = sym "instance" >> noFail do
---     (q, c) <- option mempty typeHead
---     RdInstance q c . RawNamespace <$> do
---         grabWhitespaceDomain >>= recurseParserAll (many $ tag instanceItem)
---     where
---     instanceItem = do
---         sym "="
---         (fixity, prec, n) <- Todo
---         grabWhitespaceDomain >>= recurseParserAll do
---             asum [ instanceValue fixity prec n
---                  , instanceType fixity prec n
---                  ]
-
---     instanceValue fixity prec n =
---         RawInstanceValue fixity prec n <$>
---             noFail grabWhitespaceDomain
-
---     instanceType fixity prec n = sym "type" >>
---         liftA2 (RawInstanceAssociate fixity prec n)
---             do option mempty (typeHeadOf quantifier)
---             do noFail grabWhitespaceDomain
-
--- typeAliasDef :: Has m '[Parse] => m RawDef
--- typeAliasDef = sym "type" >> noFail do
---     liftA2 RdTypeAlias
---         do option mempty (typeHeadOf quantifier)
---         do noFail grabWhitespaceDomain
-
--- structDef :: Has m '[Parse] => m RawDef
--- structDef = sym "struct" >> noFail do
---     liftA2 RdStruct
---         do option mempty (typeHeadOf quantifier)
---         do RawNamespace <$> noFail do
---             grabWhitespaceDomain >>= recurseParserAll fields
-
--- unionDef :: Has m '[Parse] => m RawDef
--- unionDef = sym "union" >> noFail do
---     liftA2 RdUnion
---         do option mempty (typeHeadOf quantifier)
---         do RawNamespace <$> noFail do
---             grabWhitespaceDomain >>= recurseParserAll fields
-
-valueDef :: Has m
-    [ Location, FixName
-    , M.ParserDefs, M.Group, M.UnresolvedImports
-    , Parse
-    , Diag
-    ] => Visible QualifiedName -> m ()
-valueDef vqn = noFail do
-    body <- grabWhitespaceDomain
-    let at = attrFold vqn.value.name.tag body
-
-    void $ insertNew (Categorical Value <$> vqn) do
-        withFreshItemId bindValueHere (body :@: at)
-
-
-addUseDef :: Has m
-    [ Location
-    , M.ParserDefs, M.Group, M.UnresolvedImports
-    , Diag
-    ] => ATag (Visible RawUse) -> m ()
-addUseDef (Visible vis use :@: at) =
-    runReaderT' (Nil :: Path) $
-    runReaderT' (Nil :: [ATag PathName]) $
-        addUse vis (use :@: at)
-
-addUse :: Has m
-    [ Location
-    , M.ParserDefs, M.Group, M.UnresolvedImports
-    , Rd [ATag PathName]
-    , Rd Path
-    , Diag
-    ] => Visibility -> ATag RawUse -> m ()
-addUse vis (RawUse{..} :@: at) = do
-    previousPath <- ask @Path
-    maybe
-        do reportErrorRef at BadDefinition ((.name.value) <$> alias) $
-            hang "cannot combine paths in compound use:" do
-                backticked previousPath <+> "and" <+> backticked basePath
-        (useBody . (<$ basePath))
-        (joinPath previousPath basePath.value)
-    where
-    useBody fullPath = case alias of
-        Just newName ->
-            runReaderT' newName.name.value case makeNewName fullPath newName of
-                Just unresolvedName -> case tree.value of
-                    RawUseSingle ->
-                        insertAlias (Visible vis unresolvedName) fullPath
-
-                    RawUseBlob hidden ->
-                        asNewNamespace fullPath unresolvedName
-                            (`addUseBlob` hidden)
-
-                    RawUseBranch subs ->
-                        asNewNamespace fullPath unresolvedName
-                            (`addUseBranch` subs)
-
-                _ -> getFixName >>= reportInvalidCombo . Just
-
-        _ -> case tree.value of
-            RawUseBranch subs -> addUseBranch fullPath subs
-
-            RawUseBlob hidden -> addUseBlob fullPath hidden
-
-            RawUseSingle -> case getPathName fullPath.value of
-                Just name ->
-                    let category = getPathCategory fullPath.value
-                        unresolvedName = UnresolvedName category Nothing name
-                    in insertAlias (Visible vis unresolvedName) fullPath
-
-                _ -> reportInvalidCombo Nothing
-
-    addUseBlob :: Has m
-        [ Location
-        , M.ParserDefs, M.Group, M.UnresolvedImports
-        , Rd [ATag PathName]
-        , Diag
-        ] => ATag Path -> [ATag PathName] -> m ()
-    addUseBlob fullPath explicit = do
-        context <- ask
-        insertBlob (Visible vis fullPath)
-            if isNil basePath.value
-                then context <> explicit
-                else explicit
-
-    addUseBranch :: Has m
-        [ Location
-        , M.ParserDefs, M.Group, M.UnresolvedImports
-        , Rd [ATag PathName]
-        , Rd Path
-        , Diag
-        ] => ATag Path -> [ATag RawUse] -> m ()
-    addUseBranch fullPath subs = do
-        let (blobs, rest) = subs & List.partition \u ->
-                case u.value.tree.value of
-                    RawUseBlob _ -> True
-                    _ -> False
-
-        using fullPath.value do
-            names <- Maybe.catMaybes <$> forM rest \u ->
-                hidablePathNameFromUse u.value <$ addUse vis u
-
-            using names (forM_ blobs $ addUse vis)
-
-
-    asNewNamespace fullPath unresolvedName action = do
-        let newFullPath = Maybe.fromJust $
-                joinPath
-                    (Path (Just $ PbUp 1 :@: basePath.tag) Nil)
-                    fullPath.value
-        case groupFromUnresolvedInCategory Namespace unresolvedName of
-            Just groupName -> do
-                newId <- inNewNamespace unresolvedName.name.tag do
-                    action (newFullPath <$ basePath)
-                modId <- getModuleId
-                insertRef (Visible Public groupName) (Ref modId newId)
-            _ -> getFixName >>= reportInvalidCombo . Just
-
-
-    makeNewName fullPath =
-        unresolvedFromQualified case tree.value of
-            RawUseSingle -> getPathCategory fullPath.value
-            _ -> Just ONamespace
-
-    reportInvalidCombo :: Has m '[Ref, Diag] => Maybe FixName -> m ()
-    reportInvalidCombo referenceName = do
-        reportErrorRefH
-            basePath.tag
-            BadDefinition
-            referenceName
-            (text "this use has an invalid alias & path or extension combination")
-            [ hang "potential problems:" $ bulletList
-                [ "you are aliasing a namespace or instance as a"
-                    <+> "non-atomic operator"
-                , "you have not provided an alias, but the tail of the path"
-                    <+> "cannot be used as a symbol,"
-                    <+> "such as certain file names"
-                ]
-            ]
-
-
-useDef :: Has m '[Parse] => m (Visible RawUse)
-useDef = sym "use" >> noFail do visible use where
-    use = do
-        optional (tag path) >>= \case
-            Just p -> do
-                liftA2 (RawUse p)
-                    do option (RawUseSingle :@: p.tag)
-                        if requiresSlash p
-                            then do
-                                at <- attrOf $ connected p.tag (simpleNameOf "/")
-                                noFail (connected at $ tag useTree)
-                            else connected p.tag $ tag useTree
-                    do alias
-            _ -> liftA3 RawUse
-                do Path Nothing Nil <@> attr
-                do tag useTree
-                do alias
-    useTree = asum
-        [ RawUseBlob <$> do
-            sym ".." >> option [] do
-                sym "hiding" >> asum
-                    [ braces $ listMany (sym ",") (tag pathName)
-                    , pure <$> tag pathName
-                    ]
-        , RawUseBranch <$> braces do
-            wsListBody True (sym ",") (tag use)
-        ]
-
-    alias = optional $ sym "as" >> noFail qualifiedName
-
-
+-- | Parse a @Path@
 path :: Has m '[Parse] => m Path
 path = nextMap \case
     TPath p -> Just p
     _ -> Nothing
 
+-- | Parse a @PathName@
+--   ie. a @Path@ with only a single optionally qualified @FixName@
 pathName :: Has m '[Parse] => m PathName
 pathName = nextMap \case
     TPath (SingleNamePath n) -> Just n
     _ -> Nothing
 
+-- | Parse a @FixName@
+--   ie. a @Path@ with only a single unqualified @FixName@
 fixName :: Has m '[Parse] => m FixName
 fixName = expecting "a fix name" $ nextMap \case
-    TPath (SingleNamePath (PathName Nothing f)) -> Just f
+    TPath (SingleNamePath (FixPathName f)) -> Just f
     _ -> Nothing
 
+-- | Parse a @SimpleName@;
+--   ie. a @Path@ with only a single unqualified @FixName@,
+--   and only a single @SimpleName@ within that
 simpleName :: Has m '[Parse] => m SimpleName
 simpleName = expecting "an unreserved identifier or operator" $ nextMap \case
     TPath (SingleSimplePath n) -> Just n
     _ -> Nothing
 
+-- | Parse a specific @SimpleName@
 simpleNameOf :: Has m '[Parse] => String -> m ()
 simpleNameOf s = expecting (Pretty.backticks $ text s) $ nextIf_ \case
     TPath (SingleSimplePath (SimpleName n)) -> n == s
     _ -> False
 
+-- | Run a parser proceeded optionally by a @pub@ qualifier,
+--   wrapping the result in a @Visible@
 visible :: Has m '[Parse] => m a -> m (Visible a)
 visible = liftA2 Visible (option Private visibility)
 
+-- | Parse a @pub@ qualifier as a @Visibility@
 visibility :: Has m '[Parse] => m Visibility
 visibility = Public <$ sym "pub"
 
+-- | Parse a @QualifiedName@ proceeded optionally by a @pub@ qualifier
 defHead :: Has m '[Parse] => m (Visible QualifiedName)
 defHead = visible qualifiedName
 
+-- | Parse a @QualifiedName@;
+--   ie. either a @SimpleName@, or a @FixName@
+--   with a leading or trailing associative @Precedence@
 qualifiedName :: Has m '[Parse] =>
     m QualifiedName
-qualifiedName = do
+qualifiedName = expecting "a qualified name" do
         (n, apt) <- asum
             [ do
                 n@(_ :@: at) <- tag fixName
@@ -647,13 +835,17 @@ qualifiedName = do
         pure $
             QualifiedName NonAssociative (snd apt) n
 
-
+-- | Parse an associative @Precedence@ level;
+--   Either an integer in the range {@0@, @maxBound Precedence@},
+--   or an integer in that range surrounded by parens
 associativePrecedence :: Has m '[Parse] => m (Bool, Precedence)
 associativePrecedence = asum
     [ (False, ) <$> parens precedence
     , (True, ) <$> precedence
     ]
 
+-- | Parse a @Precedence@ level;
+--   simply an integer in the range {@0@, @maxBound Precedence@}
 precedence :: Has m '[Parse] => m Precedence
 precedence = do
     i :@: at <- tag int
@@ -663,69 +855,96 @@ precedence = do
     pure (fromIntegral i) where
     bound = fromIntegral @Precedence @Word32 maxBound
 
--- fields :: Has m '[Parse] => m [ATag RawField]
--- fields = loop 0 where
---     loop i = option [] do
---         f <- tag $ field i
---         (f :) <$> loop (f.value.offset.value + 1)
 
--- field :: Word32 -> Parser RawField
--- field idx = do
---     lbl <- asum [ numbered, nameOnly ]
---     noFail do
---         sym ":"
---         lbl <$> grabWhitespaceDomain
---     where
---     numbered = do
---         off <- tag int
---         n <- option (SimpleName (show off.value) :@: off.tag) do
---             sym "\\" >> noFail (tag simpleName)
---         pure (RawField off n)
---     nameOnly = do
---         n <- tag simpleName
---         pure (RawField (idx :@: n.tag) n)
+-- | Parse a type scheme, where the quantifier is proceeded by a @for@ keyword,
+--   and the qualifier is delimited by an arrow @=>@; consumes the arrow
+forTypeHead :: Has m '[Parse] =>
+    m (ATag Quantifier, ATag (Qualifier TokenSeq))
+forTypeHead = typeHeadOf (Just "=>") $ const $ liftA2 (,)
+    do option Nil $ tag (sym "for" >> quantifier)
+    do option Nil $ tag (qualifier $ Just "=>")
 
+-- | Parse a type scheme, delimited by the given symbol; consumes the delimiter
+typeHeadDelim :: Has m '[Parse] =>
+    String -> m (ATag Quantifier, ATag (Qualifier TokenSeq))
+typeHeadDelim = typeHeadMaybeDelim . Just
 
-typeHead :: Has m '[Parse] => m (ATag Quantifier, ATag RawQualifier)
-typeHead = typeHeadOf $ liftA2 (,)
+-- | Parse a type scheme, with no delimiter
+typeHeadNoDelim :: Has m '[Parse] =>
+    m (ATag Quantifier, ATag (Qualifier TokenSeq))
+typeHeadNoDelim = typeHeadMaybeDelim Nothing
+
+-- | Parse a type scheme, delimited by an arrow @=>@, and consume the arrow
+typeHeadArrow :: Has m '[Parse] =>
+    m (ATag Quantifier, ATag (Qualifier TokenSeq))
+typeHeadArrow = typeHeadDelim "=>"
+
+-- | Parse a type quantifier, delimited by an arrow @=>@ and consume the arrow
+typeQuantifierArrow :: Has m '[Parse] =>
+    m (ATag Quantifier)
+typeQuantifierArrow = typeHeadOf (Just "=>") $ const do
+    option Nil (tag quantifier)
+
+-- | Parse a type scheme, delimited by the given symbol, if one is provided;
+--   consumes the delimiter
+typeHeadMaybeDelim :: Has m '[Parse] =>
+    Maybe String -> m (ATag Quantifier, ATag (Qualifier TokenSeq))
+typeHeadMaybeDelim = (`typeHeadOf` typeHeadMaybeDelimBody)
+
+-- | Parse a type scheme body,
+--   delimited by the given symbol, if one is provided;
+--   does not consume the delimiter
+typeHeadMaybeDelimBody :: Has m '[Parse] =>
+    Maybe String -> m (ATag Quantifier, ATag (Qualifier TokenSeq))
+typeHeadMaybeDelimBody delim = liftA2 (,)
     do option Nil $ tag quantifier
-    do option Nil $ tag qualifier
+    do option Nil $ tag (qualifier delim)
 
-typeHeadOf :: Has m '[Parse, With '[Nil a, Pretty a]] => m a -> m a
-typeHeadOf p = do
-    r :@: at <- tag p
-    guard (not $ isNil r)
-    r <$ noFail do
-        expectingAt at "to close type head" (sym "=>")
+-- | Parse a type scheme, with its body given by a function,
+--   and delimited by the given symbol, if one is provided;
+--   consumes the delimiter
+typeHeadOf :: Has m '[Parse, With '[Nil a, Pretty a]] =>
+    Maybe String -> (Maybe String -> m a) -> m a
+typeHeadOf delim p = do
+    r :@: at <- tag (p delim)
+    guard (notNil r)
+    r <$ case delim of
+        Just d -> expectingAt at "to close type head" (sym d)
+        _ -> pure ()
 
 
-
+-- | Parse a @Quantifier@
 quantifier :: Has m '[Parse] => m Quantifier
 quantifier = evalStateT' (0 :: KindVar) do
     Quantifier <$> listSome (sym ",") (tag typeBinder)
 
-qualifier :: Has m '[Parse] => m RawQualifier
-qualifier = sym "where" >> noFail do
-    Qualifier . pure <$> tag do
-        grabDomain (not . isSymbol "=>" . untag)
+-- | Parse a type @Qualifier@, with its body as tokens,
+--   delimited by the given symbol
+qualifier :: Has m '[Parse] => Maybe String -> m (Qualifier TokenSeq)
+qualifier delim = sym "where" >> noFail do
+    Qualifier . pure <$> case delim of
+        Just d -> grabDomain (not . isSymbol d . untag)
+        _ -> grabWhitespaceDomainAll
 
+-- | Parse a @TypeBinder@
 typeBinder :: Has m [St KindVar, Parse] => m TypeBinder
 typeBinder = do
     n <- tag simpleName
     k <- optional do
-        sym ":" >> tag kind
+        sym ":" >> noFail (tag kind)
     case k of
         Just k' -> pure (n `Of` k')
         _ -> do
             k' <- state \i -> (i, i + 1)
             pure $ n `Of` (KVar k' :@: n.tag)
 
+-- | Parse a type @Kind@
 kind :: Has m '[Parse] => m Kind
 kind = tag atom >>= arrows where
     atom = asum
         [ KType <$ simpleNameOf "Type"
-        , KNum <$ simpleNameOf "Num"
-        , KStr <$ simpleNameOf "Str"
+        , KInt <$ simpleNameOf "Int"
+        , KString <$ simpleNameOf "String"
         , KEffect <$ simpleNameOf "Effect"
         , KConstraint <$ simpleNameOf "Constraint"
         , KData <$ simpleNameOf "Data"
@@ -735,86 +954,6 @@ kind = tag atom >>= arrows where
     arrows l = option (untag l) do
         simpleNameOf "->" >> noFail do
             KArrow l <$> tag kind
-
-
-
-
-grabDomain :: Has m '[Parse] => (ATag Token -> Bool) -> m TokenSeq
-grabDomain p = expecting "a whitespace block" do
-    ts <- takeParseState
-    case ts of
-        toks | not (Seq.null toks) ->
-            let (a, b) = consume toks
-            in reduceTokenSeq a <$ putParseState (reduceTokenSeq b)
-        _ -> do
-            fp <- getFilePath
-            throwError $ SyntaxError Recoverable $ EofFailure :@: attrInput fp ts
-    where
-    consume = \case
-        (t Seq.:<| ts) | p t ->
-            case untag t of
-                TTree BkWhitespace ts' -> block BkWhitespace ts'
-                _ -> continue
-            where
-            continue =
-                let (as, bs) = consume ts
-                in (t Seq.<| as, bs)
-
-            block k ts' =
-                let (as, bs) = consume ts'
-                in buildSplit k t ts as bs continue
-
-        ts -> (Nil, ts)
-
-    buildSplit k t rhs as bs nb
-        | Seq.null bs = nb
-        | Seq.null as = (Nil, t Seq.<| rhs)
-        | otherwise =
-            ( Seq.singleton (TTree k as :@: t.tag)
-            , (TTree k bs :@: t.tag) Seq.<| rhs
-            )
-
--- | Get the rest of the input delimited by indentation
-grabWhitespaceDomain :: Has m '[Parse] => m TokenSeq
-grabWhitespaceDomain = grabDomain (const True)
-
--- | Get the rest of the input delimited by indentation,
---   ensuring that this captures the remainder of the input
-grabWhitespaceDomainAll :: Has m '[Parse] => m TokenSeq
-grabWhitespaceDomainAll = consumesAll grabWhitespaceDomain
-
--- | Consume a sequence of lines from the input
-grabLines :: Has m '[Parse] => m [TokenSeq]
-grabLines = some $ nextMap \case
-    TTree BkWhitespace ln -> Just ln
-    _ -> Nothing
-
--- | @grabWhitespaceDomainAll >>= recurseParserAll grabLines@
-grabBlock :: Has m '[Parse] => m [TokenSeq]
-grabBlock = grabWhitespaceDomainAll >>= recurseParserAll do
-    asum [grabLines, pure <$> takeParseState]
-
--- | @wsBlock<elem>++(sep?) | elem (sep elem)*@
-wsListBody :: Has m '[Parse] => Bool -> m sep -> m a -> m [a]
-wsListBody allowTrailing ms ma = asum [block, inline] where
-    inline = listSome ms ma
-    block = do
-        lns <- grabLines
-        noFail $ asum [block1 lns, block2 lns]
-    block1 lns =
-        lns & foldWithM' mempty \toks as ->
-            (: as) <$> recurseParserAll
-                do ma << when (allowTrailing || null as) (option () $ void ms)
-                toks
-    block2 =
-        flip Fold.foldlM mempty \as toks ->
-            (as <>) . pure <$> recurseParserAll
-                do if null as
-                    then when allowTrailing (option () $ void ms) >> ma
-                    else ms >> ma
-                toks
-
-
 
 -- | Expect a @Version@
 version :: Has m '[Parse] => m Version
@@ -882,11 +1021,10 @@ trySym s = peek >>= \case
     TSymbol s' | s == s' -> True <$ advance
     _ -> pure False
 
-
 -- | Expect a given @Parser@ to be surrounded with parentheses
 parens :: Has m '[Parse] => m a -> m a
 parens px = do
-    body <- expecting "`(`" $ nextMap \case
+    body <- tag $ expecting "`(`" $ nextMap \case
         TTree BkParen ts -> Just ts
         _ -> Nothing
     noFail (recurseParserAll px body)
@@ -894,7 +1032,7 @@ parens px = do
 -- | Expect a given @Parser@ to be surrounded with braces
 braces :: Has m '[Parse] => m a -> m a
 braces px = do
-    body <- expecting "`{`" $ nextMap \case
+    body <- tag $ expecting "`{`" $ nextMap \case
         TTree BkBrace ts -> Just ts
         _ -> Nothing
     noFail (recurseParserAll px body)
@@ -902,7 +1040,121 @@ braces px = do
 -- | Expect a given @Parser@ to be surrounded with brackets
 brackets :: Has m '[Parse] => m a -> m a
 brackets px = do
-    body <- expecting "`[`" $ nextMap \case
+    body <- tag $ expecting "`[`" $ nextMap \case
         TTree BkBracket ts -> Just ts
         _ -> Nothing
     noFail (recurseParserAll px body)
+
+
+
+
+-- | Allow an optional indentation of the input to the parser
+optionalIndent :: Has m '[Parse] => m a -> m a
+optionalIndent p = do
+    getParseState >>= \case
+        (TTree BkWhitespace ts :@: at Seq.:<| _) :@: _ ->
+            advance >> recurseParserAll p (ts :@: at)
+        _ -> p
+
+-- | Consume the rest of the input,
+--   delimited by indentation, as well as a predicate
+grabDomain :: Has m '[Parse] => (ATag Token -> Bool) -> m (ATag TokenSeq)
+grabDomain p = expecting "a whitespace block" do
+    ts <- takeParseState
+    case ts of
+        Nil :@: _ -> do
+            fp <- getFilePath
+            throwError $ SyntaxError Recoverable $
+                EofFailure :@: attrInput fp ts
+        toks ->
+            let (a, b) = consume toks
+            in fmap reduceTokenSeq a <$ putParseState (fmap reduceTokenSeq b)
+    where
+    consume = \case
+        base@((t Seq.:<| ts) :@: at) | p t ->
+            case untag t of
+                TTree BkWhitespace ts' -> block (ts' :@: t.tag)
+                _ -> continue
+            where
+            continue =
+                let (as, bs) = consume (ts :@: attrSub at t.tag)
+                in ((t Seq.<| as.value) :@: (t.tag <> as.tag), bs)
+
+            block ts' =
+                let (as, bs) = consume ts'
+                in if
+                | Seq.null bs.value -> continue
+                | Seq.null as.value -> (Nil, base)
+                | otherwise ->
+                    ( Seq.singleton (TTree BkWhitespace as.value :@: t.tag)
+                        :@: t.tag
+                    , (TTree BkWhitespace bs.value :@: bs.tag Seq.<| ts)
+                        :@: attrSub at as.tag
+                    )
+
+        ts -> (Nil :@: attrFlattenToEnd ts.tag, ts)
+
+
+-- | Get the rest of the input delimited by indentation
+grabWhitespaceDomain :: Has m '[Parse] => m (ATag TokenSeq)
+grabWhitespaceDomain = grabDomain (const True)
+
+-- | Get the rest of the input delimited by indentation,
+--   ensuring that this captures the remainder of the input
+grabWhitespaceDomainAll :: Has m '[Parse] => m (ATag TokenSeq)
+grabWhitespaceDomainAll = consumesAll grabWhitespaceDomain
+
+-- | Consume a sequence of lines from the input
+grabLines :: Has m '[Parse] => m [ATag TokenSeq]
+grabLines = some $ tag $ nextMap \case
+    TTree BkWhitespace ln -> Just ln
+    _ -> Nothing
+
+-- | grab the whitespace domain, and break it into lines;
+--   ensures both steps consume all available input
+grabBlock :: Has m '[Parse] => m [ATag TokenSeq]
+grabBlock = grabWhitespaceDomainAll >>= recurseParserAll do
+    asum [grabLines, pure <$> takeParseState]
+
+-- | attempt to grab the whitespace domain, and break it into lines;
+--   ensures both steps consume all available input;
+--   tags the output, and at failure, returns an empty list at the given @Attr@
+tryGrabBlock :: Has m '[Parse] => Attr -> m (ATag [ATag TokenSeq])
+tryGrabBlock at = option ([] :@: at) (tag grabBlock)
+
+-- | @wsBlock<elem>++(sep?) | elem (sep elem)*@
+wsList :: Has m '[Parse] => Bool -> String -> m a -> m [a]
+wsList allowTrailing ss ma =
+    wsListBody allowTrailing ss >>= traverse (recurseParserAll ma)
+
+-- | @wsBlock<elem>++(sep?) | elem (sep elem)*@
+--   tags the output, and at failure, returns an empty list at the given @Attr@
+tryWsListBody :: Has m '[Parse] =>
+    Attr -> Bool -> String -> m (ATag [ATag TokenSeq])
+tryWsListBody at allowTrailing ss =
+    option ([] :@: at) (tag $ wsListBody allowTrailing ss)
+
+-- | @wsBlock<elem>++(sep?) | elem (sep elem)*@
+wsListBody :: Has m '[Parse] => Bool -> String -> m [ATag TokenSeq]
+wsListBody allowTrailing ss =
+    grabWhitespaceDomain >>= recurseParserAll (asum [block, inline]) where
+    inline =
+        listSome ms dom
+            << when allowTrailing (option () ms)
+    block = do
+        lns <- grabLines
+        noFail $ asum [block1 lns, block2 lns]
+    block1 lns =
+        lns & foldWithM' mempty \toks as ->
+            (: as) <$> recurseParserAll
+                do dom << when (allowTrailing || null as) (option () ms)
+                toks
+    block2 =
+        flip Fold.foldlM mempty \as toks ->
+            (as <>) . pure <$> recurseParserAll
+                do if null as
+                    then when allowTrailing (option () ms) >> dom
+                    else ms >> dom
+                toks
+    ms = sym ss
+    dom = grabDomain (not . isSymbol ss . untag)

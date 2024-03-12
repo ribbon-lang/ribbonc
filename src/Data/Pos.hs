@@ -5,6 +5,7 @@ import Data.Word (Word32)
 import Data.Nil
 
 import Text.Pretty
+import Language.Ribbon.Util
 
 
 
@@ -23,7 +24,8 @@ instance Show Pos where
     show = prettyShowLevel PrettyVerbose
 
 instance Pretty Pos where
-    pPrintPrec lvl _ (Pos o l c) =
+    pPrintPrec lvl _ p@(Pos o l c) =
+        select (isNil p) "{nil}"
         let s = pPrint l <> ":" <> pPrint c
         in if lvl > PrettyNormal
             then s <> parens (pPrint o)
@@ -37,7 +39,7 @@ instance Ord Pos where
 
 instance Nil Pos where
     isNil = (== Nil)
-    nil = Pos 0 1 1
+    nil = Pos 0 0 0
 
 -- | Determine if two @Pos@ are adjacent in terms of line and column
 posConnected :: Pos -> Pos -> Bool

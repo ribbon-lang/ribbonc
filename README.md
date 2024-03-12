@@ -44,9 +44,11 @@ understand if you know ebnf.
 
 #### Implementation progress
 - 🟩 Lexical analysis
-- 🟨 Syntactic analysis (parsing)
-- 🟨 Semantic analysis (graph of module, etc)
-- 🟥 Type inference
+- 🟨 Syntactic analysis 1 (parsing top level items)
+- 🟨 Semantic analysis  1 (graph of module, name resolution)
+- 🟥 Syntactic analysis 2 (parsing item bodies)
+- 🟥 Semantic analysis  2 (kind inference)
+- 🟥 Semantic analysis  3 (type inference)
 - 🟥 Code generation
 - 🟥 Driver CLI
 
@@ -137,7 +139,7 @@ Currently you can:
 - Play with the lexer,
 using `L.doc`/others in `Language.Ribbon.Parsing.Lexer`
 
-- Play with the parser, using `parseFile`
+- Play with the parser, using `parseSourceFile`/`parseModuleHead`
 
 
 ## Discussion

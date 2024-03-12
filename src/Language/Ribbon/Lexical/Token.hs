@@ -58,7 +58,7 @@ instance SyntaxInput Token where
 
 instance (Applicative m, MonadState BlockCounter m) => PrettyWith m Token where
     pPrintPrecWith lvl prec = \case
-        TSymbol s -> pure (text s)
+        TSymbol s -> pure (surround "#" "#" $ text s)
         TLiteral l -> pPrintPrecWith lvl prec l
         TVersion v -> pPrintPrecWith lvl prec v
         TTree k ts -> blockPrintWith lvl k ts
@@ -69,13 +69,16 @@ instance Pretty Token where
         runIdentity $ evalStateT (pPrintPrecWith lvl prec t) emptyBlockCounter
 
 instance MonadState BlockCounter m => PrettyWith m TokenSeq where
-    pPrintPrecWith lvl _ ts = fmap hsep do
-        forM (toList ts) \(t :@: a) ->
-            liftA2 (<+>)
-                do pPrintPrecWith lvl 0 t
-                if lvl > PrettyNormal
-                    then ("@" <+>) <$> pPrintPrecWith lvl 0 a
-                    else pure mempty
+    pPrintPrecWith lvl _ ts = surround "◢ " " ◣" <$> pPrintSeq lvl ts
+
+pPrintSeq :: (MonadState BlockCounter m) => PrettyLevel -> TokenSeq -> m Doc
+pPrintSeq lvl ts = hsep <$> do
+    forM (toList ts) \(t :@: a) ->
+        liftA2 (<+>)
+            do pPrintPrecWith lvl 0 t
+            if lvl > PrettyNormal
+                then ("@" <+>) <$> pPrintPrecWith lvl 0 a
+                else pure mempty
 
 instance Pretty TokenSeq where
     pPrintPrec lvl p ts =
@@ -108,13 +111,10 @@ blockPrintWith lvl k ts = do
     i <- fmap superscript . show <$> gets @BlockCounter (Map.! k)
     modify @BlockCounter (Map.adjust (+1) k)
     (text i <>) . (<> text i) <$> case k of
-        BkParen -> parens <$> pPrintPrecWith lvl 0 ts
-        BkBrace -> braces <$> pPrintPrecWith lvl 0 ts
-        BkBracket -> brackets <$> pPrintPrecWith lvl 0 ts
-        -- BkWhitespace -> hsep . (["↘"] <>) . (<> ["↖"]) <$>
-        --     traverse (pPrintPrecWith lvl 0) (toList ts)
-        BkWhitespace -> hsep . (["◁"] <>) . (<> ["▷"]) <$>
-            traverse (pPrintPrecWith lvl 0) (toList ts)
+        BkParen -> parens <$> pPrintSeq lvl ts
+        BkBrace -> braces <$> pPrintSeq lvl ts
+        BkBracket -> brackets <$> pPrintSeq lvl ts
+        BkWhitespace -> ("◁" <+>) . (<+> "▷") <$> pPrintSeq lvl ts
 
 blockPrint :: PrettyLevel -> BlockKind -> TokenSeq -> Doc
 blockPrint lvl k ts =
@@ -174,23 +174,25 @@ instance Pretty TokenSpec where
 
 nilTree :: Token -> Bool
 nilTree = \case
-    TTree k ts
-        | k == BkWhitespace || k == BkWhitespace ->
-            isNil ts || all (nilTree . untag) ts
+    TTree BkWhitespace ts ->
+        isNil ts || all (nilTree . untag) ts
     _ -> False
 
 reduceDocTokenSeq :: TokenSeq -> TokenSeq
-reduceDocTokenSeq = fmap $ fmap reduceTree
+reduceDocTokenSeq = eliminateEmpties . fmap (fmap reduceTree)
+
+
 
 reduceTokenSeq :: TokenSeq -> TokenSeq
-reduceTokenSeq = compose reduceDocTokenSeq \case
-    (TTree k ts :@: _) Seq.:<| Nil
-        | k == BkWhitespace || k == BkWhitespace ->
-            if isNil ts || all (nilTree . untag) ts
+reduceTokenSeq = compose (fmap (fmap reduceTree)) \case
+    (TTree BkWhitespace ts :@: _) Seq.:<| Nil ->
+        if isNil ts || all (nilTree . untag) ts
             then Nil
             else ts
-    ts -> ts
+    ts -> eliminateEmpties ts
 
+eliminateEmpties :: TokenSeq -> TokenSeq
+eliminateEmpties = Seq.filter (not . nilTree . untag)
 
 reduceTree :: Token -> Token
 reduceTree = \case

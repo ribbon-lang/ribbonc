@@ -1,13 +1,14 @@
 module Data.Diagnostic where
 
 import Data.Attr
+import Data.SyntaxError
+import Data.Tag
+
 
 import Text.Pretty
 
-import Language.Ribbon.Syntax.Ref (Ref)
-import Language.Ribbon.Lexical.Name (FixName)
+import Language.Ribbon.Syntax.Ref
 import Language.Ribbon.Util
-
 
 
 
@@ -22,18 +23,28 @@ instance Pretty DiagnosticKind where
         Error binder -> pPrint binder <+> "error"
         Warning -> "warning"
 
+isErrorKind :: DiagnosticKind -> Bool
+isErrorKind = \case
+    Error _ -> True
+    Warning -> False
+
+isWarningKind :: DiagnosticKind -> Bool
+isWarningKind = \case
+    Error _ -> False
+    Warning -> True
+
 -- | A deduplication identity for @Diagnostic@
 data DiagnosticBinder
     = DiagnosticBinder
     { kind :: !DiagnosticBinderKind
     ,  ref :: !Ref
-    , name :: !(Maybe FixName)
+    , name :: !(Maybe String)
     }
     deriving (Eq, Ord, Show)
 
 instance Pretty DiagnosticBinder where
     pPrint DiagnosticBinder{..} =
-        pPrint kind <+> qualBackticks (maybeMEmpty $ pPrint <$> name)
+        pPrint kind <+> pPrint ref <+> qualBackticks (maybeMEmpty $ text <$> name)
 
 data DiagnosticBinderKind
     = BadDefinition
@@ -65,6 +76,12 @@ instance Pretty Diagnostic where
     pPrint Diagnostic{..} =
         hang (pPrint kind <+> "at" <+> (pPrint at <> ":")) $ vcat' $
             doc : help
+
+isError :: Diagnostic -> Bool
+isError = isErrorKind . (.kind)
+
+isWarning :: Diagnostic -> Bool
+isWarning = isWarningKind . (.kind)
 
 -- | Create a new @Diagnostic@ using the given @DiagnosticKind@ and
 --   @DiagnosticBinder@, along with a @Doc@ created from the given value
@@ -98,3 +115,12 @@ eitherExtractDiagnostic :: Pretty e =>
 eitherExtractDiagnostic at b = \case
     Left e -> Left $ diagnosticFromError (at e) b e
     Right a -> Right a
+
+diagnosticFromSyntaxError :: DiagnosticBinder -> SyntaxError -> Diagnostic
+diagnosticFromSyntaxError b (SyntaxError _ (f :@: at)) =
+    Diagnostic
+    { at
+    , kind = Error b
+    , doc = formatFailure [at] f
+    , help = []
+    }

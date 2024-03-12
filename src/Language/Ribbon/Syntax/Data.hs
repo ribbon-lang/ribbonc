@@ -10,19 +10,19 @@ import Language.Ribbon.Syntax.Type
 
 
 -- | A binding between a @Label@ and some type @t@
-data FieldType t
-    = FieldType
+data Field t
+    = Field
     { label :: !Label
     , ty :: !(ATag t)
     }
     deriving (Eq, Ord, Show)
 
-instance Pretty t => Pretty (FieldType t) where
-    pPrintPrec lvl _ (FieldType a b) =
+instance Pretty t => Pretty (Field t) where
+    pPrintPrec lvl _ (Field a b) =
         pPrintPrec lvl 0 a <+> ":" <+> pPrintPrec lvl 0 b
 
-pattern (:::) :: Label -> ATag t -> FieldType t
-pattern a ::: b = FieldType a b
+pattern (:::) :: Label -> ATag t -> Field t
+pattern a ::: b = Field a b
 
 
 -- | A pair of types @t@ binding a layout and a name in a @Field@

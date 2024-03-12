@@ -85,7 +85,7 @@ data DefSet t v i
     {      groups :: !(Map ItemId (Def Group))
     , quantifiers :: !(Map ItemId (Def Quantifier))
     ,  qualifiers :: !(Map ItemId (Def (Qualifier t)))
-    ,      fields :: !(Map ItemId (Def (FieldType t)))
+    ,      fields :: !(Map ItemId (Def (Field t)))
     ,       types :: !(Map ItemId (Def t))
     ,      values :: !(Map ItemId (Def v))
     ,     imports :: !(Map ItemId (Def i))
@@ -108,7 +108,7 @@ instance (Pretty t, Pretty v, Pretty i)
             printMap :: Pretty a => Map ItemId (Def a) -> Doc
             printMap = compose Map.toList do
                 vcat' . fmap \(k, v) ->
-                    hang (("↓" <> pPrint k) <+> "=") do
+                    hang (pPrint k <+> "=") do
                         pPrintPrec lvl 0 v
 
 instance Semigroup (DefSet t v i) where
@@ -240,7 +240,7 @@ data Def v
 instance Pretty v => Pretty (Def v) where
     pPrintPrec lvl _ Def{..} =
         spaceWith "::"
-            do "↖" <> maybe "()" (pPrintPrec lvl 0) parent
+            do "↖" <> maybe "()" (pPrint . (.value)) parent
             do pPrintPrec lvl 0 inner
 
 

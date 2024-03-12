@@ -41,12 +41,12 @@ pattern KType :: Kind
 pattern KType = KConstant "Type"
 
 -- | The kind of type-level numbers
-pattern KNum :: Kind
-pattern KNum = KConstant "Num"
+pattern KInt :: Kind
+pattern KInt = KConstant "Int"
 
 -- | The kind of type-level strings
-pattern KStr :: Kind
-pattern KStr = KConstant "Str"
+pattern KString :: Kind
+pattern KString = KConstant "String"
 
 -- | The kind of effects
 pattern KEffect :: Kind

@@ -128,16 +128,16 @@ getRef = Ref <$> getModuleId <*> getItemId
 
 -- | New error @Diagnostic@ using the current result of @getRef@
 reportErrorRef :: Has m [Ref, Diag, With '[Pretty a]] =>
-    Attr -> DiagnosticBinderKind -> Maybe FixName -> a -> m ()
+    Attr -> DiagnosticBinderKind -> Maybe String -> a -> m ()
 reportErrorRef at kind name doc = reportErrorRefH at kind name doc []
 
 diagAssertRef :: Has m [Ref, Diag, With '[Pretty a]] =>
-    Bool -> Attr -> DiagnosticBinderKind -> Maybe FixName -> a -> m ()
+    Bool -> Attr -> DiagnosticBinderKind -> Maybe String -> a -> m ()
 diagAssertRef b at kind name doc = diagAssertRefH b at kind name doc []
 
 -- | New error @Diagnostic@ using the current result of @getRef@, with help docs
 reportErrorRefH :: Has m [Ref, Diag, With '[Pretty a]] =>
-    Attr -> DiagnosticBinderKind -> Maybe FixName -> a -> [Doc] -> m ()
+    Attr -> DiagnosticBinderKind -> Maybe String -> a -> [Doc] -> m ()
 reportErrorRefH at kind name doc help = do
     currentLocation <- getRef
     reportErrorH at
@@ -146,14 +146,13 @@ reportErrorRefH at kind name doc help = do
          help
 
 diagAssertRefH :: Has m [Ref, Diag, With '[Pretty a]] =>
-    Bool -> Attr -> DiagnosticBinderKind -> Maybe FixName -> a -> [Doc] -> m ()
+    Bool -> Attr -> DiagnosticBinderKind -> Maybe String -> a -> [Doc] -> m ()
 diagAssertRefH b at kind name doc help = do
     currentLocation <- getRef
     diagAssertH b at
          (DiagnosticBinder kind currentLocation name)
          doc
          help
-
 
 -- | @MonadReader FixName@
 type MonadFixName = MonadReader FixName
@@ -192,14 +191,14 @@ reportErrorRefNameH :: Has m [Ref, FixName, Diag, With '[Pretty a]] =>
     Attr -> DiagnosticBinderKind -> a -> [Doc] -> m ()
 reportErrorRefNameH at kind doc help = do
     name <- getFixName
-    reportErrorRefH at kind (Just name) doc help
+    reportErrorRefH at kind (Just $ prettyShow name) doc help
 
 
 diagAssertRefNameH :: Has m [Ref, FixName, Diag, With '[Pretty a]] =>
     Bool -> Attr -> DiagnosticBinderKind -> a -> [Doc] -> m ()
 diagAssertRefNameH b at kind doc help = do
     name <- getFixName
-    diagAssertRefH b at kind (Just name) doc help
+    diagAssertRefH b at kind (Just $ prettyShow name) doc help
 
 
 -- | Wrapper for data supplied together
@@ -221,3 +220,4 @@ type instance Has m (Location ': effs) = (MonadLocation m, Has m effs)
 
 getLocation :: MonadLocation m => m Location
 getLocation = Location <$> getRef <*> getFilePath
+

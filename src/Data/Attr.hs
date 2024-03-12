@@ -29,8 +29,11 @@ instance Show Attr where
     show = prettyShowLevel PrettyVerbose
 
 instance Pretty Attr where
-    pPrintPrec lvl prec (Attr f r) = brackets do
-        text f <> ":" <> pPrintPrec lvl prec r
+    pPrintPrec lvl prec (Attr f r) = brackets if
+        | isNil f, isNil r -> "anon"
+        | isNil f -> "input" <> ":" <> pPrintPrec lvl prec r
+        | isNil r -> text f
+        | otherwise -> text f <> ":" <> pPrintPrec lvl prec r
 
 instance Semigroup Attr where
     a <> Nil = a
@@ -43,6 +46,14 @@ instance Monoid Attr where
 
 instance Nil Attr where
     isNil = isNil . (.range)
+
+
+attrSub :: Attr -> Attr -> Attr
+attrSub = curry \case
+    (a, Nil) -> a
+    (Nil, b) -> b
+    (a, b) -> Ex.assert (a.file == b.file || isNil a.file || isNil b.file) $
+        Attr a.file (rangeSub a.range b.range)
 
 -- | Determine if two @Attr@s are adjacent in terms of line and column
 attrConnected :: Attr -> Attr -> Bool

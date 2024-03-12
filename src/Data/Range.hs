@@ -25,11 +25,13 @@ instance Pretty Range where
     pPrintPrec lvl _ (Range s e) =
         let a = pPrintPrec lvl 0 s
             b = pPrintPrec lvl 0 e
-        in if s == e
-            then a
-            else if s.line == e.line
-                then a <> "-" <> pPrint e.column
-                else a <+> "to" <+> b
+        in if
+        | isNil s, isNil e -> "{nil}"
+        | isNil s -> b
+        | isNil e -> a
+        | s == e -> a
+        | s.line == e.line -> a <> "-" <> pPrint e.column
+        | otherwise -> a <+> "to" <+> b
 
 instance Semigroup Range where
     a <> b = Range
@@ -59,3 +61,11 @@ rangeFlattenToStart = unitRange . (.start)
 -- | Get a new @Range@ that represents only the end of the given @Range@
 rangeFlattenToEnd :: Range -> Range
 rangeFlattenToEnd = unitRange . (.end)
+
+rangeSub :: Range -> Range -> Range
+rangeSub = curry \case
+    (a, Nil) -> a
+    (Nil, b) -> b
+    (a, b)
+        | a < b -> Range a.end b.end
+        | otherwise -> Range b.end a.end

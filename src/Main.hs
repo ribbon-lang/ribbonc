@@ -46,9 +46,9 @@ lexStringWith p s = runErrorT do
     mapError pPrint $ runReaderT (evalParserT p lx) "stdin"
 
 parseStringWith ::
-    ParserT TokenSeq (ReaderT FilePath (ErrorT SyntaxError IO)) a
+    ParserT (ATag TokenSeq) (ReaderT FilePath (ErrorT SyntaxError IO)) a
         -> String -> IO (Either Doc a)
-parseStringWith p s = lexStringWith L.doc s >>= \case
+parseStringWith p s = lexStringWith (tag L.doc) s >>= \case
     Left e -> pure $ Left e
     Right ts -> do
         putStrLn "toks:"
@@ -58,9 +58,9 @@ parseStringWith p s = lexStringWith L.doc s >>= \case
 
 
 parseFileWith ::
-    ParserT TokenSeq (ReaderT FilePath (ErrorT SyntaxError IO)) a
+    ParserT (ATag TokenSeq) (ReaderT FilePath (ErrorT SyntaxError IO)) a
         -> FilePath -> IO (Either Doc a)
-parseFileWith p fp = lexFileWith L.doc fp >>= \case
+parseFileWith p fp = lexFileWith (tag L.doc) fp >>= \case
     Left e -> pure $ Left e
     Right ts -> do
         putStrLn "toks:"
@@ -70,17 +70,17 @@ parseFileWith p fp = lexFileWith L.doc fp >>= \case
 
 
 parseModuleHead ::
-    FilePath -> IO (Either Doc (RawModuleHeader, [TokenSeq]))
+    FilePath -> IO (Either Doc (RawModuleHeader, [ATag TokenSeq]))
 parseModuleHead = parseFileWith P.moduleHead
 
-parseFile ::
+parseSourceFile ::
     ModuleId -> ItemId -> FilePath ->
         IO (Either Doc (ParserDefs, [Diagnostic]))
-parseFile mi ii
+parseSourceFile mi ii
     = runErrorT
     . runWriterT
     . runReaderT' mi
-    . P.file ii
+    . P.sourceFile ii
 
 
 

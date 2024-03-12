@@ -6,6 +6,7 @@ import Data.Functor
 import Data.Attr
 import Data.Nil
 import Data.Tag
+import Data.Diagnostic
 import Data.SyntaxError
 
 import Control.Has
@@ -13,7 +14,7 @@ import Control.Applicative
 import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Dynamic
-import Control.Monad.Error.Dynamic.Class
+import Control.Monad.Error.Dynamic
 import Control.Monad.Writer.Dynamic
 import Control.Monad.Reader.Dynamic.Class
 import Control.Monad.State.Dynamic
@@ -22,6 +23,9 @@ import Text.Pretty
 
 import Language.Ribbon.Util
 import Language.Ribbon.Analysis.Context
+import Language.Ribbon.Syntax.Ref
+import Language.Ribbon.Analysis.Diagnostics
+import Language.Ribbon.Lexical.Name
 
 
 
@@ -83,6 +87,12 @@ runParserT ::
     ParserT i m a -> i -> m (a, i)
 runParserT (ParserT m) = runStateT m
 
+
+-- | @flip runParserT@
+runParserT' ::
+    i -> ParserT i m a -> m (a, i)
+runParserT' = flip runParserT
+
 -- | Evaluate a @Parser@ on a given @ParseInput@,
 --   discarding the final input after ensuring it @isNil@
 --   (ie, has been consumed completely)
@@ -91,15 +101,20 @@ evalParserT :: (ParseInput i, MonadError SyntaxError m, MonadFile m) =>
 evalParserT px toks =
     fst <$> runParserT (consumesAll px) toks
 
+-- | @flip evalParserT@
+evalParserT' :: (ParseInput i, MonadError SyntaxError m, MonadFile m) =>
+    i -> ParserT i m a -> m a
+evalParserT' = flip evalParserT
+
 
 
 
 
 
 -- | Marker for @Has@, ie @Has m '[Parses input]@ ~ @MonadParser input m@
-newtype Parses a = Parse a
+data Parses a
 
-type instance Has m (Parses i ': effs) = (MonadParser i m, Has m effs)
+type instance Has m (Parses i ': effs) = (MonadParser i m, Has m (With '[ParseInput i] ': effs))
 
 
 -- | The class of types that can be used as input for a @ParserT@
@@ -166,6 +181,9 @@ putParseState ts = parseState $ const ((), ts)
 modifyParseState :: MonadParser x m => (x -> x) -> m ()
 modifyParseState f = parseState \ts -> ((), f ts)
 
+-- | Discard the current @ParseInput@ state
+discardParseState :: MonadParser x m => m ()
+discardParseState = putParseState Nil
 
 
 
@@ -476,3 +494,105 @@ catchRecoverable :: MonadParser x m => m a -> (ATag SyntaxFail -> m a) -> m a
 catchRecoverable px h = px `catchError` \case
     SyntaxError Recoverable f -> h f
     e -> throwError e
+
+
+
+liftedSyntaxErrorRef :: Has m
+    [ Parses x, FixName, Diag, Ref, With '[ParseInput x] ] =>
+        DiagnosticBinderKind -> Maybe String ->
+            WriterT [Diagnostic] m () -> m ()
+liftedSyntaxErrorRef b name m =
+    liftingSyntaxErrorRef b name m discardParseState pure
+
+
+liftedSyntaxErrorRefName :: Has m
+    [ Parses x, FixName, Diag, Ref, With '[ParseInput x] ] =>
+        DiagnosticBinderKind ->
+            WriterT [Diagnostic] m () -> m ()
+liftedSyntaxErrorRefName b m =
+    liftingSyntaxErrorRefName b m discardParseState pure
+
+
+liftSyntaxErrorT :: MonadDiagnostics m =>
+    DiagnosticBinder -> ErrorT SyntaxError m () -> m ()
+liftSyntaxErrorT b m =
+    runErrorT m >>= liftEitherHandler (reportFull . diagnosticFromSyntaxError b)
+
+liftSyntaxError :: MonadDiagnostics m =>
+    DiagnosticBinder -> SyntaxError -> m ()
+liftSyntaxError b =
+    reportFull . diagnosticFromSyntaxError b
+
+liftSyntaxErrorUndef :: MonadDiagnostics m =>
+    DiagnosticBinder -> SyntaxError -> m a
+liftSyntaxErrorUndef b err =
+    error "used undefined value from liftSyntaxErrorUndef"
+        <$ reportFull (diagnosticFromSyntaxError b err)
+
+liftingSyntaxError :: (MonadError SyntaxError m, MonadWriter [Diagnostic] m) =>
+    DiagnosticBinder -> WriterT [Diagnostic] m t -> m b -> (t -> m b) -> m b
+liftingSyntaxError b m failure success = do
+    (x, diag) <- runWriterT do
+        m `catchError` liftSyntaxErrorUndef b
+
+    reportAll diag
+
+    if any isError diag
+        then failure
+        else success x
+
+liftedSyntaxError :: Has m [ Parses x, Diag, Ref, With '[ParseInput x] ] =>
+    DiagnosticBinder -> WriterT [Diagnostic] m () -> m ()
+liftedSyntaxError b m = liftingSyntaxError b m discardParseState pure
+
+
+liftSyntaxErrorRef :: Has m [Ref, Diag] =>
+    DiagnosticBinderKind -> Maybe String -> SyntaxError -> m ()
+liftSyntaxErrorRef kind name e = do
+    ref <- getRef
+    liftSyntaxError
+        DiagnosticBinder
+            { kind = kind
+            , ref = ref
+            , name = name
+            }
+        e
+
+
+liftingSyntaxErrorRef :: Has m [Ref, Err SyntaxError, Diag] =>
+    DiagnosticBinderKind -> Maybe String ->
+        WriterT [Diagnostic] m t -> m b -> (t -> m b) -> m b
+liftingSyntaxErrorRef kind name m failure success = do
+    currentLocation <- getRef
+    (x, diag) <- runWriterT do
+        m `catchError` liftSyntaxErrorUndef
+            (DiagnosticBinder kind currentLocation name)
+
+    reportAll diag
+
+    if any isError diag
+        then failure
+        else success x
+
+
+liftSyntaxErrorRefName :: Has m [Ref, FixName, Diag] =>
+    DiagnosticBinderKind -> SyntaxError -> m ()
+liftSyntaxErrorRefName kind e = do
+    name <- getFixName
+    liftSyntaxErrorRef kind (Just $ prettyShow name) e
+
+liftingSyntaxErrorRefName :: Has m [Ref, FixName, Err SyntaxError, Diag] =>
+    DiagnosticBinderKind ->
+        WriterT [Diagnostic] m t -> m b -> (t -> m b) -> m b
+liftingSyntaxErrorRefName kind m failure success = do
+    name <- getFixName
+    currentLocation <- getRef
+    (x, diag) <- runWriterT do
+        m `catchError` liftSyntaxErrorUndef
+            (DiagnosticBinder kind currentLocation (Just $ prettyShow name))
+
+    reportAll diag
+
+    if any isError diag
+        then failure
+        else success x

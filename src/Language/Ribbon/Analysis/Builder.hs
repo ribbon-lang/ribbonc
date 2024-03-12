@@ -115,7 +115,7 @@ bindQualifier eid def = defsModify $ second \defs ->
     defs { M.qualifiers = Map.insert eid def defs.qualifiers }
 
 -- | Insert a field definition by @ItemId@
-bindField :: MonadDefs m => ItemId -> M.Def (FieldType TokenSeq) -> m ()
+bindField :: MonadDefs m => ItemId -> M.Def (Field TokenSeq) -> m ()
 bindField eid def = defsModify $ second \defs ->
     defs { M.fields = Map.insert eid def defs.fields }
 
@@ -158,7 +158,7 @@ bindQualifierHere eid def = do
 
 -- | Insert a field definition by @ItemId@
 bindFieldHere :: Has m [ItemId, M.ParserDefs] =>
-    ItemId -> ATag (FieldType TokenSeq) -> m ()
+    ItemId -> ATag (Field TokenSeq) -> m ()
 bindFieldHere eid def = do
     ci <- getItemId
     bindField eid (M.Def (Just ci) def)
@@ -222,7 +222,7 @@ insertRef n r =
         reportErrorRefH
             n.value.value.name.tag
             ConflictingDefinition
-            (Just n.value.value.name.value)
+            (Just $ prettyShow n.value.value.name.value)
             err
             ["it was first defined here:" <+> pPrint at]
 
@@ -275,7 +275,7 @@ insertAlias n p =
         reportErrorRefH
             n.value.name.tag
             ConflictingDefinition
-            (Just n.value.name.value)
+            (Just $ prettyShow n.value.name.value)
             err
             ["it was first defined here:" <+> pPrint at]
 

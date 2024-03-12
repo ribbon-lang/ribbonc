@@ -108,3 +108,4 @@ diagAssertH b at k a h = unless b do reportErrorH at k a h
 diagAssert :: (MonadDiagnostics m, Pretty a) =>
     Bool -> Attr -> DiagnosticBinder -> a -> m ()
 diagAssert b at k a = diagAssertH b at k a []
+
