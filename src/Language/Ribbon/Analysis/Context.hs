@@ -1,9 +1,18 @@
 module Language.Ribbon.Analysis.Context
     ( module X
 
+    , MonadModCtx
+    , getModCtx
+    , getsModCtx
+    , localModCtx
+    , usingModCtx
+    , lookupModule
+
     , MonadFile
-    , withFilePath
     , getFilePath
+    , getsFilePath
+    , localFilePath
+    , usingFilePath
 
     , MonadModule
     , getModuleId
@@ -50,6 +59,37 @@ import Text.Pretty
 import Language.Ribbon.Analysis.Diagnostics
 import Language.Ribbon.Lexical.Name
 import Language.Ribbon.Syntax.Ref
+import Language.Ribbon.Syntax.Module qualified as M
+import Language.Ribbon.Lexical.Version
+
+
+
+type instance Has m (M.ModuleContext ': effs) = (MonadModCtx m, Has m effs)
+
+-- | @MonadReader ModuleContext@
+type MonadModCtx = MonadReader M.ModuleContext
+
+-- | @ask@ specialized to @ModuleContext@
+getModCtx :: MonadModCtx m => m M.ModuleContext
+getModCtx = ask
+
+-- | @asks@ specialized to @ModuleContext@
+getsModCtx :: MonadModCtx m => (M.ModuleContext -> a) -> m a
+getsModCtx = asks
+
+-- | @local@ specialized to @ModuleContext@
+localModCtx :: MonadModCtx m =>
+    (M.ModuleContext -> M.ModuleContext) -> m a -> m a
+localModCtx = local
+
+-- | @using@ specialized to @ModuleContext@
+usingModCtx :: MonadModCtx m => M.ModuleContext -> m a -> m a
+usingModCtx = using
+
+-- | Lookup a @ModuleId@ in the @ModuleContext@ by its name and version
+lookupModule :: MonadModCtx m =>
+    ATag (String, Version) -> m (Either (Doc, [Doc]) ModuleId)
+lookupModule = getsModCtx . M.lookupModule
 
 
 
@@ -60,15 +100,21 @@ type instance Has m (FilePath ': effs) = (MonadFile m, Has m effs)
 -- | @MonadReader FilePath m@
 type MonadFile = MonadReader FilePath
 
-
--- | @using@ specialized to @FilePath@
-withFilePath :: MonadFile m => FilePath -> m a -> m a
-withFilePath = using
-
 -- | @ask@ specialized to @FilePath@
 getFilePath :: MonadFile m => m FilePath
 getFilePath = ask
 
+-- | @asks@ specialized to @FilePath@
+getsFilePath :: MonadFile m => (FilePath -> a) -> m a
+getsFilePath = asks
+
+-- | @local@ specialized to @FilePath@
+localFilePath :: MonadFile m => (FilePath -> FilePath) -> m a -> m a
+localFilePath = local
+
+-- | @using@ specialized to @FilePath@
+usingFilePath :: MonadFile m => FilePath -> m a -> m a
+usingFilePath = using
 
 
 

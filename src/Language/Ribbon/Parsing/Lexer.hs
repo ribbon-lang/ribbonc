@@ -106,12 +106,12 @@ lexStreamFromString = lexStreamFromText . Text.pack
 
 -- | Read a lazy @ByteString@ from a @FilePath@, lazily decode it to @Text@,
 --   and wrap it in a new @LexStream@
-lexStreamFromFile :: (MonadError Doc m, MonadIO m) => FilePath -> m LexStream
+lexStreamFromFile :: (MonadError SyntaxError m, MonadIO m) => FilePath -> m LexStream
 lexStreamFromFile fp =
     liftEither . fmap lexStreamFromByteString =<< liftIO do
         IO.catchAny (Right <$> ByteString.readFile fp) \e -> pure $ Left $
-            "could not read file" <+> pPrint fp
-                <+> "due to" <+> shown e
+            SyntaxError Unrecoverable $ SingleFailure
+                (hang "could not read file due to" (shown e)) :@: fileAttr fp
 
 
 -- | Lex a full document

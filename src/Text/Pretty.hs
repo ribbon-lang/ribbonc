@@ -48,6 +48,7 @@ import Data.Set qualified as Set
 import Data.Sequence (Seq)
 import Data.Nil
 
+import Control.Monad.IO.Class
 import Control.Applicative
 
 import Debug.Trace (traceM)
@@ -218,13 +219,13 @@ prettyShowLevel lvl = render . pPrintPrec lvl 0
 
 -- | Pretty print a value with the default level of verbosity and precedence,
 --   and print the resulting @Doc@ to the console
-prettyPrint :: Pretty a => a -> IO ()
+prettyPrint :: (MonadIO m, Pretty a) => a -> m ()
 prettyPrint = prettyPrintLevel PrettyNormal
 
 -- | Pretty print a value with a given level of verbosity and precedence,
 --   and print the resulting @Doc@ to the console
-prettyPrintLevel :: Pretty a => PrettyLevel -> a -> IO ()
-prettyPrintLevel lvl = putStrLn . prettyShowLevel lvl
+prettyPrintLevel :: (MonadIO m, Pretty a) => PrettyLevel -> a -> m ()
+prettyPrintLevel lvl = liftIO . putStrLn . prettyShowLevel lvl
 
 -- | Pretty print the value if it exists, otherwise print nothing
 maybePPrint :: Pretty a => Maybe a -> Doc

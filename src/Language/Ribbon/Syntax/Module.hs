@@ -6,6 +6,9 @@ import qualified Data.Foldable as Fold
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 
+import Data.List qualified as List
+import Data.Char qualified as Char
+
 import Data.Tag
 import Data.Attr
 import Data.Nil
@@ -31,9 +34,42 @@ import Language.Ribbon.Syntax.Value
 data ModuleContext
     = ModuleContext
     { modules :: !(Map ModuleId FinalModule)
-    , moduleLookup :: !(Map (String, Version) Ref)
+    , moduleLookup :: !(Map (String, Version) ModuleId)
     }
     deriving Show
+
+lookupModule ::
+    ATag (String, Version) -> ModuleContext -> Either (Doc, [Doc]) ModuleId
+lookupModule nameVer ctx = do
+    let nv@(name, ver) = untag nameVer
+    case Map.lookup nv ctx.moduleLookup of
+        Just tree -> Right tree
+        _ -> Left
+            ( "module" <+> text name
+                <+> "with version" <+> pPrint ver
+                <+> "not found in context"
+            , nameFuzzySearchOn fst name (Map.keys ctx.moduleLookup)
+                <&> \(sn, sv) ->
+                    "similar match:" <+> text sn
+                        <+> "with version" <+> pPrint sv
+            )
+
+
+nameFuzzySearch :: String -> [String] -> [String]
+nameFuzzySearch = nameFuzzySearchOn id
+
+nameFuzzySearchOn :: (a -> String) -> String -> [a] -> [a]
+nameFuzzySearchOn f name ss =
+    let subs = List.permutations $ List.take 7 $ lower name
+    in List.sortOn (length . f) $ removeDuplicates $ foldMap (match0 subs) ss
+    where
+    lower = fmap Char.toLower
+    match0 subs s = foldMap (`match` s) subs
+    match sub a = [a | List.isSubsequenceOf sub (lower $ f a)]
+    removeDuplicates [] = []
+    removeDuplicates (x:xs) =
+        x : removeDuplicates (List.filter ((/= f x) . f) xs)
+
 
 
 -- | A module that has been fully parsed and analyzed
@@ -43,7 +79,7 @@ type FinalModule = Module () FinalDefs
 type AnalysisModule = Module AnalysisModuleHeader AnalysisDefs
 
 -- | A module that has been partially parsed
-type ParserModule = Module ParserModuleHeader ParserDefs
+type ParserModule = Module AnalysisModuleHeader ParserDefs
 
 -- | Definitions for a module that has been fully parsed and analyzed
 type FinalDefs = DefSet Type Value ResolvedBlobs
@@ -138,8 +174,8 @@ instance Nil (DefSet t v i) where
 
 data AnalysisModuleHeader
     = AnalysisModuleHeader
-    {        files :: !(Map FilePath Ref)
-    , dependencies :: !(Map SimpleName Ref)
+    {        files :: !(Map FilePath ItemId)
+    , dependencies :: !(Map (ATag SimpleName) ModuleId)
     }
     deriving Show
 
@@ -148,22 +184,9 @@ data AnalysisModuleHeader
 type MetaData = Map (ATag SimpleName) (ATag String)
 
 -- | A map from locally-appropriate names to module strings and versions
-type RawDependencies = [(ATag String, ATag Version, Maybe (ATag SimpleName))]
+type RawDependencies = [(ATag (String, Version), Maybe (ATag SimpleName))]
 
 
--- | Raw output from a parser of the head section of a module
-data ParserModuleHeader
-    = ParserModuleHeader
-    {      sources :: ![ATag FilePath]
-    , dependencies :: !RawDependencies
-    }
-    deriving Show
-
-instance Pretty ParserModuleHeader where
-    pPrintPrec lvl _ ParserModuleHeader{..} =
-        vcat' [ hang "sources" $ pPrintPrec lvl 0 sources
-              , hang "dependencies" $ pPrintPrec lvl 0 dependencies
-              ]
 
 
 -- | Pair of @Visible GroupName@ and @ATag Ref@,

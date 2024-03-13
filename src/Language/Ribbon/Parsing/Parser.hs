@@ -70,7 +70,7 @@ instance ParseInput (ATag TokenSeq) where
 
 
 -- | Parse a @RawModuleHeader@, and return the rest of the file as a line list
-moduleHead :: Has m '[Parse] => m (RawModuleHeader, [ATag TokenSeq])
+moduleHead :: Has m '[Parse] => m (ATag RawModuleHeader, [ATag TokenSeq])
 moduleHead = expecting "a valid module header" do
     grabLines >>= \case
         [] -> empty
@@ -83,7 +83,7 @@ moduleHead = expecting "a valid module header" do
                     >>= recurseParserAll keyPairs
                     >>= processPairs
 
-            pure $ RawModuleHeader
+            pure $ Tag ln.tag RawModuleHeader
                 { name = moduleName
                 , version = moduleVersion
                 , sources = sources.value
@@ -133,33 +133,42 @@ moduleHead = expecting "a valid module header" do
         moduleName <- tag string
         moduleVersion <- simpleNameOf "@" >> tag version
         alias <- optional (sym "as" >> noFail (tag simpleName))
-        pure (moduleName, moduleVersion, alias)
+        pure ( (moduleName.value, moduleVersion.value)
+                :@: (moduleName.tag <> moduleVersion.tag)
+             , alias
+             )
 
 -- | Parse a source file
-sourceFile :: Has m [ ModuleId, Diag, Err Doc, OS ] =>
+sourceFile :: Has m [ ModuleId, Diag, Err SyntaxError, OS ] =>
     ItemId -> FilePath -> m M.ParserDefs
-sourceFile i filePath = snd <$>
-    runReaderT' i do
-    execStateT' (i + 1, Nil) do
-        runReaderT' filePath do
-            L.lexStreamFromFile filePath
-                >>= liftError @SyntaxError . evalParserT (tag L.doc)
-                >>= liftError @SyntaxError . evalParserT grabLines
-                >>= runReaderT' (StringFixName filePath) . \lns -> do
-                    let at = fileAttr filePath
+sourceFile i filePath =
+    runReaderT' filePath do
+        L.lexStreamFromFile filePath
+            >>= evalParserT (tag L.doc)
+            >>= evalParserT grabLines
+            >>= sourceFileBody i
 
-                    (newGroup, newUnresolvedImports) <-
-                        runStateT' Nil $
-                        execStateT' Nil $
-                            lineParser item lns
+sourceFileBody :: Has m
+    [ ModuleId, FilePath, Diag, OS ] =>
+    ItemId -> [ATag TokenSeq] -> m M.ParserDefs
+sourceFileBody itemId lns = snd <$> do
+    filePath <- getFilePath
+    runReaderT' (StringFixName filePath) do
+        let at = fileAttr filePath
 
-                    unless (isNil newGroup) do
-                        bindGroup i $
-                            M.Def Nothing (newGroup :@: at)
+        runReaderT' itemId $ execStateT' (itemId + 1, Nil) do
+            (newGroup, newUnresolvedImports) <-
+                runStateT' Nil $
+                execStateT' Nil $
+                    lineParser item lns
 
-                    unless (isNil newUnresolvedImports) do
-                        bindImports i $
-                            M.Def Nothing (newUnresolvedImports :@: at)
+            unless (isNil newGroup) do
+                bindGroup itemId $
+                    M.Def Nothing (newGroup :@: at)
+
+            unless (isNil newUnresolvedImports) do
+                bindImports itemId $
+                    M.Def Nothing (newUnresolvedImports :@: at)
 
 
 

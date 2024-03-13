@@ -201,7 +201,7 @@ maybeMEmpty :: Monoid a => Maybe a -> a
 maybeMEmpty = Maybe.fromMaybe mempty
 
 -- | ErrorT based error mapping
-mapError :: (Functor m) => (e -> e') -> ErrorT e m a -> ErrorT e' m a
+mapError :: forall e e' m a. (Functor m) => (e -> e') -> ErrorT e m a -> ErrorT e' m a
 mapError f m = ErrorT do
     runErrorT m <&> \case
         Left e -> Left (f e)

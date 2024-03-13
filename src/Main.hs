@@ -35,7 +35,7 @@ lexFileWith ::
     ParserT L.LexStream (ReaderT FilePath (ErrorT SyntaxError IO)) a
         -> FilePath -> IO (Either Doc a)
 lexFileWith p fp = runErrorT do
-    lx <- L.lexStreamFromFile fp
+    lx <- mapError @SyntaxError pPrint $ L.lexStreamFromFile fp
     mapError pPrint $ runReaderT (evalParserT p lx) fp
 
 lexStringWith ::
@@ -70,12 +70,18 @@ parseFileWith p fp = lexFileWith (tag L.doc) fp >>= \case
 
 
 parseModuleHead ::
-    FilePath -> IO (Either Doc (RawModuleHeader, [ATag TokenSeq]))
-parseModuleHead = parseFileWith P.moduleHead
+    FilePath -> IO (Either Doc (ATag RawModuleHeader, [ATag TokenSeq]))
+parseModuleHead fp = lexFileWith (tag L.doc) fp >>= \case
+    Left e -> pure $ Left e
+    Right ts -> do
+        putStrLn "toks:"
+        prettyPrint ts
+        runErrorT $ mapError @SyntaxError pPrint $
+            runReaderT (evalParserT P.moduleHead ts) fp
 
 parseSourceFile ::
     ModuleId -> ItemId -> FilePath ->
-        IO (Either Doc (ParserDefs, [Diagnostic]))
+        IO (Either SyntaxError (ParserDefs, [Diagnostic]))
 parseSourceFile mi ii
     = runErrorT
     . runWriterT
