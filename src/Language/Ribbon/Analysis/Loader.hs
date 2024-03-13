@@ -36,7 +36,7 @@ import Language.Ribbon.Analysis.Context
 import Language.Ribbon.Analysis.Diagnostics
 
 import Language.Ribbon.Syntax.Raw
-import Language.Ribbon.Parsing.Parser qualified as P
+import Language.Ribbon.Parsing.Parse qualified as P
 import qualified Data.Maybe as Maybe
 
 import Language.Ribbon.Parsing.Text
