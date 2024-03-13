@@ -121,7 +121,7 @@ getPathCategory _ = Nothing
 --   + The @Path@ has no @PathName@s,
 --     and its base is a file that cannot be converted to a @SimpleName@
 getPathName :: Path -> Maybe (ATag FixName)
-getPathName (Path _ (c Seq.:<| _)) = Just (c.value.name <$ c)
+getPathName (Path _ (_ Seq.:|> c)) = Just (c.value.name <$ c)
 getPathName (Path (Just b) Nil) = case b.value of
     PbModule n -> Just (SimpleFixName n <$ b)
     PbFile f -> (<$ b) . SimpleFixName <$> simpleNameFromFile f

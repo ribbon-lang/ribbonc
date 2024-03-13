@@ -409,12 +409,12 @@ useDef = sym "use" >> do
                 using names (forM_ blobs $ addUse vis)
 
 
-        asNewNamespace fullPath unresolvedName action = do
+        asNewNamespace fullPath unresolvedName action =
             let newFullPath = Maybe.fromJust $
                     joinPath
                         (Path (Just $ PbUp 1 :@: basePath.tag) Nil)
                         fullPath.value
-            case groupFromUnresolvedInCategory Namespace unresolvedName of
+            in case groupFromUnresolvedInCategory Namespace unresolvedName of
                 Just groupName -> do
                     newId <- inNewNamespace unresolvedName.name.tag do
                         action (newFullPath <$ basePath)
