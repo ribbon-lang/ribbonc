@@ -34,12 +34,10 @@ import System.IO
 import Control.Concurrent.ParallelIO
 
 
-lexFileWith ::
-    ParserT L.LexStream (ReaderT FilePath (ErrorT SyntaxError IO)) a
-        -> FilePath -> IO (Either Doc a)
-lexFileWith p fp = runErrorT do
+lexFile :: FilePath -> IO (Either Doc (ATag TokenSeq))
+lexFile fp = runErrorT do
     lx <- mapError @SyntaxError pPrint $ L.lexStreamFromFile fp
-    mapError pPrint $ runReaderT (evalParserT p lx) fp
+    mapError @SyntaxError pPrint $ runReaderT (evalParserT (tag L.doc) lx) fp
 
 lexStringWith ::
     ParserT L.LexStream (ReaderT FilePath (ErrorT SyntaxError IO)) a
@@ -63,7 +61,7 @@ parseStringWith p s = lexStringWith (tag L.doc) s >>= \case
 parseFileWith ::
     ParserT (ATag TokenSeq) (ReaderT FilePath (ErrorT SyntaxError IO)) a
         -> FilePath -> IO (Either Doc a)
-parseFileWith p fp = lexFileWith (tag L.doc) fp >>= \case
+parseFileWith p fp = lexFile fp >>= \case
     Left e -> pure $ Left e
     Right ts -> do
         putStrLn "toks:"
@@ -74,7 +72,7 @@ parseFileWith p fp = lexFileWith (tag L.doc) fp >>= \case
 
 parseModuleHead ::
     FilePath -> IO (Either Doc (ATag RawModuleHeader, [ATag TokenSeq]))
-parseModuleHead fp = lexFileWith (tag L.doc) fp >>= \case
+parseModuleHead fp = lexFile fp >>= \case
     Left e -> pure $ Left e
     Right ts -> do
         putStrLn "toks:"

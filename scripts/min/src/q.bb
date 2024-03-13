@@ -7,3 +7,7 @@ bar : Int
     = with Console
         printLn | msg => continue ()
     do foo(1, 2)
+
+id
+    : forall a => a -> a
+    = fun x => x

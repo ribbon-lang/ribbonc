@@ -257,10 +257,25 @@ item = asum
                     , do
                         newDeclId <- optionalIndent $ sym ":" >> noFail do
                             valueDec vqn
-                        consumesAll $ option () do
-                            optionalIndent $ sym "=" >> noFail do
-                                body <- grabWhitespaceDomainAll
-                                bindValueHere newDeclId body
+
+                        option () $ asum
+                            [ consumesAll $ grabLines >>= \case
+                                [] -> empty
+                                ln1 : lns -> do
+                                    ln1' <- snd <$>
+                                        recurseParser (sym "=") ln1
+
+                                    bindValueHere newDeclId $
+                                        foldWith Nil (ln1' : lns)
+                                        \ln (acc :@: at) ->
+                                            ((TTree BkWhitespace <$> ln)
+                                                Seq.:<| acc)
+                                                    :@: (ln.tag <> at)
+
+                            , optionalIndent $ sym "=" >> noFail do
+                                grabWhitespaceDomainAll
+                                    >>= bindValueHere newDeclId
+                            ]
                     ]
     ]
 
@@ -1111,6 +1126,8 @@ brackets px = do
 -- | Allow an optional indentation of the input to the parser
 optionalIndent :: Has m '[Parse] => m a -> m a
 optionalIndent p = do
+    -- (a, ps') <- recurseParser p =<< grabWhitespaceDomain
+    -- a <$ modifyParseState (ps' <>)
     getParseState >>= \case
         (TTree BkWhitespace ts :@: at Seq.:<| _) :@: _ ->
             advance >> recurseParserAll p (ts :@: at)
@@ -1126,9 +1143,9 @@ grabDomain p = expecting "a whitespace block" do
             fp <- getFilePath
             throwError $ SyntaxError Recoverable $
                 EofFailure :@: attrInput fp ts
-        toks ->
+        toks -> do
             let (a, b) = consume toks
-            in fmap reduceTokenSeq a <$ putParseState (fmap reduceTokenSeq b)
+            fmap reduceTokenSeq a <$ putParseState (fmap reduceTokenSeq b)
     where
     consume = \case
         base@((t Seq.:<| ts) :@: at) | p t ->
@@ -1169,6 +1186,14 @@ grabLines :: Has m '[Parse] => m [ATag TokenSeq]
 grabLines = some $ tag $ nextMap \case
     TTree BkWhitespace ln -> Just ln
     _ -> Nothing
+
+-- | Consume a sequence of lines from the input
+grabLines' :: Has m '[Parse] => m (ATag TokenSeq)
+grabLines' = tag do
+    Seq.fromList <$> nextWhileAttr \case
+        TTree BkWhitespace _ :@: _ -> True
+        _ -> False
+
 
 -- | grab the whitespace domain, and break it into lines;
 --   ensures both steps consume all available input
