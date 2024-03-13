@@ -28,7 +28,10 @@ import Language.Ribbon.Parsing.Monad
 import Language.Ribbon.Parsing.Lexer qualified as L
 import Language.Ribbon.Parsing.Parser qualified as P
 import Language.Ribbon.Analysis
-import Language.Ribbon.Syntax.Raw (RawModuleHeader)
+import Language.Ribbon.Syntax.Raw
+import qualified Data.Map.Strict as Map
+import System.IO
+import Control.Concurrent.ParallelIO
 
 
 lexFileWith ::
@@ -88,6 +91,17 @@ parseSourceFile mi ii
     . runReaderT' mi
     . P.sourceFile ii
 
+
+parseModule ::
+    FilePath -> IO (Either Doc (ParserModule, [Diagnostic]))
+parseModule fp = do
+    hSetBuffering stdout LineBuffering
+    runErrorT $ runWriterT $ loadParserModule ctx 1 fp
+    where
+    ctx = ModuleContext
+        { modules = mempty
+        , moduleLookup = Map.fromList [(("core", Version 0 1 0), 1)]
+        }
 
 
 main :: IO ()

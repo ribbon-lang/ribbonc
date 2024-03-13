@@ -2,6 +2,7 @@
 module Language.Ribbon.Parsing.Parser where
 
 import Data.Function
+import Data.Functor
 
 import Data.Map.Strict qualified as Map
 import Data.Maybe qualified as Maybe
@@ -35,9 +36,66 @@ import Language.Ribbon.Syntax.Module qualified as M
 import Language.Ribbon.Parsing.Monad
 import Language.Ribbon.Parsing.Lexer qualified as L
 import Language.Ribbon.Lexical
-import Language.Ribbon.Analysis
+import Language.Ribbon.Analysis.Builder
+import Language.Ribbon.Analysis.Context
+import Language.Ribbon.Analysis.Diagnostics
 import Language.Ribbon.Syntax.Type
 import Language.Ribbon.Syntax.Data
+
+
+
+parseModuleHead :: Has m [OS, Err Doc] =>
+    FilePath -> m (ATag RawModuleHeader, [ATag TokenSeq])
+parseModuleHead fp = do
+    ts <- L.lexFile fp
+    res <- runErrorT $ mapError @SyntaxError pPrint $
+        runReaderT (evalParserT moduleHead ts) fp
+    liftEither res
+
+parseSourceFile ::
+    ModuleId -> ItemId -> FilePath ->
+        IO (M.ParserDefs, [Diagnostic])
+parseSourceFile mi ii fp =
+    do runWriterT $
+        runErrorT @SyntaxError $
+        runReaderT' mi $
+        sourceFile ii fp
+    <&> \case
+        (Right x, ds) -> (x, ds)
+        (Left e, ds) ->
+            ( Nil
+            , diagnosticFromSyntaxError
+                DiagnosticBinder
+                    { kind = BadDefinition
+                    , ref = Ref mi ii
+                    , name = Just fp
+                    }
+                e
+            : ds
+            )
+
+parseSourceFileBody ::
+    ModuleId -> ItemId -> FilePath -> [ATag TokenSeq] ->
+        IO (M.ParserDefs, [Diagnostic])
+parseSourceFileBody mi ii fp lns =
+    do runWriterT $
+        runErrorT @SyntaxError $
+        runReaderT' fp $
+        runReaderT' mi $
+        sourceFileBody ii lns
+    <&> \case
+        (Right x, ds) -> (x, ds)
+        (Left e, ds) ->
+            ( Nil
+            , diagnosticFromSyntaxError
+                DiagnosticBinder
+                    { kind = BadDefinition
+                    , ref = Ref mi ii
+                    , name = Just fp
+                    }
+                e
+            : ds
+            )
 
 
 
@@ -682,13 +740,6 @@ fields fm = loop 0 where
             (loop i lns)
             (\i' -> loop (i' + 1) lns)
 
-
--- | Lift an @ErrorT e@ where @Pretty e@ to a @Doc@ error
-liftError :: forall e m a.
-    Has m [ Err Doc, With '[Pretty e] ] =>
-        ErrorT e m a -> m a
-liftError m =
-    runErrorT m >>= liftEitherMap pPrint
 
 
 -- | Run an action inside a new namespace,

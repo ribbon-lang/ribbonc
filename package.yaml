@@ -30,6 +30,11 @@ default-extensions:
 
 ghc-options:
     - -Wall
+    - -threaded
+    - -rtsopts
+    - +RTS
+    - -N2
+    - -RTS
 
 dependencies:
     - base

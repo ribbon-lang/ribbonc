@@ -14,8 +14,6 @@ import Data.Functor
 import Data.Bifunctor
 
 import Data.Tag
-import Data.Attr
-import Data.SyntaxError
 import Data.Diagnostic
 import Data.Nil
 
@@ -31,69 +29,33 @@ import Language.Ribbon.Util hiding ((</>))
 import Language.Ribbon.Lexical
 import Language.Ribbon.Syntax.Ref
 import Language.Ribbon.Syntax.Module
-    ( ModuleContext, ParserDefs, ParserModule
+    ( ModuleContext, ParserModule
     , AnalysisModuleHeader(..), Module(..)
     )
 import Language.Ribbon.Analysis.Context
 import Language.Ribbon.Analysis.Diagnostics
 
 import Language.Ribbon.Syntax.Raw
-import Language.Ribbon.Parsing.Monad
-import Language.Ribbon.Parsing.Lexer qualified as L
 import Language.Ribbon.Parsing.Parser qualified as P
 import qualified Data.Maybe as Maybe
 
 import Language.Ribbon.Parsing.Text
+import Data.IORef (newIORef, modifyIORef', readIORef, writeIORef)
+import qualified Data.Either as Either
 
 
 
 
-lexFileWith :: Has m [OS, Err Doc] =>
-    ParserT L.LexStream (ReaderT FilePath (ErrorT SyntaxError m)) a
-        -> FilePath -> m a
-lexFileWith p fp = do
-    lx <- P.liftError @SyntaxError $ L.lexStreamFromFile fp
-    P.liftError @SyntaxError $ runReaderT (evalParserT p lx) fp
-
-parseModuleHead :: Has m [OS, Err Doc] =>
-    FilePath -> m (ATag RawModuleHeader, [ATag TokenSeq])
-parseModuleHead fp = do
-    ts <- lexFileWith (tag L.doc) fp
-    res <- runErrorT $ mapError @SyntaxError pPrint $
-        runReaderT (evalParserT P.moduleHead ts) fp
-    liftEither res
-
-parseSourceFile ::
-    ModuleId -> ItemId -> FilePath ->
-        IO (ParserDefs, [Diagnostic])
-parseSourceFile mi ii fp =
-    do runWriterT $ runErrorT @SyntaxError $ runReaderT' mi $ P.sourceFile ii fp
-    <&> \case
-        (Right x, ds) -> (x, ds)
-        (Left e, ds) ->
-            ( Nil
-            , diagnosticFromSyntaxError
-                DiagnosticBinder
-                    { kind = BadDefinition
-                    , ref = Ref mi ii
-                    , name = Just fp
-                    }
-                e
-            : ds
-            )
-
-
-
--- | Load a module head file,
---   lookup and bind its dependencies,
---   and then traverse the source directories it lists,
---   in order to construct a @ParserModule@
+-- | Load a module head file, in order to construct a @ParserModule@.
+--   Traverse the source directories it lists,
+--   build a list of files and parse them all,
+--   parse the root namespace,
+--   and lookup and bind dependencies
 loadParserModule :: Has m
-    [ ModuleContext
-    , Diag, Err Doc
+    [ Diag, Err Doc
     , OS
-    ] => ModuleId -> FilePath -> m ParserModule
-loadParserModule modId modPath' = do
+    ] => ModuleContext -> ModuleId -> FilePath -> m ParserModule
+loadParserModule ctx modId modPath' = do
     -- we allow specifying the module as a directory
     -- with "module.bb" at its root, or the path to the head file itself
     modPath <- if ".bb" `isExtensionOf` modPath'
@@ -117,56 +79,7 @@ loadParserModule modId modPath' = do
     let moduleBasePath = takeDirectory modPath
 
     -- load and parse the head file
-    (rawHeader, rootLns) <- parseModuleHead modPath
-
-    -- get the dependency list from the header,
-    -- and process it using the module context
-    dependencyMap <-
-        foldWithM Nil rawHeader.value.dependencies
-        \(nameVer, alias) depMap -> do
-            let actualName = fst nameVer.value
-
-            diagAssertH (Maybe.isJust alias || isIdentifier actualName)
-                nameVer.tag
-                    DiagnosticBinder
-                        { kind = BadDefinition
-                        , ref = Ref modId 0
-                        , name = Just actualName
-                        }
-                    ("imported module name"
-                        <+> pPrint actualName
-                        <+> "is not a valid identifier and must be aliased")
-                    ["try something like `as MyModule`"
-                        <+> "to alias the module name"]
-
-            let depName = case alias of
-                    Just a -> a
-                    _ -> SimpleName actualName :@: nameVer.tag
-
-            depId <- lookupModule nameVer >>= \case
-                Left (e, h) ->
-                    Nil <$ reportErrorH nameVer.tag
-                        DiagnosticBinder
-                            { kind = BadDefinition
-                            , ref = Ref modId 0
-                            , name = Just actualName
-                            }
-                        e h
-                Right depId -> pure depId
-
-            case List.find (== depName) (Map.keys depMap) of
-                Just existing -> do
-                    reportErrorH nameVer.tag
-                        DiagnosticBinder
-                            { kind = ConflictingDefinition
-                            , ref = Ref modId 0
-                            , name = Just depName.value.value
-                            }
-                        ("an import module has already been bound to the name"
-                            <+> pPrint actualName)
-                        ["it was first bound here:" <+> pPrint existing.tag]
-                    pure depMap
-                _ -> pure $ Map.insert depName depId depMap
+    (rawHeader, rootLns) <- P.parseModuleHead modPath
 
     -- if no sources were provided,
     -- we use the module directory by passing the empty string here
@@ -224,15 +137,7 @@ loadParserModule modId modPath' = do
     -- traverse the given base directories and get their trees
     -- attach their base dir so we can sort them with the map later
     subSourcePaths <- zip baseDirs <$>
-        let exploreDir path = do
-                let fullPath = moduleBasePath </> path
-                subPaths <- fmap (path </>) <$> listDirectory fullPath
-                let sourcePaths = filter (isExtensionOf ".bb") subPaths
-                subDirectories <-
-                    filterM (doesDirectoryExist . (moduleBasePath </>)) subPaths
-                concat . (sourcePaths :) <$>
-                    traverse exploreDir subDirectories
-        in traverse (liftIO . exploreDir) baseDirs
+        traverse (liftIO . exploreDir moduleBasePath) baseDirs
 
     -- split base source paths into base and sub source paths
     let as = second (:[]) . splitFileName <$> baseSourcePaths
@@ -273,45 +178,138 @@ loadParserModule modId modPath' = do
                     "found in base" <+> brackets (text base)
 
     -- build up a list of IO actions to load and parse the source files
+    ioDiags <- liftIO $ newIORef Nil
+    ioDefMap <- liftIO $ newIORef Nil
+    ioSourceMap <- liftIO $ newIORef Nil
+    ioDependencyMap <- liftIO $ newIORef Nil
+
     let fileActions = snd $
-            foldr mapFold (itemIdIncr, Nil) (Map.toList sourceMap) where
-            mapFold (b, ps) acc = foldr (setFold b) acc ps
-            setFold b path (!itemId, acc) =
-                let basedPath = b </> path
-                    fullPath = moduleBasePath </> basedPath
-                in ((itemId + itemIdIncr, ) . (: acc)) do
-                    !xf <- parseSourceFile modId itemId fullPath
-                    pure ((path, itemId), xf)
-            itemIdIncr = fromIntegral (maxBound :: Word32)
+            foldr mapFold (itemIdIncr, Nil) (Map.toList sourceMap)
+        mapFold (b, ps) acc = foldr (setFold b) acc ps
+        setFold b path (!itemId, acc) =
+            let basedPath = b </> path
+                fullPath = moduleBasePath </> basedPath
+            in ((itemId + itemIdIncr, ) . (: acc)) do
+                putStrLn $ render $
+                    "processing file" <+> brackets (text fullPath)
+                (!defs, !diags) <- P.parseSourceFile modId itemId fullPath
+                modifyIORef' ioDiags (<> diags)
+                modifyIORef' ioDefMap (<> defs)
+                modifyIORef' ioSourceMap (Map.insert fullPath itemId)
 
     -- run all the IO actions at once and wait on them all to finish
-    parseResults <- liftIO $ parallelInterleaved fileActions
+    exceptions <- Either.lefts <$> liftIO do
+        parallelInterleavedE
+            $ do -- add the header defs to the list of actions
+                putStrLn "processing module root"
+                (!defs, !diags) <- P.parseSourceFileBody modId 0 modPath rootLns
+                modifyIORef' ioDiags (<> diags)
+                modifyIORef' ioDefMap (<> defs)
+            : do -- add dependency resolution to the list of actions
+                putStrLn "processing module dependencies"
+                (depMap, diags) <- runReaderT' ctx $ runWriterT $
+                    foldDependencies rawHeader.value.dependencies
+                writeIORef ioDependencyMap depMap
+                modifyIORef' ioDiags (<> diags)
+            : fileActions
 
-    -- TODO would be nice if this was in parallel with the other files
-    -- parse the root item defs
-    rootDefs <- runReaderT' modId $ runReaderT' modPath do
-        P.sourceFileBody 0 rootLns
+    -- report diagnostics and exceptions from the workers
+    liftIO (readIORef ioDiags) >>= reportAll
 
-    -- fold the results into the final source map and DefSet,
-    -- and concat a list of any diagnostics
-    let (fullSourceMap, fullDefs, fullDiags) =
-            foldWith (Nil, rootDefs, Nil) parseResults
-            \((path, itemId), (defs, diags)) (sourceMap', defs', diags') ->
-                ( Map.insert path itemId sourceMap'
-                , defs <> defs'
-                , diags <> diags'
-                )
+    unless (null exceptions) $ throwError $
+        vcat' $ exceptions <&> \e ->
+            hang "ICE occurred while processing a source file" $
+                shown e
 
-    -- report any diagnostics that were found
-    reportAll fullDiags
+    -- assemble the module
+    fullSourceMap <- liftIO (readIORef ioSourceMap)
+    fullDefs <- liftIO (readIORef ioDefMap)
+    dependencyMap <- liftIO (readIORef ioDependencyMap)
 
-    let modHeader = AnalysisModuleHeader
+    pure Module
+        { header = AnalysisModuleHeader
             { files = fullSourceMap
             , dependencies = dependencyMap
             }
-
-    pure Module
-        { header = modHeader
         , meta = rawHeader.value.meta
         , defSet = fullDefs
         }
+    where
+    -- | we use a @Word64@ for @ItemId@,
+    --   and files' sub-items just increment from the base they're given.
+    --   for each file we increment by the maxBound of Word32, thus:
+    --     maxBound Word64 / maxBound Word32
+    --     = 4294967295 unique files
+    --     & 4294967297 unique items per file
+    --     this is enough of a margin im not
+    --     concerned with checking for overflow
+    itemIdIncr = fromIntegral (maxBound :: Word32)
+
+    -- | Traverse a directory and return a list
+    --   of all the source files nested in it
+    exploreDir moduleBasePath = go where
+        go path = do
+            let fullPath = moduleBasePath </> path
+
+            subPaths <- fmap (path </>) <$> listDirectory fullPath
+
+            let sourcePaths = filter (isExtensionOf ".bb") subPaths
+
+            subDirectories <-
+                filterM (doesDirectoryExist . (moduleBasePath </>)) subPaths
+
+            concat . (sourcePaths :) <$>
+                traverse go subDirectories
+
+    -- | Fold over @RawDependencies@ and resolve them to @ModuleId@s
+    foldDependencies = foldWithM' Nil \(nameVer, alias) depMap -> do
+        let actualName = fst nameVer.value
+
+        -- we allow arbitrary strings as module names,
+        -- but not all of them are valid user-accessible names,
+        -- so we need to check that there was an alias provided in that case
+        diagAssertH (Maybe.isJust alias || isUserSymbol actualName)
+            nameVer.tag
+                DiagnosticBinder
+                    { kind = BadDefinition
+                    , ref = Ref modId 0
+                    , name = Just actualName
+                    }
+                ("imported module name"
+                    <+> pPrint actualName
+                    <+> "is not a valid identifier and must be aliased")
+                ["try something like `as MyModule`"
+                    <+> "to alias the module name"]
+
+        let depName = case alias of
+                Just a -> a
+                _ -> SimpleName actualName :@: nameVer.tag
+
+        -- lookupModule provides some suggestions in the event of a failure
+        -- so we need to format that into a diagnostic
+        depId <- lookupModule nameVer >>= \case
+            Left (e, h) ->
+                Nil <$ reportErrorH nameVer.tag
+                    DiagnosticBinder
+                        { kind = BadDefinition
+                        , ref = Ref modId 0
+                        , name = Just actualName
+                        }
+                    e h
+            Right depId -> pure depId
+
+        -- make sure the name isn't already bound
+        case List.find (== depName) (Map.keys depMap) of
+            Just existing -> do
+                reportErrorH nameVer.tag
+                    DiagnosticBinder
+                        { kind = ConflictingDefinition
+                        , ref = Ref modId 0
+                        , name = Just depName.value.value
+                        }
+                    ("an import module has already been bound to the name"
+                        <+> pPrint actualName)
+                    ["it was first bound here:" <+> pPrint existing.tag]
+                pure depMap
+            _ -> pure $ Map.insert depName depId depMap
+

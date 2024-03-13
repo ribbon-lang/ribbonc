@@ -179,6 +179,13 @@ data AnalysisModuleHeader
     }
     deriving Show
 
+instance Pretty AnalysisModuleHeader where
+    pPrintPrec lvl _ AnalysisModuleHeader{..} =
+        vcat'
+            [ hang "files" $ pPrintPrec lvl 0 files
+            , hang "dependencies" $ pPrintPrec lvl 0 dependencies
+            ]
+
 
 -- | A map from arbitrary keys to arbitrary lists of values
 type MetaData = Map (ATag SimpleName) (ATag String)

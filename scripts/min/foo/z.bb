@@ -7,9 +7,9 @@ pub quux = namespace
     Semigroup = class a =>
         9 ` <> ` : (a, a) -> a
 
-    instance t, a where Semigroup t, Semigroup a
-    for Semigroup (Tag t a) =>
-        ` <> ` = tag/concat
+    Semigroup'Tag =
+        instance t, a where Semigroup t, Semigroup a for Semigroup (Tag t a) =>
+            ` <> ` = tag/concat
 
     Vec2 = struct a =>
         x : a
@@ -17,7 +17,7 @@ pub quux = namespace
 
     Maybe = union a =>
         Just : a
-        Nothing
+        Nothing : ()
 
     Read = effect a =>
         read : () -> a

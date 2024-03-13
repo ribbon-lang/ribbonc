@@ -6,20 +6,20 @@ use ../bar
 use module test
 use module test/foo/..
 use ../..
-use {}
+;; use {} FIXME
 use ..
 use {abc, ..}
-use ../{test}
-use {test}
-use {test, ../foo/bar/baz}
+use ../{test1}
+use {test2}
+use {test3, ../foo/bar/baz}
 use ../{../../baz/.., qux/.., ..} as Qux
 
 lits = 'x'; '\x00'; "\"abc\""; "\0foo"; 1; 1.0
 
 
 Baz = namespace
-    infixl 10 ~ = type whatever
-    infix + : (Int, Int) -> Int = whatever
+    ` ~ ` 10 = type whatever
+    (10) ` + ` : (Int, Int) -> Int = whatever
 
 Bar = effect
     bar : Int -> Int
@@ -42,5 +42,5 @@ bar =
 
 xyz : Int -> Int
 
-atom baz : Int
+baz : Int
     = foo (bar 5)

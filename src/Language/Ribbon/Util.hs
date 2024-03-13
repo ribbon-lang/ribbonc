@@ -13,6 +13,7 @@ import Data.ByteString.Lazy qualified as ByteString
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text
 
+import Control.Has
 import Control.Applicative
 import Control.Monad.Error.Dynamic
 
@@ -199,6 +200,15 @@ maybeEmpty = Maybe.maybe empty pure
 -- | Maybe -> Monoid with mempty case
 maybeMEmpty :: Monoid a => Maybe a -> a
 maybeMEmpty = Maybe.fromMaybe mempty
+
+
+-- | Lift an @ErrorT e@ where @Pretty e@ to a @Doc@ error
+liftError :: forall e m a.
+    Has m [ Err Doc, With '[Pretty e] ] =>
+        ErrorT e m a -> m a
+liftError m =
+    runErrorT m >>= liftEitherMap pPrint
+
 
 -- | ErrorT based error mapping
 mapError :: forall e e' m a. (Functor m) => (e -> e') -> ErrorT e m a -> ErrorT e' m a

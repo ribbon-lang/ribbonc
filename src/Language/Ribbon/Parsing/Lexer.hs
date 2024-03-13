@@ -24,7 +24,8 @@ import Data.Nil
 
 import Control.Applicative
 import Control.Monad
-import Control.Monad.Error.Dynamic.Class
+import Control.Monad.Error.Dynamic
+import Control.Monad.Reader.Dynamic
 import Control.Monad.IO.Class (MonadIO(..))
 import Control.Has
 
@@ -36,6 +37,17 @@ import Language.Ribbon.Util
 import Language.Ribbon.Lexical
 import Language.Ribbon.Parsing.Monad
 import Language.Ribbon.Parsing.Text
+import Control.Concurrent.ParallelIO.Global (extraWorkerWhileBlocked)
+
+
+
+
+
+
+lexFile :: Has m [OS, Err Doc] => FilePath -> m (ATag TokenSeq)
+lexFile fp = do
+    lx <- liftError @SyntaxError $ lexStreamFromFile fp
+    liftError @SyntaxError $ runReaderT (evalParserT (tag doc) lx) fp
 
 
 -- | Marker for @Has@ ie @Has m '[Lex]@ ~ @MonadParser LexStream m@
@@ -109,9 +121,10 @@ lexStreamFromString = lexStreamFromText . Text.pack
 lexStreamFromFile :: (MonadError SyntaxError m, MonadIO m) => FilePath -> m LexStream
 lexStreamFromFile fp =
     liftEither . fmap lexStreamFromByteString =<< liftIO do
-        IO.catchAny (Right <$> ByteString.readFile fp) \e -> pure $ Left $
-            SyntaxError Unrecoverable $ SingleFailure
-                (hang "could not read file due to" (shown e)) :@: fileAttr fp
+        extraWorkerWhileBlocked do
+            IO.catchAny (Right <$> ByteString.readFile fp) $
+                pure . Left . SyntaxError Unrecoverable . Tag (fileAttr fp) .
+                    SingleFailure . hang "could not read file due to" . shown
 
 
 -- | Lex a full document

@@ -44,7 +44,7 @@ understand if you know ebnf.
 
 #### Implementation progress
 - 🟩 Lexical analysis
-- 🟩 Syntactic analysis 1 (parsing top level items)
+- 🟨 Syntactic analysis 1 (parsing top level items)
 - 🟨 Semantic analysis  1 (graph of module, name resolution)
 - 🟥 Syntactic analysis 2 (parsing item bodies)
 - 🟥 Semantic analysis  2 (kind inference)
@@ -142,8 +142,7 @@ Currently you can:
 
 - Play with the parser, using `parseSourceFile`/`parseModuleHead`
 
-- Try out the module loader, using `loadParserModule`
-  from `Language.Ribbon.Analysis.Loader`
+- Try out the module loader, using `parseModule`
 
 
 ## Discussion
