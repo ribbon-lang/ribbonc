@@ -43,6 +43,14 @@ module Language.Ribbon.Analysis.Context
     , diagAssertRefName
     , diagAssertRefNameH
 
+    , MonadPath
+    , getPath
+    , getsPath
+    , localPath
+    , usingPath
+    , usingJoinedPath
+    , joinedPath
+
     , Location(..)
     , MonadLocation
     , getLocation
@@ -52,6 +60,7 @@ import Data.Attr
 import Data.Diagnostic
 
 import Control.Has
+import Control.Monad.Error.Dynamic
 import Control.Monad.Reader.Dynamic as X
 
 import Text.Pretty
@@ -61,6 +70,7 @@ import Language.Ribbon.Lexical.Name
 import Language.Ribbon.Syntax.Ref
 import Language.Ribbon.Syntax.Module qualified as M
 import Language.Ribbon.Lexical.Version
+import Language.Ribbon.Lexical.Path
 
 
 
@@ -245,6 +255,45 @@ diagAssertRefNameH :: Has m [Ref, FixName, Diag, With '[Pretty a]] =>
 diagAssertRefNameH b at kind doc help = do
     name <- getFixName
     diagAssertRefH b at kind (Just $ prettyShow name) doc help
+
+
+
+-- | @MonadReader Path@
+type MonadPath = MonadReader Path
+
+type instance Has m (Path ': effs) = (MonadPath m, Has m effs)
+
+-- | @ask@ specialized to @Path@
+getPath :: MonadPath m => m Path
+getPath = ask
+
+-- | @asks@ specialized to @Path@
+getsPath :: MonadPath m => (Path -> a) -> m a
+getsPath = asks
+
+-- | @local@ specialized to @Path@
+localPath :: MonadPath m => (Path -> Path) -> m a -> m a
+localPath = local
+
+-- | @using@ specialized to @Path@
+usingPath :: MonadPath m => Path -> m a -> m a
+usingPath = using
+
+-- | Extend the @Path@ with a new right segment, then run the given action;
+--   fails if the paths are not joinable, yielding an error doc instead
+usingJoinedPath :: Has m [Path, Err Doc] => Path -> m a -> m a
+usingJoinedPath p m = do
+    pb <- getPath
+    case joinPath pb p of
+        Just p' -> usingPath p' m
+        _ -> throwError $
+            hang "invalid path combination" $
+                spaceWith "<>" (pPrint pb) (pPrint p)
+
+-- | Extend the @Path@ with a new right segment, and return it;
+--   fails if the paths are not joinable, yielding an error doc instead
+joinedPath :: Has m [Path, Err Doc] => Path -> m Path
+joinedPath p = usingJoinedPath p getPath
 
 
 -- | Wrapper for data supplied together

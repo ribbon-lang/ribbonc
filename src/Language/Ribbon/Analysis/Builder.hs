@@ -32,11 +32,31 @@ module Language.Ribbon.Analysis.Builder
     , importsModify
     , insertAlias
     , insertBlob
+
+    , MonadResolverSet
+    , resolverSetState
+    , getResolverSet
+    , getsResolverSet
+    , putResolverSet
+    , modifyResolverSet
+
+    , MonadParserModule
+    , parserModuleState
+    , getParserModule
+    , getsParserModule
+    , putParserModule
+    , modifyParserModule
+    , lookupFileId
+    , lookupDependencyId
+    , lookupDependency
     )where
 
 import Data.Bifunctor
 
+import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
+
+import Data.Set (Set)
 
 import Data.Tag
 import Data.Attr
@@ -285,3 +305,86 @@ insertAlias n p =
 insertBlob :: MonadImports m =>
     Visible (ATag Path) -> [ATag PathName] -> m ()
 insertBlob p h = importsModify (M.insertBlob p h)
+
+
+
+
+-- | Map of @Ref@s to sets of @Path@s, used for circular import detection
+--   during name resolution
+type ResolverSet = Map Ref (Set Path)
+
+-- | @MonadState ResolverSet@
+type MonadResolverSet = MonadState ResolverSet
+
+type instance Has m (ResolverSet ': effs) = (MonadResolverSet m, Has m effs)
+
+-- | @state@ specialized to @ResolverSet@
+resolverSetState :: MonadResolverSet m =>
+    (ResolverSet -> (a, ResolverSet)) -> m a
+resolverSetState = state
+
+-- | @get@ specialized to @ResolverSet@
+getResolverSet :: MonadResolverSet m => m ResolverSet
+getResolverSet = get
+
+-- | @gets@ specialized to @ResolverSet@
+getsResolverSet :: MonadResolverSet m => (ResolverSet -> a) -> m a
+getsResolverSet = gets
+
+-- | @put@ specialized to @ResolverSet@
+putResolverSet :: MonadResolverSet m => ResolverSet -> m ()
+putResolverSet = put
+
+-- | @modify@ specialized to @ResolverSet@
+modifyResolverSet :: MonadResolverSet m =>
+    (ResolverSet -> ResolverSet) -> m ()
+modifyResolverSet = modify
+
+
+
+
+
+-- | @MonadState ParserModule@
+type MonadParserModule = MonadState M.ParserModule
+
+type instance Has m (M.ParserModule ': effs) = (MonadParserModule m, Has m effs)
+
+-- | @state@ specialized to @ParserModule@
+parserModuleState :: MonadParserModule m =>
+    (M.ParserModule -> (a, M.ParserModule)) -> m a
+parserModuleState = state
+
+-- | @get@ specialized to @ParserModule@
+getParserModule :: MonadParserModule m => m M.ParserModule
+getParserModule = get
+
+-- | @gets@ specialized to @ParserModule@
+getsParserModule :: MonadParserModule m => (M.ParserModule -> a) -> m a
+getsParserModule = gets
+
+-- | @put@ specialized to @ParserModule@
+putParserModule :: MonadParserModule m => M.ParserModule -> m ()
+putParserModule = put
+
+-- | @modify@ specialized to @ParserModule@
+modifyParserModule :: MonadParserModule m =>
+    (M.ParserModule -> M.ParserModule) -> m ()
+modifyParserModule = modify
+
+-- | Lookup a file id in the @ParserModule@
+lookupFileId :: MonadParserModule m => FilePath -> m (Maybe ItemId)
+lookupFileId fp = getsParserModule $ Map.lookup fp . (.header.files)
+
+-- | Lookup a dependency id in the @ParserModule@
+lookupDependencyId :: MonadParserModule m =>
+    SimpleName -> m (Maybe ModuleId)
+lookupDependencyId n = getsParserModule $
+    Map.lookup (n :@: undefined) . (.header.dependencies)
+
+-- | Lookup a dependency in the @ParserModule@
+lookupDependency :: Has m [M.ParserModule, M.ModuleContext] =>
+    SimpleName -> m (Maybe M.FinalModule)
+lookupDependency n = do
+    lookupDependencyId n >>= \case
+        Just dr -> getsModCtx $ Map.lookup dr . (.modules)
+        _ -> pure Nothing
