@@ -228,8 +228,9 @@ loadParserModule ctx modId modPath' = do
 
     pure Module
         { header = AnalysisModuleHeader
-            { files = fullSourceMap
-            , dependencies = dependencyMap
+            { moduleId = modId
+            , files = fullSourceMap
+            , dependencies = Map.toList dependencyMap
             }
         , meta = rawHeader.value.meta
         , defSet = fullDefs
@@ -238,9 +239,10 @@ loadParserModule ctx modId modPath' = do
     -- | we use a @Word64@ for @ItemId@,
     --   and files' sub-items just increment from the base they're given.
     --   for each file we increment by the maxBound of Word32, thus:
-    --     maxBound Word64 / maxBound Word32
-    --     = 4294967295 unique files
-    --     & 4294967297 unique items per file
+    --     maxBound Word32 = 4294967295
+    --     maxBound Word64 / maxBound Word32 = 4294967297
+    --     = 4294967295 unique items per file
+    --     & 4294967297 unique files
     --     this is enough of a margin im not
     --     concerned with checking for overflow
     itemIdIncr = fromIntegral (maxBound :: Word32)

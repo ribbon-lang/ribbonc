@@ -37,7 +37,7 @@ instance Pretty ItemId where
 data Ref
     = Ref
     { moduleId :: !ModuleId
-    , elementId :: !ItemId
+    ,   itemId :: !ItemId
     }
     deriving (Eq, Ord, Show)
 

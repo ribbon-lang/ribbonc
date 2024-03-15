@@ -9,13 +9,15 @@ module Language.Ribbon.Analysis.Builder
     , defsModify
     , freshItemId
     , withFreshItemId
-    , bindGroup, bindGroupHere
-    , bindQuantifier, bindQuantifierHere
-    , bindQualifier, bindQualifierHere
-    , bindField, bindFieldHere
-    , bindType, bindTypeHere
-    , bindValue, bindValueHere
-    , bindImports, bindImportsHere
+    , bindGroup
+    , bindQuantifier
+    , bindQualifier
+    , bindField
+    , bindType
+    , bindValue
+    , bindImports
+    , bindParent, bindChildHere
+    , withParent
 
     , MonadGroup
     , groupState
@@ -48,6 +50,7 @@ module Language.Ribbon.Analysis.Builder
     , modifyParserModule
     , lookupFileId
     , lookupDependencyId
+    , lookupDependencyIdAttr
     , lookupDependency
     )where
 
@@ -77,6 +80,7 @@ import Language.Ribbon.Syntax.Module qualified as M
 
 import Language.Ribbon.Analysis.Diagnostics
 import Language.Ribbon.Analysis.Context
+import Control.Monad (guard)
 
 
 
@@ -120,91 +124,53 @@ withFreshItemId f def = do
 
 
 -- | Insert a @Group@ by @ItemId@
-bindGroup :: MonadDefs m => ItemId -> M.Def M.Group -> m ()
+bindGroup :: MonadDefs m => ItemId -> ATag M.Group -> m ()
 bindGroup eid def = defsModify $ second \defs ->
     defs { M.groups = Map.insert eid def defs.groups }
 
 -- | Insert a definition quantifier by @ItemId@
-bindQuantifier :: MonadDefs m => ItemId -> M.Def Quantifier -> m ()
+bindQuantifier :: MonadDefs m => ItemId -> ATag Quantifier -> m ()
 bindQuantifier eid def = defsModify $ second \defs ->
     defs { M.quantifiers = Map.insert eid def defs.quantifiers }
 
 -- | Insert a definition qualifier by @ItemId@
-bindQualifier :: MonadDefs m => ItemId -> M.Def (Qualifier TokenSeq) -> m ()
+bindQualifier :: MonadDefs m => ItemId -> ATag (Qualifier TokenSeq) -> m ()
 bindQualifier eid def = defsModify $ second \defs ->
     defs { M.qualifiers = Map.insert eid def defs.qualifiers }
 
 -- | Insert a field definition by @ItemId@
-bindField :: MonadDefs m => ItemId -> M.Def (Field TokenSeq) -> m ()
+bindField :: MonadDefs m => ItemId -> ATag (Field TokenSeq) -> m ()
 bindField eid def = defsModify $ second \defs ->
     defs { M.fields = Map.insert eid def defs.fields }
 
 -- | Insert a type definition by @ItemId@
-bindType :: MonadDefs m => ItemId -> M.Def TokenSeq -> m ()
+bindType :: MonadDefs m => ItemId -> ATag TokenSeq -> m ()
 bindType eid def = defsModify $ second \defs ->
     defs { M.types = Map.insert eid def defs.types }
 
 -- | Insert a value definition by @ItemId@
-bindValue :: MonadDefs m => ItemId -> M.Def TokenSeq -> m ()
+bindValue :: MonadDefs m => ItemId -> ATag TokenSeq -> m ()
 bindValue eid def = defsModify $ second \defs ->
     defs { M.values = Map.insert eid def defs.values }
 
 -- | Insert an @UnresolvedImports@ definition by @ItemId@
-bindImports :: MonadDefs m => ItemId -> M.Def M.UnresolvedImports -> m ()
+bindImports :: MonadDefs m => ItemId -> ATag M.UnresolvedImports -> m ()
 bindImports eid def = defsModify $ second \defs ->
     defs { M.imports = Map.insert eid def defs.imports }
 
+-- | Insert a parent @ItemId@ for a given @ItemId@
+bindParent :: MonadDefs m => ItemId -> ItemId -> m ()
+bindParent child parent = defsModify $ second \defs ->
+    defs { M.parents = Map.insert child parent defs.parents }
 
--- | Insert a @Group@ by @ItemId@
-bindGroupHere :: Has m [ItemId, M.ParserDefs] =>
-    ItemId -> ATag M.Group -> m ()
-bindGroupHere eid def = do
+bindChildHere :: Has m [ItemId, M.ParserDefs] =>
+    ItemId -> m ()
+bindChildHere eid = do
     ci <- getItemId
-    bindGroup eid (M.Def (Just ci) def)
+    bindParent eid ci
 
--- | Insert a definition quantifier by @ItemId@
-bindQuantifierHere :: Has m [ItemId, M.ParserDefs] =>
-    ItemId -> ATag Quantifier -> m ()
-bindQuantifierHere eid def = do
-    ci <- getItemId
-    bindQuantifier eid (M.Def (Just ci) def)
-
--- | Insert a definition qualifier by @ItemId@
-bindQualifierHere :: Has m [ItemId, M.ParserDefs] =>
-    ItemId -> ATag (Qualifier TokenSeq) -> m ()
-bindQualifierHere eid def = do
-    ci <- getItemId
-    bindQualifier eid (M.Def (Just ci) def)
-
--- | Insert a field definition by @ItemId@
-bindFieldHere :: Has m [ItemId, M.ParserDefs] =>
-    ItemId -> ATag (Field TokenSeq) -> m ()
-bindFieldHere eid def = do
-    ci <- getItemId
-    bindField eid (M.Def (Just ci) def)
-
--- | Insert a type definition by @ItemId@
-bindTypeHere :: Has m [ItemId, M.ParserDefs] =>
-    ItemId -> ATag TokenSeq -> m ()
-bindTypeHere eid def = do
-    ci <- getItemId
-    bindType eid (M.Def (Just ci) def)
-
--- | Insert a value definition by @ItemId@
-bindValueHere :: Has m [ItemId, M.ParserDefs] =>
-    ItemId -> ATag TokenSeq -> m ()
-bindValueHere eid def = do
-    ci <- getItemId
-    bindValue eid (M.Def (Just ci) def)
-
--- | Insert an @UnresolvedImports@ definition by @ItemId@
-bindImportsHere :: Has m [ItemId, M.ParserDefs] =>
-    ItemId -> ATag M.UnresolvedImports -> m ()
-bindImportsHere eid def = do
-    ci <- getItemId
-    bindImports eid (M.Def (Just ci) def)
-
-
+withParent :: Has m [ItemId, M.ParserDefs] => (ItemId -> a -> m ()) -> ItemId -> a -> m ()
+withParent f eid a = f eid a >> bindChildHere eid
 
 -- | @MonadState Group@
 type MonadGroup = MonadState M.Group
@@ -379,7 +345,16 @@ lookupFileId fp = getsParserModule $ Map.lookup fp . (.header.files)
 lookupDependencyId :: MonadParserModule m =>
     SimpleName -> m (Maybe ModuleId)
 lookupDependencyId n = getsParserModule $
-    Map.lookup (n :@: undefined) . (.header.dependencies)
+    compose (.header.dependencies) $ lookupWith \(an, mi) ->
+        mi <$ guard (n == an.value)
+
+-- | Lookup a dependency id in the @ParserModule@
+lookupDependencyIdAttr :: MonadParserModule m =>
+    SimpleName -> m (Maybe (ATag ModuleId))
+lookupDependencyIdAttr n = getsParserModule $
+    compose (.header.dependencies) $ lookupWith \(an, mi) ->
+        mi <$ an <$ guard (n == an.value)
+
 
 -- | Lookup a dependency in the @ParserModule@
 lookupDependency :: Has m [M.ParserModule, M.ModuleContext] =>

@@ -167,12 +167,10 @@ sourceFileBody itemId lns = snd <$> do
                     lineParser item lns
 
             unless (isNil newGroup) do
-                bindGroup itemId $
-                    M.Def Nothing (newGroup :@: at)
+                bindGroup itemId (newGroup :@: at)
 
             unless (isNil newUnresolvedImports) do
-                bindImports itemId $
-                    M.Def Nothing (newUnresolvedImports :@: at)
+                bindImports itemId (newUnresolvedImports :@: at)
 
 
 
@@ -211,7 +209,7 @@ item = asum
                                     ln1' <- snd <$>
                                         recurseParser (sym "=") ln1
 
-                                    bindValueHere newDeclId $
+                                    withParent bindValue newDeclId $
                                         foldWith Nil (ln1' : lns)
                                         \ln (acc :@: at) ->
                                             ((TTree BkWhitespace <$> ln)
@@ -220,7 +218,7 @@ item = asum
 
                             , optionalIndent $ sym "=" >> noFail do
                                 grabWhitespaceDomainAll
-                                    >>= bindValueHere newDeclId
+                                    >>= withParent bindValue newDeclId
                             ]
                     ]
     ]
@@ -431,8 +429,8 @@ effectDef vqn = sym "effect" >> noFail do
         inNewGroup lns.tag do
             lineParser caseDef lns.value
 
-    unless (isNil q) (bindQuantifierHere newGroupId q)
-    unless (isNil c) (bindQualifierHere newGroupId c)
+    unless (isNil q) (withParent bindQuantifier newGroupId q)
+    unless (isNil c) (withParent bindQualifier newGroupId c)
     where
     caseDef = noFail do
         qn <- qualifiedName
@@ -441,7 +439,7 @@ effectDef vqn = sym "effect" >> noFail do
                 sym ":"
                 body <- grabWhitespaceDomainAll
                 void $ insertNew (Categorical Case <$> Visible Public qn) do
-                    withFreshItemId bindTypeHere body
+                    withFreshItemId (withParent bindType) body
 
 
 -- | Parse a type class definition
@@ -461,8 +459,8 @@ classDef vqn = sym "class" >> noFail do
         inNewGroup lns.tag do
             lineParser classItem lns.value
 
-    unless (isNil q) (bindQuantifierHere newGroupId q)
-    unless (isNil c) (bindQualifierHere newGroupId c)
+    unless (isNil q) (withParent bindQuantifier newGroupId q)
+    unless (isNil c) (withParent bindQualifier newGroupId c)
     where
     classItem = noFail do
         qn <- qualifiedName
@@ -479,16 +477,16 @@ classDef vqn = sym "class" >> noFail do
         (q, c) <- consumesAll (option Nil typeHeadNoDelim)
         newAliasId <- insertNew
             (Visible Public $ Categorical Alias qn) freshItemId
-        unless (isNil q) (bindQuantifierHere newAliasId q)
-        unless (isNil c) (bindQualifierHere newAliasId c)
+        unless (isNil q) (withParent bindQuantifier newAliasId q)
+        unless (isNil c) (withParent bindQualifier newAliasId c)
 
     classValue qn = noFail do
         (q, c) <- option Nil forTypeHead
         body <- grabWhitespaceDomainAll
         newDeclId <- insertNew (Visible Public $ Categorical Decl qn) do
-            withFreshItemId bindTypeHere body
-        unless (isNil q) (bindQuantifierHere newDeclId q)
-        unless (isNil c) (bindQualifierHere newDeclId c)
+            withFreshItemId (withParent bindType) body
+        unless (isNil q) (withParent bindQuantifier newDeclId q)
+        unless (isNil c) (withParent bindQualifier newDeclId c)
 
 
 -- | Parse a class instance definition
@@ -511,9 +509,9 @@ instanceDef vqn = do
             inNewGroup lns.tag do
                 lineParser instanceItem lns.value
 
-        unless (isNil q) (bindQuantifierHere newGroupId q)
-        unless (isNil c) (bindQualifierHere newGroupId c)
-        bindTypeHere newGroupId for
+        unless (isNil q) (withParent bindQuantifier newGroupId q)
+        unless (isNil c) (withParent bindQualifier newGroupId c)
+        withParent bindType newGroupId for
     where
     instanceItem = noFail do
         qn <- qualifiedName
@@ -531,13 +529,13 @@ instanceDef vqn = do
            option Nil $ tag quantifier
         body <- grabWhitespaceDomainAll
         newAliasId <- insertNew (Visible Public $ Categorical Alias qn) do
-            withFreshItemId bindTypeHere body
-        unless (isNil q) (bindQuantifierHere newAliasId q)
+            withFreshItemId (withParent bindType) body
+        unless (isNil q) (withParent bindQuantifier newAliasId q)
 
     instanceValue qn = noFail do
         body <- grabWhitespaceDomainAll
         void $ insertNew (Visible Public $ Categorical Value qn) do
-            withFreshItemId bindValueHere body
+            withFreshItemId (withParent bindValue) body
 
 
 -- | Parse a type alias definition
@@ -552,8 +550,8 @@ typeDef vqn = sym "type" >> noFail do
     q <- option Nil typeQuantifierArrow
     body <- grabWhitespaceDomainAll
     newAliasId <- insertNew (Categorical Alias <$> vqn) do
-        withFreshItemId bindTypeHere body
-    unless (isNil q) (bindQuantifierHere newAliasId q)
+        withFreshItemId (withParent bindType) body
+    unless (isNil q) (withParent bindQuantifier newAliasId q)
 
 
 -- | Parse a struct type definition
@@ -577,7 +575,7 @@ structDef vqn = sym "struct" >> noFail do
                 then fields (bindingField Projection tupleField) lns.value
                 else named <$ reportAll diag
 
-    unless (isNil q) (bindQuantifierHere newGroupId q)
+    unless (isNil q) (withParent bindQuantifier newGroupId q)
     where
     namedField idx = do
         n <- tag simpleName
@@ -611,7 +609,7 @@ unionDef vqn = sym "union" >> noFail do
         inNewGroup lns.tag do
             fields (bindingField Injection field) lns.value
 
-    unless (isNil q) (bindQuantifierHere newGroupId q)
+    unless (isNil q) (withParent bindQuantifier newGroupId q)
     where
     field idx = do
         lbl <- asum [ numbered, nameOnly ]
@@ -641,9 +639,9 @@ valueDec vqn = noFail do
     (q, c) <- option Nil forTypeHead
     header <- grabDomain (not . isSymbol "=" . untag)
     newDeclId <- insertNew (Categorical Decl <$> vqn) do
-        withFreshItemId bindTypeHere header
-    unless (isNil q) (bindQuantifierHere newDeclId q)
-    unless (isNil c) (bindQualifierHere newDeclId c)
+        withFreshItemId (withParent bindType) header
+    unless (isNil q) (withParent bindQuantifier newDeclId q)
+    unless (isNil c) (withParent bindQualifier newDeclId c)
     pure newDeclId
 
 -- | Parse a value definition body
@@ -658,7 +656,7 @@ valueDef vqn = noFail do
     body <- grabWhitespaceDomainAll
 
     void $ insertNew (Categorical Value <$> vqn) do
-        withFreshItemId bindValueHere body
+        withFreshItemId (withParent bindValue) body
 
 
 
@@ -680,7 +678,7 @@ bindingField c fm i = do
     void $ insertNew (Visible Public $
             Categorical c $ QualifiedName NonAssociative 0 $
                 SimpleFixName <$> n) do
-        withFreshItemId bindFieldHere (Field lbl f :@: at)
+        withFreshItemId (withParent bindField) (Field lbl f :@: at)
     pure off.value
 
 -- | Helper for @structDef@ and @unionDef@
@@ -709,19 +707,16 @@ fields fm = loop 0 where
 inNewNamespace :: Has m [ Ref, M.ParserDefs, Diag ] =>
     Attr -> StateT M.Group (StateT M.UnresolvedImports m) a -> m ItemId
 inNewNamespace at' action = do
-    selfId <- getItemId
     newNamespaceId <- freshItemId
 
     (newGroup, newUnresolvedImports) <- usingItemId newNamespaceId do
         runStateT (execStateT action Nil) Nil
 
     unless (isNil newGroup) do
-        bindGroup newNamespaceId $
-            M.Def (Just selfId) (newGroup :@: at')
+        withParent bindGroup newNamespaceId (newGroup :@: at')
 
     unless (isNil newUnresolvedImports) do
-        bindImports newNamespaceId $
-            M.Def (Just selfId) (newUnresolvedImports :@: at')
+        withParent bindImports newNamespaceId (newUnresolvedImports :@: at')
 
     pure newNamespaceId
 
@@ -735,7 +730,7 @@ inNewGroup at action = do
         execStateT action Nil
 
     unless (isNil newGroup) do
-        bindGroupHere newGroupId (newGroup :@: at)
+        withParent bindGroup newGroupId (newGroup :@: at)
 
     pure newGroupId
 

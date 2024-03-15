@@ -9,6 +9,7 @@ import Text.Pretty
 
 import Language.Ribbon.Syntax.Ref
 import Language.Ribbon.Util
+import Control.Monad.Error.Dynamic.Class
 
 
 
@@ -94,6 +95,19 @@ diagnosticFromDoc at k a = Diagnostic at k (pPrint a) []
 diagnosticFromError :: Pretty a =>
     Attr -> DiagnosticBinder -> a -> Diagnostic
 diagnosticFromError at = diagnosticFromDoc at . Error
+
+-- | Create and throw a new @Error@ @Diagnostic@ using the given
+--   @DiagnosticBinder@ and a @Doc@ created from the given value
+throwErrorDiagnostic :: (MonadError Diagnostic m, Pretty a) =>
+    Attr -> DiagnosticBinder -> a -> m b
+throwErrorDiagnostic at b = throwError . diagnosticFromError at b
+
+-- | Create and throw a new @Error@ @Diagnostic@ using the given
+--   @DiagnosticBinder@ and a @Doc@ created from the given value
+throwErrorDiagnosticH :: (MonadError Diagnostic m, Pretty a) =>
+    Attr -> DiagnosticBinder -> a -> [Doc] -> m b
+throwErrorDiagnosticH at b a h = throwError $
+    Diagnostic at (Error b) (pPrint a) h
 
 -- | Create a new @Warning@ @Diagnostic@ using the given @DiagnosticBinder and
 --   a @Doc@ created from the given value

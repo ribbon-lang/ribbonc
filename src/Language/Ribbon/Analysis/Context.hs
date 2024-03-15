@@ -7,6 +7,7 @@ module Language.Ribbon.Analysis.Context
     , localModCtx
     , usingModCtx
     , lookupModule
+    , getContextModule
 
     , MonadFile
     , getFilePath
@@ -14,13 +15,13 @@ module Language.Ribbon.Analysis.Context
     , localFilePath
     , usingFilePath
 
-    , MonadModule
+    , MonadModuleId
     , getModuleId
     , getsModuleId
     , localModuleId
     , usingModuleId
 
-    , MonadItem
+    , MonadItemId
     , getItemId
     , getsItemId
     , localItemId
@@ -28,6 +29,7 @@ module Language.Ribbon.Analysis.Context
 
     , MonadRef
     , getRef
+    , usingRef
     , reportErrorRef
     , reportErrorRefH
     , diagAssertRef
@@ -71,6 +73,7 @@ import Language.Ribbon.Syntax.Ref
 import Language.Ribbon.Syntax.Module qualified as M
 import Language.Ribbon.Lexical.Version
 import Language.Ribbon.Lexical.Path
+import Control.Applicative
 
 
 
@@ -101,6 +104,8 @@ lookupModule :: MonadModCtx m =>
     ATag (String, Version) -> m (Either (Doc, [Doc]) ModuleId)
 lookupModule = getsModCtx . M.lookupModule
 
+getContextModule :: MonadModCtx m => ModuleId -> m M.FinalModule
+getContextModule = getsModCtx . M.getModule
 
 
 
@@ -129,57 +134,60 @@ usingFilePath = using
 
 
 -- | @MonadReader ModuleId@
-type MonadModule = MonadReader ModuleId
+type MonadModuleId = MonadReader ModuleId
 
-type instance Has m (ModuleId ': effs) = (MonadModule m, Has m effs)
+type instance Has m (ModuleId ': effs) = (MonadModuleId m, Has m effs)
 
 -- | @ask@ specialized to @ModuleId@
-getModuleId :: MonadModule m => m ModuleId
+getModuleId :: MonadModuleId m => m ModuleId
 getModuleId = ask
 
 -- | @asks@ specialized to @ModuleId@
-getsModuleId :: MonadModule m => (ModuleId -> a) -> m a
+getsModuleId :: MonadModuleId m => (ModuleId -> a) -> m a
 getsModuleId = asks
 
 -- | @local@ specialized to @ModuleId@
-localModuleId :: MonadModule m => (ModuleId -> ModuleId) -> m a -> m a
+localModuleId :: MonadModuleId m => (ModuleId -> ModuleId) -> m a -> m a
 localModuleId = local
 
 -- | @using@ specialized to @ModuleId@
-usingModuleId :: MonadModule m => ModuleId -> m a -> m a
+usingModuleId :: MonadModuleId m => ModuleId -> m a -> m a
 usingModuleId = using
 
 
 -- | @MonadReader ItemId@
-type MonadItem = MonadReader ItemId
+type MonadItemId = MonadReader ItemId
 
-type instance Has m (ItemId ': effs) = (MonadItem m, Has m effs)
+type instance Has m (ItemId ': effs) = (MonadItemId m, Has m effs)
 
 -- | @ask@ specialized to @ItemId@
-getItemId :: MonadItem m => m ItemId
+getItemId :: MonadItemId m => m ItemId
 getItemId = ask
 
 -- | @asks@ specialized to @ItemId@
-getsItemId :: MonadItem m => (ItemId -> a) -> m a
+getsItemId :: MonadItemId m => (ItemId -> a) -> m a
 getsItemId = asks
 
 -- | @local@ specialized to @ItemId@
-localItemId :: MonadItem m => (ItemId -> ItemId) -> m a -> m a
+localItemId :: MonadItemId m => (ItemId -> ItemId) -> m a -> m a
 localItemId = local
 
 -- | @using@ specialized to @ItemId@
-usingItemId :: MonadItem m => ItemId -> m a -> m a
+usingItemId :: MonadItemId m => ItemId -> m a -> m a
 usingItemId = using
 
 
--- | Combination of @MonadModule@ and @MonadItem@
-type MonadRef m = (MonadModule m, MonadItem m)
+-- | Combination of @MonadModuleId@ and @MonadItemId@
+type MonadRef m = (MonadModuleId m, MonadItemId m)
 
 type instance Has m (Ref ': effs) = (MonadRef m, Has m effs)
 
 -- | @combined @getModuleId@ and @getItemId@
-getRef :: Has m '[Ref] => m Ref
-getRef = Ref <$> getModuleId <*> getItemId
+getRef :: MonadRef m => m Ref
+getRef = liftA2 Ref getModuleId getItemId
+
+usingRef :: MonadRef m => Ref -> m a -> m a
+usingRef r = usingModuleId r.moduleId . usingItemId r.itemId
 
 
 -- | New error @Diagnostic@ using the current result of @getRef@

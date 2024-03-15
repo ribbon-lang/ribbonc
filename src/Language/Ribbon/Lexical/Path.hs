@@ -80,6 +80,10 @@ instance HasFixity Path where
     getFixity (Path _ (_ Seq.:|> c)) = getFixity c.value
     getFixity _ = Atom
 
+instance Nil Path where
+    nil = Path Nothing Nil
+    isNil p = Maybe.isNothing p.base && Seq.null p.components
+
 
 joinPath :: Path -> Path -> Maybe Path
 joinPath (Path b1 c1) (Path b2 c2) =
@@ -100,10 +104,6 @@ joinPath (Path b1 c1) (Path b2 c2) =
                             _ -> Nothing
                         else Just $ Path b1 (Seq.drop (fromIntegral lvls) c1 <> c2)
                 _ -> Just $ Path b2 c2
-
-instance Nil Path where
-    nil = Path Nothing Nil
-    isNil p = Maybe.isNothing p.base && Seq.null p.components
 
 -- | Attempt to extract an @OverloadCategory@ from a @Path@;
 --   Fails if:

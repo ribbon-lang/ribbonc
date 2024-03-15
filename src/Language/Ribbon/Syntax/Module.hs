@@ -24,6 +24,7 @@ import Language.Ribbon.Syntax.Data
 import Language.Ribbon.Syntax.Scheme
 import Language.Ribbon.Syntax.Type
 import Language.Ribbon.Syntax.Value
+import qualified Data.Maybe as Maybe
 
 
 
@@ -37,6 +38,18 @@ data ModuleContext
     , moduleLookup :: !(Map (String, Version) ModuleId)
     }
     deriving Show
+
+getModule ::
+    ModuleId -> ModuleContext -> FinalModule
+getModule mid
+    = Maybe.fromJust
+        (error $ "module " <> show mid.value <> " not found in context")
+    . tryGetModule mid
+
+
+tryGetModule ::
+    ModuleId -> ModuleContext -> Maybe FinalModule
+tryGetModule mid ctx = Map.lookup mid ctx.modules
 
 lookupModule ::
     ATag (String, Version) -> ModuleContext -> Either (Doc, [Doc]) ModuleId
@@ -118,13 +131,14 @@ instance (Pretty h, Pretty d)
 --   The root namespace is always stored in @Ref Namespace modId 0@
 data DefSet t v i
     = DefSet
-    {      groups :: !(Map ItemId (Def Group))
-    , quantifiers :: !(Map ItemId (Def Quantifier))
-    ,  qualifiers :: !(Map ItemId (Def (Qualifier t)))
-    ,      fields :: !(Map ItemId (Def (Field t)))
-    ,       types :: !(Map ItemId (Def t))
-    ,      values :: !(Map ItemId (Def v))
-    ,     imports :: !(Map ItemId (Def i))
+    {      groups :: !(Map ItemId (ATag Group))
+    , quantifiers :: !(Map ItemId (ATag Quantifier))
+    ,  qualifiers :: !(Map ItemId (ATag (Qualifier t)))
+    ,      fields :: !(Map ItemId (ATag (Field t)))
+    ,       types :: !(Map ItemId (ATag t))
+    ,      values :: !(Map ItemId (ATag v))
+    ,     imports :: !(Map ItemId (ATag i))
+    ,     parents :: !(Map ItemId ItemId)
     }
     deriving Show
 
@@ -139,16 +153,17 @@ instance (Pretty t, Pretty v, Pretty i)
                 , hang "types" $ printMap types
                 , hang "values" $ printMap values
                 , hang "imports" $ printMap imports
+                , hang "parents" $ printMap parents
                 ]
             where
-            printMap :: Pretty a => Map ItemId (Def a) -> Doc
+            printMap :: Pretty a => Map ItemId a -> Doc
             printMap = compose Map.toList do
                 vcat' . fmap \(k, v) ->
                     hang (pPrint k <+> "=") do
                         pPrintPrec lvl 0 v
 
 instance Semigroup (DefSet t v i) where
-    DefSet g1 q1 c1 f1 t1 v1 i1 <> DefSet g2 q2 c2 f2 t2 v2 i2 =
+    DefSet g1 q1 c1 f1 t1 v1 i1 p1 <> DefSet g2 q2 c2 f2 t2 v2 i2 p2 =
         DefSet
             (g1 <> g2)
             (q1 <> q2)
@@ -157,9 +172,10 @@ instance Semigroup (DefSet t v i) where
             (t1 <> t2)
             (v1 <> v2)
             (i1 <> i2)
+            (p1 <> p2)
 
 instance Monoid (DefSet t v i) where
-    mempty = DefSet mempty mempty mempty mempty mempty mempty mempty
+    mempty = DefSet mempty mempty mempty mempty mempty mempty mempty mempty
 
 instance Nil (DefSet t v i) where
     isNil DefSet{..}
@@ -170,19 +186,22 @@ instance Nil (DefSet t v i) where
         && isNil types
         && isNil values
         && isNil imports
+        && isNil parents
 
 
 data AnalysisModuleHeader
     = AnalysisModuleHeader
-    {        files :: !(Map FilePath ItemId)
-    , dependencies :: !(Map (ATag SimpleName) ModuleId)
+    {     moduleId :: !ModuleId
+    ,        files :: !(Map FilePath ItemId)
+    , dependencies :: ![(ATag SimpleName, ModuleId)]
     }
     deriving Show
 
 instance Pretty AnalysisModuleHeader where
     pPrintPrec lvl _ AnalysisModuleHeader{..} =
         vcat'
-            [ hang "files" $ pPrintPrec lvl 0 files
+            [ "moduleId" <+> pPrint moduleId
+            , hang "files" $ pPrintPrec lvl 0 files
             , hang "dependencies" $ pPrintPrec lvl 0 dependencies
             ]
 
@@ -237,7 +256,7 @@ searchRef n = compose (.defs) $ filter \def ->
             Just oc -> (oc ==) . overloadedCategory
             _ -> const True
 
--- | Look up the @Ref@ associated with a @SpecificName@ in a @Group@
+-- | Lookup the @Ref@ associated with a @SpecificName@ in a @Group@
 getRef :: SpecificName -> Group -> Maybe (ATag (Visible Ref))
 getRef sn = compose (.defs) $ lookupWith \def ->
     let n = def.name.value.value.name.value
@@ -257,21 +276,6 @@ insertRef n r g =
 
 
 
--- | A definition of some item in a module, with a parent.
---   the parent is either the namespace or type the item was defined in,
---   or @Nothing@ if it is the root namespace
-data Def v
-    = Def
-    { parent :: !(Maybe ItemId)
-    , inner :: !(ATag v)
-    }
-    deriving (Eq, Ord, Show)
-
-instance Pretty v => Pretty (Def v) where
-    pPrintPrec lvl _ Def{..} =
-        spaceWith "::"
-            do "↖" <> maybe "()" (pPrint . (.value)) parent
-            do pPrintPrec lvl 0 inner
 
 
 -- | A group of imports that has been resolved to a set of references
