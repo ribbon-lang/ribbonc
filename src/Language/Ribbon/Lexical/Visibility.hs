@@ -27,3 +27,6 @@ instance Pretty Visibility where
     pPrintPrec lvl _ = \case
         Public -> "pub"
         Private -> if lvl > PrettyNormal then "private" else mempty
+
+reVis :: Visibility -> Visible a -> Visible a
+reVis v vis = vis{visibility = v}

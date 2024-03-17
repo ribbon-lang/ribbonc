@@ -56,6 +56,19 @@ module Language.Ribbon.Analysis.Context
     , Location(..)
     , MonadLocation
     , getLocation
+
+    , MonadPathStack
+    , getPathStack
+    , getsPathStack
+    , localPathStack
+    , usingPathStack
+    , getCurrentRef
+    , getCurrentErrorData
+    , getsCurrentRef
+    , getCurrentModId
+    , getCurrentItemId
+    , traversePathStack
+
     ) where
 
 import Data.Attr
@@ -74,6 +87,7 @@ import Language.Ribbon.Syntax.Module qualified as M
 import Language.Ribbon.Lexical.Version
 import Language.Ribbon.Lexical.Path
 import Control.Applicative
+import Data.Word (Word32)
 
 
 
@@ -324,3 +338,48 @@ type instance Has m (Location ': effs) = (MonadLocation m, Has m effs)
 getLocation :: MonadLocation m => m Location
 getLocation = Location <$> getRef <*> getFilePath
 
+
+
+-- | @MonadReader PathStack@
+type MonadPathStack = MonadReader PathStack
+
+type instance Has m (PathStack ': effs) = (MonadPathStack m, Has m effs)
+
+-- | @ask@ specialized to @PathStack@
+getPathStack :: MonadPathStack m => m PathStack
+getPathStack = ask
+
+-- | @asks@ specialized to @PathStack@
+getsPathStack :: MonadPathStack m => (PathStack -> a) -> m a
+getsPathStack = asks
+
+-- | @local@ specialized to @PathStack@
+localPathStack :: MonadPathStack m =>
+    (PathStack -> PathStack) -> m a -> m a
+localPathStack = local
+
+-- | @using@ specialized to @PathStack@
+usingPathStack :: MonadPathStack m => PathStack -> m a -> m a
+usingPathStack = using
+
+getCurrentRef :: MonadPathStack m => m Ref
+getCurrentRef = getsPathStack pathStackCurrentRef
+
+getCurrentErrorData :: MonadPathStack m => m (ATag (Ref, String))
+getCurrentErrorData = getsPathStack pathStackErrorData
+
+getsCurrentRef :: MonadPathStack m => (Ref -> a) -> m a
+getsCurrentRef f = f <$> getCurrentRef
+
+getCurrentModId :: MonadPathStack m => m ModuleId
+getCurrentModId = getsCurrentRef (.moduleId)
+
+getCurrentItemId :: MonadPathStack m => m ItemId
+getCurrentItemId = getsCurrentRef (.itemId)
+
+traversePathStack :: MonadPathStack m => Word32 -> m (Maybe PathStack)
+traversePathStack = (<$> getPathStack) . go where
+    go 0 ps = Just ps
+    go n ps = case ps of
+        PsBase{} -> Nothing
+        PsCons ps' _ _ _ -> go (n - 1) ps'

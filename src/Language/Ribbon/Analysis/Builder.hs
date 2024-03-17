@@ -42,16 +42,17 @@ module Language.Ribbon.Analysis.Builder
     , putResolverSet
     , modifyResolverSet
 
-    , MonadParserModule
+    , MonadResolverModule
     , parserModuleState
-    , getParserModule
-    , getsParserModule
-    , putParserModule
-    , modifyParserModule
+    , getResolverModule
+    , getsResolverModule
+    , putResolverModule
+    , modifyResolverModule
     , lookupFileId
     , lookupDependencyId
     , lookupDependencyIdAttr
     , lookupDependency
+    , resolverModuleId
     )where
 
 import Data.Bifunctor
@@ -198,17 +199,17 @@ groupModify = modify
 
 -- | Insert an unresolved definition by @GroupName@ and @Ref@
 insertRef :: Has m [ Ref, M.Group, Diag ] =>
-    Visible GroupName -> Ref -> m ()
-insertRef n r =
+    Visible M.GroupBinding -> m ()
+insertRef b =
     do groupState \g ->
-        case M.insertRef n r g of
+        case M.insertRef b g of
             Left e -> (Just e, g)
             Right g' -> (Nothing, g')
     >>= whenJust \(err :@: at) ->
         reportErrorRefH
-            n.value.value.name.tag
+            b.value.name.value.value.tag
             ConflictingDefinition
-            (Just $ prettyShow n.value.value.name.value)
+            (Just $ prettyShow b.value.name.value.value.value)
             err
             ["it was first defined here:" <+> pPrint at]
 
@@ -220,7 +221,7 @@ insertNew :: Has m [ Ref, M.Group, Diag ] =>
 insertNew n m = do
     mi <- getModuleId
     ii <- m
-    ii <$ insertRef n (Ref mi ii)
+    ii <$ insertRef (M.GroupBinding n.value (Ref mi ii) <$ n)
 
 
 
@@ -251,17 +252,17 @@ importsModify = modify
 -- | Insert an unresolved import by @UnresolvedName@ and @Path@;
 --   Creates an error @Diagnostic@ if the name is already bound to an import
 insertAlias :: Has m [Ref, M.UnresolvedImports, Diag] =>
-    Visible UnresolvedName -> ATag Path -> m ()
-insertAlias n p =
+    Visible M.UnresolvedAlias -> m ()
+insertAlias ua =
     do importsState \i ->
-        case M.insertAlias n p i of
+        case M.insertUnresolvedAlias ua i of
             Left e -> (Just e, i)
             Right i' -> (Nothing, i')
     >>= whenJust \(err :@: at) ->
         reportErrorRefH
-            n.value.name.tag
+            ua.value.name.value.tag
             ConflictingDefinition
-            (Just $ prettyShow n.value.name.value)
+            (Just $ prettyShow ua.value.name.value.value)
             err
             ["it was first defined here:" <+> pPrint at]
 
@@ -269,8 +270,8 @@ insertAlias n p =
 -- | Insert an unresolved blob import by @Path@;
 --   This cannot fail, as blobs are allowed to be duplicated
 insertBlob :: MonadImports m =>
-    Visible (ATag Path) -> [ATag PathName] -> m ()
-insertBlob p h = importsModify (M.insertBlob p h)
+    Visible M.UnresolvedBlob -> m ()
+insertBlob b = importsModify (M.insertUnresolvedBlob b)
 
 
 
@@ -310,56 +311,61 @@ modifyResolverSet = modify
 
 
 
--- | @MonadState ParserModule@
-type MonadParserModule = MonadState M.ParserModule
+-- | @MonadState ResolverModule@
+type MonadResolverModule = MonadState M.ResolverModule
 
-type instance Has m (M.ParserModule ': effs) = (MonadParserModule m, Has m effs)
+type instance Has m (M.ResolverModule ': effs) = (MonadResolverModule m, Has m effs)
 
--- | @state@ specialized to @ParserModule@
-parserModuleState :: MonadParserModule m =>
-    (M.ParserModule -> (a, M.ParserModule)) -> m a
+-- | @state@ specialized to @ResolverModule@
+parserModuleState :: MonadResolverModule m =>
+    (M.ResolverModule -> (a, M.ResolverModule)) -> m a
 parserModuleState = state
 
--- | @get@ specialized to @ParserModule@
-getParserModule :: MonadParserModule m => m M.ParserModule
-getParserModule = get
+-- | @get@ specialized to @ResolverModule@
+getResolverModule :: MonadResolverModule m => m M.ResolverModule
+getResolverModule = get
 
--- | @gets@ specialized to @ParserModule@
-getsParserModule :: MonadParserModule m => (M.ParserModule -> a) -> m a
-getsParserModule = gets
+-- | @gets@ specialized to @ResolverModule@
+getsResolverModule :: MonadResolverModule m => (M.ResolverModule -> a) -> m a
+getsResolverModule = gets
 
--- | @put@ specialized to @ParserModule@
-putParserModule :: MonadParserModule m => M.ParserModule -> m ()
-putParserModule = put
+-- | @put@ specialized to @ResolverModule@
+putResolverModule :: MonadResolverModule m => M.ResolverModule -> m ()
+putResolverModule = put
 
--- | @modify@ specialized to @ParserModule@
-modifyParserModule :: MonadParserModule m =>
-    (M.ParserModule -> M.ParserModule) -> m ()
-modifyParserModule = modify
+-- | @modify@ specialized to @ResolverModule@
+modifyResolverModule :: MonadResolverModule m =>
+    (M.ResolverModule -> M.ResolverModule) -> m ()
+modifyResolverModule = modify
 
--- | Lookup a file id in the @ParserModule@
-lookupFileId :: MonadParserModule m => FilePath -> m (Maybe ItemId)
-lookupFileId fp = getsParserModule $ Map.lookup fp . (.header.files)
+-- | Lookup a file id in the @ResolverModule@
+lookupFileId :: MonadResolverModule m => FilePath -> m (Maybe ItemId)
+lookupFileId fp = getsResolverModule $ Map.lookup fp . (.header.files)
 
--- | Lookup a dependency id in the @ParserModule@
-lookupDependencyId :: MonadParserModule m =>
+-- | Lookup a dependency id in the @ResolverModule@
+lookupDependencyId :: MonadResolverModule m =>
     SimpleName -> m (Maybe ModuleId)
-lookupDependencyId n = getsParserModule $
+lookupDependencyId n = getsResolverModule $
     compose (.header.dependencies) $ lookupWith \(an, mi) ->
         mi <$ guard (n == an.value)
 
--- | Lookup a dependency id in the @ParserModule@
-lookupDependencyIdAttr :: MonadParserModule m =>
+-- | Lookup a dependency id in the @ResolverModule@
+lookupDependencyIdAttr :: MonadResolverModule m =>
     SimpleName -> m (Maybe (ATag ModuleId))
-lookupDependencyIdAttr n = getsParserModule $
+lookupDependencyIdAttr n = getsResolverModule $
     compose (.header.dependencies) $ lookupWith \(an, mi) ->
         mi <$ an <$ guard (n == an.value)
 
 
--- | Lookup a dependency in the @ParserModule@
-lookupDependency :: Has m [M.ParserModule, M.ModuleContext] =>
+-- | Lookup a dependency in the @ResolverModule@
+lookupDependency :: Has m [M.ResolverModule, M.ModuleContext] =>
     SimpleName -> m (Maybe M.FinalModule)
 lookupDependency n = do
     lookupDependencyId n >>= \case
         Just dr -> getsModCtx $ Map.lookup dr . (.modules)
         _ -> pure Nothing
+
+
+
+resolverModuleId :: MonadResolverModule m => m ModuleId
+resolverModuleId = getsResolverModule (.moduleId)

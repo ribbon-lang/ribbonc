@@ -9,7 +9,6 @@ import Text.Pretty
 
 import Language.Ribbon.Syntax.Ref
 import Language.Ribbon.Util
-import Control.Monad.Error.Dynamic.Class
 
 
 
@@ -68,8 +67,9 @@ data Diagnostic
     = Diagnostic
     {   at :: !Attr
     , kind :: !DiagnosticKind
-    ,  doc :: !Doc
+    , doc :: !Doc
     , help :: ![Doc]
+    , base :: ![Diagnostic]
     }
     deriving Show
 
@@ -88,7 +88,25 @@ isWarning = isWarningKind . (.kind)
 --   @DiagnosticBinder@, along with a @Doc@ created from the given value
 diagnosticFromDoc :: Pretty a =>
     Attr -> DiagnosticKind -> a -> Diagnostic
-diagnosticFromDoc at k a = Diagnostic at k (pPrint a) []
+diagnosticFromDoc at k a = Diagnostic at k (pPrint a) [] []
+
+-- | Create a new @Diagnostic@ using the given @DiagnosticKind@ and
+--   @DiagnosticBinder@, along with a @Doc@ created from the given value
+diagnosticFromDocH :: Pretty a =>
+    Attr -> DiagnosticKind -> a -> [Doc] -> Diagnostic
+diagnosticFromDocH at k a h = Diagnostic at k (pPrint a) h []
+
+-- | Create a new @Diagnostic@ using the given @DiagnosticKind@ and
+--   @DiagnosticBinder@, along with a @Doc@ created from the given value
+diagnosticFromDocR :: Pretty a =>
+    Attr -> DiagnosticKind -> a -> [Diagnostic] -> Diagnostic
+diagnosticFromDocR at k a = Diagnostic at k (pPrint a) []
+
+-- | Create a new @Diagnostic@ using the given @DiagnosticKind@ and
+--   @DiagnosticBinder@, along with a @Doc@ created from the given value
+diagnosticFromDocHR :: Pretty a =>
+    Attr -> DiagnosticKind -> a -> [Doc] -> [Diagnostic] -> Diagnostic
+diagnosticFromDocHR at k a = Diagnostic at k (pPrint a)
 
 -- | Create a new @Error@ @Diagnostic@ using the given @DiagnosticBinder@ and
 --   a @Doc@ created from the given value
@@ -96,24 +114,41 @@ diagnosticFromError :: Pretty a =>
     Attr -> DiagnosticBinder -> a -> Diagnostic
 diagnosticFromError at = diagnosticFromDoc at . Error
 
--- | Create and throw a new @Error@ @Diagnostic@ using the given
---   @DiagnosticBinder@ and a @Doc@ created from the given value
-throwErrorDiagnostic :: (MonadError Diagnostic m, Pretty a) =>
-    Attr -> DiagnosticBinder -> a -> m b
-throwErrorDiagnostic at b = throwError . diagnosticFromError at b
+-- | Create a new @Error@ @Diagnostic@ using the given @DiagnosticBinder@ and
+--   a @Doc@ created from the given value
+diagnosticFromErrorH :: Pretty a =>
+    Attr -> DiagnosticBinder -> a -> [Doc] -> Diagnostic
+diagnosticFromErrorH at b = diagnosticFromDocH at (Error b)
 
--- | Create and throw a new @Error@ @Diagnostic@ using the given
---   @DiagnosticBinder@ and a @Doc@ created from the given value
-throwErrorDiagnosticH :: (MonadError Diagnostic m, Pretty a) =>
-    Attr -> DiagnosticBinder -> a -> [Doc] -> m b
-throwErrorDiagnosticH at b a h = throwError $
-    Diagnostic at (Error b) (pPrint a) h
+-- | Create a new @Error@ @Diagnostic@ using the given @DiagnosticBinder@ and
+--   a @Doc@ created from the given value
+diagnosticFromErrorR :: Pretty a =>
+    Attr -> DiagnosticBinder -> a -> [Diagnostic] -> Diagnostic
+diagnosticFromErrorR at b = diagnosticFromDocR at (Error b)
+
+-- | Create a new @Error@ @Diagnostic@ using the given @DiagnosticBinder@ and
+--   a @Doc@ created from the given value
+diagnosticFromErrorHR :: Pretty a =>
+    Attr -> DiagnosticBinder -> a -> [Doc] -> [Diagnostic] -> Diagnostic
+diagnosticFromErrorHR at b = diagnosticFromDocHR at (Error b)
 
 -- | Create a new @Warning@ @Diagnostic@ using the given @DiagnosticBinder and
 --   a @Doc@ created from the given value
 diagnosticFromWarning :: Pretty a =>
     Attr -> a -> Diagnostic
 diagnosticFromWarning at = diagnosticFromDoc at Warning
+
+-- | Create a new @Warning@ @Diagnostic@ using the given @DiagnosticBinder and
+--   a @Doc@ created from the given value
+diagnosticFromWarningH :: Pretty a =>
+    Attr -> a -> [Doc] -> Diagnostic
+diagnosticFromWarningH at = diagnosticFromDocH at Warning
+
+-- | Create a new @Warning@ @Diagnostic@ using the given @DiagnosticBinder and
+--   a @Doc@ created from the given value
+diagnosticFromWarningHR :: Pretty a =>
+    Attr -> a -> [Doc] -> [Diagnostic] -> Diagnostic
+diagnosticFromWarningHR at = diagnosticFromDocHR at Warning
 
 -- | Convert an @Either e@ to an @Either Diagnostic@
 eitherDiagnostic :: Pretty e =>
@@ -137,4 +172,5 @@ diagnosticFromSyntaxError b (SyntaxError _ (f :@: at)) =
     , kind = Error b
     , doc = formatFailure [at] f
     , help = []
+    , base = []
     }

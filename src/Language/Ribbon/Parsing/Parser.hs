@@ -184,7 +184,7 @@ item = asum
     [ useDef
     , do
         vqn <- defHead
-        usingFixName vqn.value.name.value $
+        usingFixName vqn.value.value.value $
             liftedSyntaxErrorRefName BadDefinition $
                 optionalIndent $ asum
                     [ sym "=" >> noFail do
@@ -282,7 +282,7 @@ useDef = sym "use" >> do
         previousPath <- ask @Path
         maybe
             do reportErrorRef at
-                BadDefinition (prettyShow . (.name.value) <$> alias) $
+                BadDefinition (prettyShow . (.value.value) <$> alias) $
                 hang "cannot combine paths in compound use:" do
                     backticked previousPath <+> "and" <+> backticked basePath
             (useBody . (<$ basePath))
@@ -290,11 +290,12 @@ useDef = sym "use" >> do
         where
         useBody fullPath = case alias of
             Just newName ->
-                runReaderT' newName.name.value
+                runReaderT' newName.value.value
                 case makeNewName fullPath newName of
                     Just unresolvedName -> case tree.value of
                         RawUseSingle ->
-                            insertAlias (Visible vis unresolvedName) fullPath
+                            insertAlias $ Visible vis $
+                                M.UnresolvedAlias unresolvedName fullPath
 
                         RawUseBlob hidden ->
                             asNewNamespace fullPath unresolvedName
@@ -316,7 +317,8 @@ useDef = sym "use" >> do
                         let category = getPathCategory fullPath.value
                             unresolvedName =
                                 UnresolvedName category Nothing name
-                        in insertAlias (Visible vis unresolvedName) fullPath
+                        in insertAlias $ Visible vis $
+                            M.UnresolvedAlias unresolvedName fullPath
 
                     _ -> reportInvalidCombo Nothing
 
@@ -328,10 +330,12 @@ useDef = sym "use" >> do
             ] => ATag Path -> [ATag PathName] -> m ()
         addUseBlob fullPath explicit = do
             context <- ask
-            insertBlob (Visible vis fullPath)
-                if isNil basePath.value
-                    then context <> explicit
-                    else explicit
+            insertBlob $ Visible vis $
+                M.UnresolvedBlob
+                    fullPath
+                    if isNil basePath.value
+                        then context <> explicit
+                        else explicit
 
         addUseBranch :: Has m
             [ Location
@@ -360,10 +364,11 @@ useDef = sym "use" >> do
                         fullPath.value
             in case groupFromUnresolvedInCategory Namespace unresolvedName of
                 Just groupName -> do
-                    newId <- inNewNamespace unresolvedName.name.tag do
+                    newId <- inNewNamespace unresolvedName.value.tag do
                         action (newFullPath <$ basePath)
                     modId <- getModuleId
-                    insertRef (Visible Public groupName) (Ref modId newId)
+                    insertRef (Visible Public $
+                        M.GroupBinding groupName (Ref modId newId))
                 _ -> getFixName >>= reportInvalidCombo . Just
 
 
@@ -400,13 +405,13 @@ namespaceDef :: Has m
     ] => Visible QualifiedName -> m ()
 namespaceDef vqn = sym "namespace" >> noFail do
     diagAssertRefNameH (isSimpleQualifiedName vqn.value)
-        vqn.value.name.tag BadDefinition
+        vqn.value.value.tag BadDefinition
         (text "namespace definitions must be bound to simple names")
         [ backticked vqn <+> "is not a simple name, it should be more like"
-            <+> backticked (simplifyFixName vqn.value.name.value)
+            <+> backticked (simplifyFixName vqn.value.value.value)
         ]
 
-    lns <- tryGrabBlock vqn.value.name.tag
+    lns <- tryGrabBlock vqn.value.value.tag
 
     void $ insertNew (Categorical Namespace <$> vqn) do
         inNewNamespace lns.tag do
@@ -423,7 +428,7 @@ effectDef :: Has m
 effectDef vqn = sym "effect" >> noFail do
     (q, c) <- option Nil typeHeadArrow
 
-    lns <- tryGrabBlock vqn.value.name.tag
+    lns <- tryGrabBlock vqn.value.value.tag
 
     newGroupId <- insertNew (Categorical Effect <$> vqn) do
         inNewGroup lns.tag do
@@ -434,7 +439,7 @@ effectDef vqn = sym "effect" >> noFail do
     where
     caseDef = noFail do
         qn <- qualifiedName
-        usingFixName qn.name.value $
+        usingFixName qn.value.value $
             liftedSyntaxErrorRefName BadDefinition do
                 sym ":"
                 body <- grabWhitespaceDomainAll
@@ -453,7 +458,7 @@ classDef :: Has m
 classDef vqn = sym "class" >> noFail do
     (q, c) <- option Nil typeHeadArrow
 
-    lns <- tryGrabBlock vqn.value.name.tag
+    lns <- tryGrabBlock vqn.value.value.tag
 
     newGroupId <- insertNew (Categorical Class <$> vqn) do
         inNewGroup lns.tag do
@@ -464,7 +469,7 @@ classDef vqn = sym "class" >> noFail do
     where
     classItem = noFail do
         qn <- qualifiedName
-        usingFixName qn.name.value $
+        usingFixName qn.value.value $
             liftedSyntaxErrorRefName BadDefinition do
                 sym ":"
                 grabWhitespaceDomainAll >>= recurseParserAll do
@@ -503,7 +508,7 @@ instanceDef vqn = do
 
         for <- grabDomain (not . isSymbol "=>" . untag) << sym "=>"
 
-        lns <- tryGrabBlock vqn.value.name.tag
+        lns <- tryGrabBlock vqn.value.value.tag
 
         newGroupId <- insertNew (Categorical Instance <$> vqn) do
             inNewGroup lns.tag do
@@ -515,7 +520,7 @@ instanceDef vqn = do
     where
     instanceItem = noFail do
         qn <- qualifiedName
-        usingFixName qn.name.value $
+        usingFixName qn.value.value $
             liftedSyntaxErrorRefName BadDefinition do
                 sym "="
                 grabWhitespaceDomainAll >>= recurseParserAll do
@@ -565,7 +570,7 @@ structDef :: Has m
 structDef vqn = sym "struct" >> noFail do
     q <- option Nil typeQuantifierArrow
 
-    lns <- tryWsListBody vqn.value.name.tag True ","
+    lns <- tryWsListBody vqn.value.value.tag True ","
 
     newGroupId <- insertNew (Categorical Struct <$> vqn) do
         inNewGroup lns.tag do
@@ -603,7 +608,7 @@ unionDef :: Has m
 unionDef vqn = sym "union" >> noFail do
     q <- option Nil typeQuantifierArrow
 
-    lns <- tryWsListBody vqn.value.name.tag True ","
+    lns <- tryWsListBody vqn.value.value.tag True ","
 
     newGroupId <- insertNew (Categorical Union <$> vqn) do
         inNewGroup lns.tag do

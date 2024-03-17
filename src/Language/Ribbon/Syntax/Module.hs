@@ -91,14 +91,20 @@ type FinalModule = Module () FinalDefs
 -- | A module that is being analyzed
 type AnalysisModule = Module AnalysisModuleHeader AnalysisDefs
 
+-- | A module that is undergoing top level name resolution
+type ResolverModule = Module AnalysisModuleHeader ResolverDefs
+
 -- | A module that has been partially parsed
 type ParserModule = Module AnalysisModuleHeader ParserDefs
 
 -- | Definitions for a module that has been fully parsed and analyzed
-type FinalDefs = DefSet Type Value ResolvedBlobs
+type FinalDefs = DefSet Type Value ResolvedImports
 
 -- | Definitions for a module that is being analyzed
-type AnalysisDefs = DefSet Type Value ResolvedBlobs
+type AnalysisDefs = DefSet Type Value ResolvedImports
+
+-- | Definitions for a module that is undergoing top level name resolution
+type ResolverDefs = DefSet TokenSeq TokenSeq WipImports
 
 -- | Definitions for a module that has been partially parsed
 type ParserDefs = DefSet TokenSeq TokenSeq UnresolvedImports
@@ -107,9 +113,10 @@ type ParserDefs = DefSet TokenSeq TokenSeq UnresolvedImports
 -- | High level module structure, storing the header, metadata, and definitions
 data Module h d
     = Module
-    { header :: !h
-    ,   meta :: !MetaData
-    , defSet :: !d
+    { moduleId :: !ModuleId
+    ,   header :: !h
+    ,     meta :: !MetaData
+    ,   defSet :: !d
     }
     deriving Show
 
@@ -117,10 +124,43 @@ instance (Pretty h, Pretty d)
     => Pretty (Module h d) where
         pPrintPrec lvl _ Module{..} =
             vcat'
-                [ hang "header" $ pPrintPrec lvl 0 header
+                [ hang "moduleId" $ pPrintPrec lvl 0 moduleId
+                , hang "header" $ pPrintPrec lvl 0 header
                 , hang "meta" $ pPrintPrec lvl 0 meta
                 , hang "defSet" $ pPrintPrec lvl 0 defSet
                 ]
+
+getGroup ::
+    ItemId -> Module h (DefSet t v i) -> Maybe Group
+getGroup ii = fmap untag . Map.lookup ii . (.defSet.groups)
+
+getQuantifier ::
+    ItemId -> Module h (DefSet t v i) -> Maybe Quantifier
+getQuantifier ii = fmap untag . Map.lookup ii . (.defSet.quantifiers)
+
+getQualifier ::
+    ItemId -> Module h (DefSet t v i) -> Maybe (Qualifier t)
+getQualifier ii = fmap untag . Map.lookup ii . (.defSet.qualifiers)
+
+getField ::
+    ItemId -> Module h (DefSet t v i) -> Maybe (Field t)
+getField ii = fmap untag . Map.lookup ii . (.defSet.fields)
+
+getType ::
+    ItemId -> Module h (DefSet t v i) -> Maybe t
+getType ii = fmap untag . Map.lookup ii . (.defSet.types)
+
+getValue ::
+    ItemId -> Module h (DefSet t v i) -> Maybe v
+getValue ii = fmap untag . Map.lookup ii . (.defSet.values)
+
+getImport ::
+    ItemId -> Module h (DefSet t v i) -> Maybe i
+getImport ii = fmap untag . Map.lookup ii . (.defSet.imports)
+
+getParent ::
+    ItemId -> Module h (DefSet t v i) -> Maybe ItemId
+getParent ii = Map.lookup ii . (.defSet.parents)
 
 -- | Parametric type storing all the definitions of a module,
 --   with their form depending on compilation phase.
@@ -188,11 +228,14 @@ instance Nil (DefSet t v i) where
         && isNil imports
         && isNil parents
 
+parserDefsToResolverDefs :: ParserDefs -> ResolverDefs
+parserDefsToResolverDefs ds =
+    ds { imports = fmap unresolvedImportsToWipImports <$> ds.imports }
+
 
 data AnalysisModuleHeader
     = AnalysisModuleHeader
-    {     moduleId :: !ModuleId
-    ,        files :: !(Map FilePath ItemId)
+    {        files :: !(Map FilePath ItemId)
     , dependencies :: ![(ATag SimpleName, ModuleId)]
     }
     deriving Show
@@ -200,8 +243,7 @@ data AnalysisModuleHeader
 instance Pretty AnalysisModuleHeader where
     pPrintPrec lvl _ AnalysisModuleHeader{..} =
         vcat'
-            [ "moduleId" <+> pPrint moduleId
-            , hang "files" $ pPrintPrec lvl 0 files
+            [ hang "files" $ pPrintPrec lvl 0 files
             , hang "dependencies" $ pPrintPrec lvl 0 dependencies
             ]
 
@@ -219,7 +261,7 @@ type RawDependencies = [(ATag (String, Version), Maybe (ATag SimpleName))]
 --   making up an entry in the @Group@'s associative array
 data GroupBinding
     = GroupBinding
-    { name :: Visible GroupName
+    { name :: GroupName
     , ref :: Ref
     }
     deriving (Eq, Ord, Show)
@@ -230,26 +272,23 @@ instance Pretty GroupBinding where
             do pPrintPrec lvl 0 name
             do pPrintPrec lvl 0 ref
 
--- | A map of overloaded bindings
-newtype Group
-    = Group
-    { defs :: [GroupBinding] }
-    deriving (Eq, Ord, Show)
 
-instance Pretty Group where
-    pPrintPrec lvl _ (Group ds) =
-        hang "defs" $ vcat' do
-            pPrintPrec lvl 0 <$> ds
+-- | A set of overloaded bindings
+type Group = [Visible GroupBinding]
 
-instance Nil Group where
-    nil = Group []
-    isNil = isNil . (.defs)
+
+mergeGroups :: Group -> Group -> Group
+mergeGroups lbs = (lbs <>) . filter \ib ->
+    Maybe.isNothing $ getRef (specificNameFromGroupName ib.value.name) lbs
+
+filterGroupByVis :: Group -> Group
+filterGroupByVis = filter \def -> def.visibility == Public
 
 -- | Lookup @Ref@s matching a generic @PathName@ in a @Group@
-searchRef :: PathName -> Group -> [GroupBinding]
-searchRef n = compose (.defs) $ filter \def ->
-    let n' = def.name.value.value.name.value
-        c = def.name.value.category
+searchRef :: PathName -> Group -> Group
+searchRef n = filter \def ->
+    let n' = def.value.name.value.value.value
+        c = def.value.name.category
     in n' == n.name && sameCategory n.category c
     where
         sameCategory = \case
@@ -258,38 +297,98 @@ searchRef n = compose (.defs) $ filter \def ->
 
 -- | Lookup the @Ref@ associated with a @SpecificName@ in a @Group@
 getRef :: SpecificName -> Group -> Maybe (ATag (Visible Ref))
-getRef sn = compose (.defs) $ lookupWith \def ->
-    let n = def.name.value.value.name.value
-        c = def.name.value.category
-    in guard (n == sn.value && c == sn.category) $>
-        (def.ref <$ def.name <$ def.name.value.value.name)
+getRef sn = lookupWith \def ->
+    let n = def.value.name.value.value.value
+        c = def.value.name.category
+    in guard (n == sn.value.value && c == sn.category) $> do
+        def.value.ref <$ def <$ def.value.name.value.value
 
 -- | Insert a new @Ref@ into a @Group@, bound to a @Visible GroupName@
-insertRef :: Visible GroupName -> Ref -> Group -> Either (ATag Doc) Group
-insertRef n r g =
-    let sn = n.value.value.name.value <$ n.value
+insertRef :: Visible GroupBinding -> Group -> Either (ATag Doc) Group
+insertRef b g =
+    let sn = specificNameFromGroupName b.value.name
     in case getRef sn g of
         Just ex -> Left $
-            ("name" <+> pPrint n <+> "already exists")
+            ("name" <+> pPrint b.value.name <+> "already exists")
                 :@: ex.tag
-        _ -> Right $ g { defs = GroupBinding n r : g.defs }
+        _ -> Right $ b : g
 
 
+data Resolution
+    = NoResolution
+    | BranchResolution ![Resolution]
+    | FileResolution !FilePath !ItemId
+    | ModuleResolution !SimpleName !ModuleId
+    | BindingResolution !(Visible GroupBinding)
+    deriving (Eq, Ord, Show)
 
+instance Pretty Resolution where
+    pPrintPrec lvl _ = \case
+        NoResolution -> "NoResolution"
+        BranchResolution rs -> hang "BranchResolution" $ vcat' $ pPrintPrec lvl 0 <$> rs
+        FileResolution fp _ -> "file" <+> doubleQuotes (text fp)
+        ModuleResolution sn _ -> "module" <+> pPrintPrec lvl 0 sn
+        BindingResolution b -> pPrintPrec lvl 0 b
 
+isResolution :: Resolution -> Bool
+isResolution = \case
+    NoResolution -> False
+    _ -> True
+
+resolutionFromPathStack :: PathStack -> Resolution
+resolutionFromPathStack = \case
+    PsBase k r n _ -> case k of
+        PsFileBase -> FileResolution n r.itemId
+        PsModuleBase -> ModuleResolution (SimpleName n) r.moduleId
+    PsCons _ ref name _ -> BindingResolution $
+        Visible Public $ GroupBinding name ref
+
+resolutionName :: Resolution -> String
+resolutionName = \case
+    NoResolution -> "NoResolution"
+    BranchResolution rs -> resolutionName (head rs)
+    FileResolution p _ -> p
+    ModuleResolution n _ -> n.value
+    BindingResolution b -> prettyShow b.value.name.value.value.value
+
+data ResolvedBlob
+    = ResolvedBlob
+    { pathStack :: !PathStack
+    ,    hiding :: ![ATag PathName]
+    }
+    deriving (Eq, Ord, Show)
+
+instance Pretty ResolvedBlob where
+    pPrintPrec lvl _ ResolvedBlob{..} =
+        vcat'
+            [ hang "pathStack" (pPrintPrec lvl 0 pathStack)
+            , hang "hiding" (pPrintPrec lvl 0 hiding)
+            ]
 
 -- | A group of imports that has been resolved to a set of references
 --   to continue lookup traversal through
-newtype ResolvedBlobs
-    = ResolvedBlobs
-    { inner :: Map (ATag Ref) [ATag FixName] }
+type ResolvedImports
+    = [Visible ResolvedBlob]
+
+filterResolvedImports ::
+    PathName -> ResolvedImports -> ResolvedImports
+filterResolvedImports n = filter $
+    not . any (pathNameMatch n . untag) . (.value.hiding) where
+    pathNameMatch (PathName n1 k1) (PathName n2 k2) =
+        n1 == n2 && (Maybe.isNothing k2 || k1 == k2)
+
+data UnresolvedAlias
+    = UnresolvedAlias
+    { name :: !UnresolvedName
+    , path :: !(ATag Path)
+    }
     deriving (Eq, Ord, Show)
 
-instance Pretty ResolvedBlobs where
-    pPrintPrec lvl _ (ResolvedBlobs bs) =
-        hang "blobs" do
-            pPrintPrec lvl 0 bs
-
+instance Pretty UnresolvedAlias where
+    pPrintPrec lvl _ UnresolvedAlias{..} =
+        spaceWith "="
+            do pPrintPrec lvl 0 name
+            do pPrintPrec lvl 0 path
 
 data UnresolvedBlob
     = UnresolvedBlob
@@ -304,10 +403,26 @@ instance Pretty UnresolvedBlob where
             do pPrintPrec lvl 0 path
             do pPrintPrec lvl 0 hiding
 
+-- | A partially resolved group of imports
+data WipImports
+    = WipImports
+    { aliases :: ![Visible UnresolvedAlias]
+    ,   blobs :: ![Visible (Either UnresolvedBlob ResolvedBlob)]
+    }
+    deriving (Eq, Ord, Show)
+
+lookupWipAlias ::
+    FixName -> WipImports -> Maybe (Visible UnresolvedAlias)
+lookupWipAlias n wi = Fold.find ((== n) . (.value.name.value.value)) wi.aliases
+
+insertResolvedBlob :: Visible ResolvedBlob -> WipImports -> WipImports
+insertResolvedBlob b wi =
+    WipImports { blobs = fmap Right b : wi.blobs, aliases = wi.aliases }
+
 -- | An unresolved group of imports
 data UnresolvedImports
     = UnresolvedImports
-    { aliases :: ![(Visible UnresolvedName, ATag Path)]
+    { aliases :: ![Visible UnresolvedAlias]
     ,   blobs :: ![Visible UnresolvedBlob]
     }
     deriving (Eq, Ord, Show)
@@ -325,19 +440,27 @@ instance Pretty UnresolvedImports where
                 pPrintPrec lvl 0 <$> bs
             ]
 
-lookupAlias ::
-    FixName -> UnresolvedImports -> Maybe (Visible UnresolvedName, ATag Path)
-lookupAlias n ui = Fold.find ((== n) . (.value.name.value) . fst) ui.aliases
+unresolvedImportsToWipImports :: UnresolvedImports -> WipImports
+unresolvedImportsToWipImports ui =
+    WipImports { aliases = ui.aliases, blobs = fmap (fmap Left) ui.blobs }
 
-insertAlias ::
-    Visible UnresolvedName -> ATag Path -> UnresolvedImports ->
+lookupUnresolvedAlias ::
+    FixName -> UnresolvedImports -> Maybe (Visible UnresolvedAlias)
+lookupUnresolvedAlias n ui =
+    Fold.find ((== n) . (.value.name.value.value)) ui.aliases
+
+insertUnresolvedAlias ::
+    Visible UnresolvedAlias -> UnresolvedImports ->
         Either (ATag Doc) UnresolvedImports
-insertAlias n p ui =
-    case lookupAlias n.value.name.value ui of
-        Just (ex, _) -> Left $
-            ("alias" <+> pPrint n.value.name <+> "already exists")
-                :@: ex.value.name.tag
-        _ -> Right $ ui { aliases = (n, p) : ui.aliases }
+insertUnresolvedAlias ua ui =
+    case lookupUnresolvedAlias ua.value.name.value.value ui of
+        Just ex -> Left $
+            ("alias" <+> pPrint ua.value.name.value.value <+> "already exists")
+                :@: ex.value.name.value.tag
+        _ -> Right $
+            UnresolvedImports { aliases = ua : ui.aliases, blobs = ui.blobs }
 
-insertBlob :: Visible (ATag Path) -> [ATag PathName] -> UnresolvedImports -> UnresolvedImports
-insertBlob p h ui = ui { blobs = (UnresolvedBlob p.value h <$ p) : ui.blobs }
+insertUnresolvedBlob ::
+    Visible UnresolvedBlob -> UnresolvedImports -> UnresolvedImports
+insertUnresolvedBlob b ui =
+    UnresolvedImports { blobs = b : ui.blobs, aliases = ui.aliases }

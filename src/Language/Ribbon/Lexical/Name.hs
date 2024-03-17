@@ -180,7 +180,7 @@ data QualifiedName
     = QualifiedName
     { associativity :: !Associativity
     ,    precedence :: !Precedence
-    ,          name :: !(ATag FixName)
+    ,         value :: !(ATag FixName)
     }
     deriving Show
 
@@ -192,40 +192,40 @@ instance Eq QualifiedName where
     (==) = (== EQ) .: compare
 
 instance Ord QualifiedName where
-    compare = fixNameCompare `on` untag . (.name)
+    compare = fixNameCompare `on` untag . (.value)
 
 instance HasFixity QualifiedName where
-    getFixity = getFixity . (.name)
+    getFixity = getFixity . (.value)
 
 instance Pretty QualifiedName where
     pPrintPrec lvl _ QualifiedName{..} =
-        case getFixity name of
-            Atom -> pPrintPrec lvl 0 name
+        case getFixity value of
+            Atom -> pPrintPrec lvl 0 value
             _ -> case associativity of
                 NonAssociative ->
-                    paren'd precedence <+> pPrintPrec lvl 0 name
+                    paren'd precedence <+> pPrintPrec lvl 0 value
                 LeftAssociative ->
-                    pPrint precedence <+> pPrintPrec lvl 0 name
+                    pPrint precedence <+> pPrintPrec lvl 0 value
                 RightAssociative ->
-                    pPrintPrec lvl 0 name <+> pPrint precedence
+                    pPrintPrec lvl 0 value <+> pPrint precedence
 
 isSimpleQualifiedName :: QualifiedName -> Bool
 isSimpleQualifiedName QualifiedName{..} =
-    getFixity name == Atom
+    getFixity value == Atom
     && associativity == NonAssociative
     && precedence == 0
-    && isSimpleFixName name.value
+    && isSimpleFixName value.value
 
 
 -- | @Categorical FixName@
-type SpecificName = Categorical FixName
+type SpecificName = Categorical (ATag FixName)
 
 
 -- | A component of a @Path@,
---   specifying a name to look up, at a particular fixity and category
+--   specifying a name to look up, optionally within an overload category
 data PathName
     = PathName
-    { name :: !FixName
+    {     name :: !FixName
     , category :: !(Maybe OverloadCategory)
     }
     deriving (Eq, Ord, Show)
@@ -249,13 +249,16 @@ instance HasFixity PathName where
 --   used for binding elements in a @Group@
 type GroupName = Categorical QualifiedName
 
+specificNameFromGroupName :: GroupName -> SpecificName
+specificNameFromGroupName gn = (.value) <$> gn
+
 
 -- | A @FixName@ associated with an import that has not been resolved yet
 data UnresolvedName
     = UnresolvedName
     { category :: !(Maybe OverloadCategory)
     , fixitySpecifics :: !(Maybe (Associativity, Precedence))
-    , name :: !(ATag FixName)
+    , value :: !(ATag FixName)
     }
     deriving Show
 
@@ -264,26 +267,26 @@ instance Eq UnresolvedName where
 
 instance Ord UnresolvedName where
     compare a b = compare
-        (a.category, overloadedFixity $ getFixity a, a.name)
-        (b.category, overloadedFixity $ getFixity b, b.name)
+        (a.category, overloadedFixity $ getFixity a, a.value)
+        (b.category, overloadedFixity $ getFixity b, b.value)
 
 instance HasFixity UnresolvedName where
-    getFixity = getFixity . (.name)
+    getFixity = getFixity . (.value)
 
 instance Pretty UnresolvedName where
     pPrintPrec lvl _ UnresolvedName{..} =
         hsep [ maybeMEmpty (pPrintPrec lvl 0 <$> category)
-             , case getFixity name of
-                Atom -> pPrintPrec lvl 0 name
+             , case getFixity value of
+                Atom -> pPrintPrec lvl 0 value
                 _ -> case fixitySpecifics of
                     Just (a, p) -> case a of
                         NonAssociative ->
-                            paren'd p <+> pPrintPrec lvl 0 name
+                            paren'd p <+> pPrintPrec lvl 0 value
                         LeftAssociative ->
-                            pPrint p <+> pPrintPrec lvl 0 name
+                            pPrint p <+> pPrintPrec lvl 0 value
                         RightAssociative ->
-                            pPrintPrec lvl 0 name <+> pPrint p
-                    _ -> pPrintPrec lvl 0 name
+                            pPrintPrec lvl 0 value <+> pPrint p
+                    _ -> pPrintPrec lvl 0 value
              ]
 
 -- | Convert a @QualifiedName@ to an @UnresolvedName@,
@@ -298,18 +301,18 @@ instance Pretty UnresolvedName where
 unresolvedFromQualified ::
     Maybe OverloadCategory -> QualifiedName -> Maybe UnresolvedName
 unresolvedFromQualified category QualifiedName{..} = UnresolvedName
-    { category = category
+    { category
     , fixitySpecifics = Just (associativity, precedence)
-    , name = name
+    , value
     } <$ guard if
         | category == Just ONamespace || category == Just OInstance
-            -> getFixity name == Atom
+            -> getFixity value == Atom
             && associativity == NonAssociative
             && precedence == 0
-        | getFixity name == Atom
+        | getFixity value == Atom
             -> associativity == NonAssociative
             && precedence == 0
-        | getFixity name == Prefix || getFixity name == Postfix
+        | getFixity value == Prefix || getFixity value == Postfix
             -> associativity == NonAssociative
         | otherwise -> True
 
@@ -328,11 +331,11 @@ groupFromUnresolvedInCategory exactCategory UnresolvedName{..} =
         | category' == ONamespace || category' == OInstance
         , maybe True (== category') category
         , maybe True (== (NonAssociative, 0)) fixitySpecifics
-        , getFixity name == Atom ->
+        , getFixity value == Atom ->
             Just $ Categorical exactCategory QualifiedName
                 { associativity = NonAssociative
                 ,    precedence = 0
-                ,          name = name
+                ,         value = value
                 }
 
         | Just (a, p) <- fixitySpecifics
@@ -340,7 +343,7 @@ groupFromUnresolvedInCategory exactCategory UnresolvedName{..} =
             Just $ Categorical exactCategory QualifiedName
                 { associativity = a
                 ,    precedence = p
-                ,          name = name
+                ,         value = value
                 }
 
         | otherwise -> Nothing

@@ -19,7 +19,7 @@ import Language.Ribbon.Util
 import Language.Ribbon.Lexical.Fixity
 import Language.Ribbon.Lexical.Category
 import Language.Ribbon.Lexical.Name
-
+import Language.Ribbon.Syntax.Ref
 
 
 
@@ -157,3 +157,41 @@ instance RequiresSlash PathBase where
         PbFile _ -> True
         _ -> False
 
+data PathStackBaseKind
+    = PsFileBase
+    | PsModuleBase
+    deriving (Eq, Ord, Enum, Bounded, Show)
+
+
+data PathStack
+    = PsBase PathStackBaseKind Ref String Attr
+    | PsCons PathStack Ref GroupName Attr
+    deriving (Eq, Ord, Show)
+
+pattern PsCons' :: Ref -> GroupName -> Attr -> PathStack -> PathStack
+pattern PsCons' r g a ps = PsCons ps r g a
+
+instance Pretty PathStack where
+    pPrint = \case
+        PsBase _ _ n _ -> text n
+        PsCons ps _ n _ -> pPrint ps <> "/" <> "@" <> pPrint n
+
+pathStackCurrentRef :: PathStack -> Ref
+pathStackCurrentRef = \case
+    PsBase _ r _ _ -> r
+    PsCons _ r _ _-> r
+
+pathStackLength :: PathStack -> Word32
+pathStackLength = \case
+    PsBase{} -> 1
+    PsCons ps _ _ _ -> pathStackLength ps + 1
+
+pathStackErrorData :: PathStack -> ATag (Ref, String)
+pathStackErrorData = \case
+    PsBase _ r n a -> (r, n) :@: a
+    PsCons _ r n a -> (r, prettyShow n) :@: a
+
+pathStackBaseKind :: PathStack -> PathStackBaseKind
+pathStackBaseKind = \case
+    PsBase k _ _ _ -> k
+    PsCons ps _ _ _ -> pathStackBaseKind ps

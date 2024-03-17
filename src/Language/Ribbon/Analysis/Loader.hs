@@ -29,8 +29,9 @@ import Language.Ribbon.Util hiding ((</>))
 import Language.Ribbon.Lexical
 import Language.Ribbon.Syntax.Ref
 import Language.Ribbon.Syntax.Module
-    ( ModuleContext, ParserModule
+    ( ModuleContext, ResolverModule
     , AnalysisModuleHeader(..), Module(..)
+    , parserDefsToResolverDefs
     )
 import Language.Ribbon.Analysis.Context
 import Language.Ribbon.Analysis.Diagnostics
@@ -46,16 +47,16 @@ import qualified Data.Either as Either
 
 
 
--- | Load a module head file, in order to construct a @ParserModule@.
+-- | Load a module head file, in order to construct a @ResolverModule@.
 --   Traverse the source directories it lists,
 --   build a list of files and parse them all,
 --   parse the root namespace,
 --   and lookup and bind dependencies
-loadParserModule :: Has m
+loadResolverModule :: Has m
     [ Diag, Err Doc
     , OS
-    ] => ModuleContext -> ModuleId -> FilePath -> m ParserModule
-loadParserModule ctx modId modPath' = do
+    ] => ModuleContext -> ModuleId -> FilePath -> m ResolverModule
+loadResolverModule ctx modId modPath' = do
     -- we allow specifying the module as a directory
     -- with "module.bb" at its root, or the path to the head file itself
     modPath <- if ".bb" `isExtensionOf` modPath'
@@ -227,13 +228,13 @@ loadParserModule ctx modId modPath' = do
     dependencyMap <- liftIO (readIORef ioDependencyMap)
 
     pure Module
-        { header = AnalysisModuleHeader
-            { moduleId = modId
-            , files = fullSourceMap
+        { moduleId = modId
+        , header = AnalysisModuleHeader
+            { files = fullSourceMap
             , dependencies = Map.toList dependencyMap
             }
         , meta = rawHeader.value.meta
-        , defSet = fullDefs
+        , defSet = parserDefsToResolverDefs fullDefs
         }
     where
     -- | we use a @Word64@ for @ItemId@,
