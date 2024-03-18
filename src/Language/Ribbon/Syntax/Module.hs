@@ -131,36 +131,81 @@ instance (Pretty h, Pretty d)
                 ]
 
 getGroup ::
-    ItemId -> Module h (DefSet t v i) -> Maybe Group
-getGroup ii = fmap untag . Map.lookup ii . (.defSet.groups)
+    ItemId -> Module h (DefSet t v i) -> Maybe (ATag Group)
+getGroup ii = Map.lookup ii . (.defSet.groups)
 
 getQuantifier ::
-    ItemId -> Module h (DefSet t v i) -> Maybe Quantifier
-getQuantifier ii = fmap untag . Map.lookup ii . (.defSet.quantifiers)
+    ItemId -> Module h (DefSet t v i) -> Maybe (ATag Quantifier)
+getQuantifier ii = Map.lookup ii . (.defSet.quantifiers)
 
 getQualifier ::
-    ItemId -> Module h (DefSet t v i) -> Maybe (Qualifier t)
-getQualifier ii = fmap untag . Map.lookup ii . (.defSet.qualifiers)
+    ItemId -> Module h (DefSet t v i) -> Maybe (ATag (Qualifier t))
+getQualifier ii = Map.lookup ii . (.defSet.qualifiers)
 
 getField ::
-    ItemId -> Module h (DefSet t v i) -> Maybe (Field t)
-getField ii = fmap untag . Map.lookup ii . (.defSet.fields)
+    ItemId -> Module h (DefSet t v i) -> Maybe (ATag (Field t))
+getField ii = Map.lookup ii . (.defSet.fields)
 
 getType ::
-    ItemId -> Module h (DefSet t v i) -> Maybe t
-getType ii = fmap untag . Map.lookup ii . (.defSet.types)
+    ItemId -> Module h (DefSet t v i) -> Maybe (ATag t)
+getType ii = Map.lookup ii . (.defSet.types)
 
 getValue ::
-    ItemId -> Module h (DefSet t v i) -> Maybe v
-getValue ii = fmap untag . Map.lookup ii . (.defSet.values)
+    ItemId -> Module h (DefSet t v i) -> Maybe (ATag v)
+getValue ii = Map.lookup ii . (.defSet.values)
 
 getImport ::
-    ItemId -> Module h (DefSet t v i) -> Maybe i
-getImport ii = fmap untag . Map.lookup ii . (.defSet.imports)
+    ItemId -> Module h (DefSet t v i) -> Maybe (ATag i)
+getImport ii = Map.lookup ii . (.defSet.imports)
 
 getParent ::
     ItemId -> Module h (DefSet t v i) -> Maybe ItemId
 getParent ii = Map.lookup ii . (.defSet.parents)
+
+setGroup ::
+    ItemId -> ATag Group -> Module h (DefSet t v i) -> Module h (DefSet t v i)
+setGroup ii g m =
+    m { defSet = m.defSet { groups = Map.insert ii g m.defSet.groups } }
+
+setQuantifier ::
+    ItemId -> ATag Quantifier -> Module h (DefSet t v i) -> Module h (DefSet t v i)
+setQuantifier ii q m =
+    m { defSet = m.defSet { quantifiers = Map.insert ii q m.defSet.quantifiers } }
+
+setQualifier ::
+    ItemId -> ATag (Qualifier t) -> Module h (DefSet t v i) -> Module h (DefSet t v i)
+setQualifier ii q m =
+    m { defSet = m.defSet { qualifiers = Map.insert ii q m.defSet.qualifiers } }
+
+setField ::
+    ItemId -> ATag (Field t) -> Module h (DefSet t v i) -> Module h (DefSet t v i)
+setField ii f m =
+    m { defSet = m.defSet { fields = Map.insert ii f m.defSet.fields } }
+
+setType ::
+    ItemId -> ATag t -> Module h (DefSet t v i) -> Module h (DefSet t v i)
+setType ii t m =
+    m { defSet = m.defSet { types = Map.insert ii t m.defSet.types } }
+
+setValue ::
+    ItemId -> ATag v -> Module h (DefSet t v i) -> Module h (DefSet t v i)
+setValue ii v m =
+    m { defSet = m.defSet { values = Map.insert ii v m.defSet.values } }
+
+setImport ::
+    ItemId -> ATag i -> Module h (DefSet t v i) -> Module h (DefSet t v i)
+setImport ii i m =
+    m { defSet = m.defSet { imports = Map.insert ii i m.defSet.imports } }
+
+setParent ::
+    ItemId -> ItemId -> Module h (DefSet t v i) -> Module h (DefSet t v i)
+setParent ii p m =
+    m { defSet = m.defSet { parents = Map.insert ii p m.defSet.parents } }
+
+
+isCategory :: ItemId -> Category -> Module h (DefSet t v i) -> Bool
+isCategory ii category m = m.defSet.categories Map.!? ii == Just category
+
 
 -- | Parametric type storing all the definitions of a module,
 --   with their form depending on compilation phase.
@@ -178,7 +223,9 @@ data DefSet t v i
     ,       types :: !(Map ItemId (ATag t))
     ,      values :: !(Map ItemId (ATag v))
     ,     imports :: !(Map ItemId (ATag i))
+
     ,     parents :: !(Map ItemId ItemId)
+    ,  categories :: !(Map ItemId Category)
     }
     deriving Show
 
@@ -194,6 +241,7 @@ instance (Pretty t, Pretty v, Pretty i)
                 , hang "values" $ printMap values
                 , hang "imports" $ printMap imports
                 , hang "parents" $ printMap parents
+                , hang "categories" $ printMap categories
                 ]
             where
             printMap :: Pretty a => Map ItemId a -> Doc
@@ -203,7 +251,7 @@ instance (Pretty t, Pretty v, Pretty i)
                         pPrintPrec lvl 0 v
 
 instance Semigroup (DefSet t v i) where
-    DefSet g1 q1 c1 f1 t1 v1 i1 p1 <> DefSet g2 q2 c2 f2 t2 v2 i2 p2 =
+    DefSet g1 q1 c1 f1 t1 v1 i1 p1 x1 <> DefSet g2 q2 c2 f2 t2 v2 i2 p2 x2 =
         DefSet
             (g1 <> g2)
             (q1 <> q2)
@@ -213,9 +261,12 @@ instance Semigroup (DefSet t v i) where
             (v1 <> v2)
             (i1 <> i2)
             (p1 <> p2)
+            (x1 <> x2)
 
 instance Monoid (DefSet t v i) where
-    mempty = DefSet mempty mempty mempty mempty mempty mempty mempty mempty
+    mempty = DefSet
+        mempty mempty mempty mempty mempty mempty mempty
+        mempty mempty
 
 instance Nil (DefSet t v i) where
     isNil DefSet{..}
@@ -227,6 +278,7 @@ instance Nil (DefSet t v i) where
         && isNil values
         && isNil imports
         && isNil parents
+        && isNil categories
 
 parserDefsToResolverDefs :: ParserDefs -> ResolverDefs
 parserDefsToResolverDefs ds =
@@ -261,8 +313,8 @@ type RawDependencies = [(ATag (String, Version), Maybe (ATag SimpleName))]
 --   making up an entry in the @Group@'s associative array
 data GroupBinding
     = GroupBinding
-    { name :: GroupName
-    , ref :: Ref
+    { name :: !GroupName
+    ,  ref :: !Ref
     }
     deriving (Eq, Ord, Show)
 
@@ -279,14 +331,14 @@ type Group = [Visible GroupBinding]
 
 mergeGroups :: Group -> Group -> Group
 mergeGroups lbs = (lbs <>) . filter \ib ->
-    Maybe.isNothing $ getRef (specificNameFromGroupName ib.value.name) lbs
+    Maybe.isNothing $ groupGetRef (specificNameFromGroupName ib.value.name) lbs
 
 filterGroupByVis :: Group -> Group
 filterGroupByVis = filter \def -> def.visibility == Public
 
 -- | Lookup @Ref@s matching a generic @PathName@ in a @Group@
-searchRef :: PathName -> Group -> Group
-searchRef n = filter \def ->
+groupSearchRef :: PathName -> Group -> Group
+groupSearchRef n = filter \def ->
     let n' = def.value.name.value.value.value
         c = def.value.name.category
     in n' == n.name && sameCategory n.category c
@@ -296,18 +348,18 @@ searchRef n = filter \def ->
             _ -> const True
 
 -- | Lookup the @Ref@ associated with a @SpecificName@ in a @Group@
-getRef :: SpecificName -> Group -> Maybe (ATag (Visible Ref))
-getRef sn = lookupWith \def ->
+groupGetRef :: SpecificName -> Group -> Maybe (ATag (Visible Ref))
+groupGetRef sn = lookupWith \def ->
     let n = def.value.name.value.value.value
         c = def.value.name.category
     in guard (n == sn.value.value && c == sn.category) $> do
         def.value.ref <$ def <$ def.value.name.value.value
 
 -- | Insert a new @Ref@ into a @Group@, bound to a @Visible GroupName@
-insertRef :: Visible GroupBinding -> Group -> Either (ATag Doc) Group
-insertRef b g =
+groupInsertRef :: Visible GroupBinding -> Group -> Either (ATag Doc) Group
+groupInsertRef b g =
     let sn = specificNameFromGroupName b.value.name
-    in case getRef sn g of
+    in case groupGetRef sn g of
         Just ex -> Left $
             ("name" <+> pPrint b.value.name <+> "already exists")
                 :@: ex.tag
@@ -406,8 +458,9 @@ instance Pretty UnresolvedBlob where
 -- | A partially resolved group of imports
 data WipImports
     = WipImports
-    { aliases :: ![Visible UnresolvedAlias]
-    ,   blobs :: ![Visible (Either UnresolvedBlob ResolvedBlob)]
+    {         aliases :: ![Visible UnresolvedAlias]
+    , unresolvedBlobs :: ![Visible UnresolvedBlob]
+    ,   resolvedBlobs :: ![Visible ResolvedBlob]
     }
     deriving (Eq, Ord, Show)
 
@@ -417,7 +470,11 @@ lookupWipAlias n wi = Fold.find ((== n) . (.value.name.value.value)) wi.aliases
 
 insertResolvedBlob :: Visible ResolvedBlob -> WipImports -> WipImports
 insertResolvedBlob b wi =
-    WipImports { blobs = fmap Right b : wi.blobs, aliases = wi.aliases }
+    WipImports
+        { resolvedBlobs = b : wi.resolvedBlobs
+        , aliases = wi.aliases
+        , unresolvedBlobs = wi.unresolvedBlobs
+        }
 
 -- | An unresolved group of imports
 data UnresolvedImports
@@ -442,7 +499,11 @@ instance Pretty UnresolvedImports where
 
 unresolvedImportsToWipImports :: UnresolvedImports -> WipImports
 unresolvedImportsToWipImports ui =
-    WipImports { aliases = ui.aliases, blobs = fmap (fmap Left) ui.blobs }
+    WipImports
+        { aliases = ui.aliases
+        , unresolvedBlobs = ui.blobs
+        , resolvedBlobs = []
+        }
 
 lookupUnresolvedAlias ::
     FixName -> UnresolvedImports -> Maybe (Visible UnresolvedAlias)

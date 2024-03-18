@@ -2,7 +2,6 @@
 module Language.Ribbon.Parsing.Parser where
 
 import Data.Function
-import Data.Functor
 
 import Data.Map.Strict qualified as Map
 import Data.Maybe qualified as Maybe
@@ -172,6 +171,7 @@ sourceFileBody itemId lns = snd <$> do
             unless (isNil newUnresolvedImports) do
                 bindImports itemId (newUnresolvedImports :@: at)
 
+            bindCategory itemId Namespace
 
 
 -- | Parse a top-level item declaration or definition
@@ -188,19 +188,21 @@ item = asum
             liftedSyntaxErrorRefName BadDefinition $
                 optionalIndent $ asum
                     [ sym "=" >> noFail do
-                        asum $ ($ vqn) <$>
-                            [ namespaceDef
-                            , effectDef
-                            , classDef
-                            , instanceDef
-                            , typeDef
-                            , structDef
-                            , unionDef
-                            , valueDef
+                        asum
+                            [ namespaceDef vqn >>= bindCategory' Namespace
+                            , effectDef vqn >>= bindCategory' Effect
+                            , classDef vqn >>= bindCategory' Class
+                            , instanceDef vqn >>= bindCategory' Instance
+                            , typeDef vqn >>= bindCategory' Alias
+                            , structDef vqn >>= bindCategory' Struct
+                            , unionDef vqn >>= bindCategory' Union
+                            , valueDef vqn >>= bindCategory' Value
                             ]
                     , do
                         newDeclId <- optionalIndent $ sym ":" >> noFail do
                             valueDec vqn
+
+                        bindCategory newDeclId Value
 
                         option () $ asum
                             [ consumesAll $ grabLines >>= \case
@@ -402,7 +404,7 @@ namespaceDef :: Has m
     , M.ParserDefs, M.Group, M.UnresolvedImports
     , Parse
     , Diag
-    ] => Visible QualifiedName -> m ()
+    ] => Visible QualifiedName -> m ItemId
 namespaceDef vqn = sym "namespace" >> noFail do
     diagAssertRefNameH (isSimpleQualifiedName vqn.value)
         vqn.value.value.tag BadDefinition
@@ -413,7 +415,7 @@ namespaceDef vqn = sym "namespace" >> noFail do
 
     lns <- tryGrabBlock vqn.value.value.tag
 
-    void $ insertNew (Categorical Namespace <$> vqn) do
+    insertNew (Categorical Namespace <$> vqn) do
         inNewNamespace lns.tag do
             lineParser item lns.value
 
@@ -424,7 +426,7 @@ effectDef :: Has m
     , M.ParserDefs, M.Group, M.UnresolvedImports
     , Parse
     , Diag
-    ] => Visible QualifiedName -> m ()
+    ] => Visible QualifiedName -> m ItemId
 effectDef vqn = sym "effect" >> noFail do
     (q, c) <- option Nil typeHeadArrow
 
@@ -436,6 +438,7 @@ effectDef vqn = sym "effect" >> noFail do
 
     unless (isNil q) (withParent bindQuantifier newGroupId q)
     unless (isNil c) (withParent bindQualifier newGroupId c)
+    pure newGroupId
     where
     caseDef = noFail do
         qn <- qualifiedName
@@ -443,8 +446,9 @@ effectDef vqn = sym "effect" >> noFail do
             liftedSyntaxErrorRefName BadDefinition do
                 sym ":"
                 body <- grabWhitespaceDomainAll
-                void $ insertNew (Categorical Case <$> Visible Public qn) do
+                newCaseId <- insertNew (Categorical Case <$> Visible Public qn) do
                     withFreshItemId (withParent bindType) body
+                bindCategory newCaseId Case
 
 
 -- | Parse a type class definition
@@ -454,7 +458,7 @@ classDef :: Has m
     , M.ParserDefs, M.Group, M.UnresolvedImports
     , Parse
     , Diag
-    ] => Visible QualifiedName -> m ()
+    ] => Visible QualifiedName -> m ItemId
 classDef vqn = sym "class" >> noFail do
     (q, c) <- option Nil typeHeadArrow
 
@@ -466,6 +470,7 @@ classDef vqn = sym "class" >> noFail do
 
     unless (isNil q) (withParent bindQuantifier newGroupId q)
     unless (isNil c) (withParent bindQualifier newGroupId c)
+    pure newGroupId
     where
     classItem = noFail do
         qn <- qualifiedName
@@ -484,6 +489,7 @@ classDef vqn = sym "class" >> noFail do
             (Visible Public $ Categorical Alias qn) freshItemId
         unless (isNil q) (withParent bindQuantifier newAliasId q)
         unless (isNil c) (withParent bindQualifier newAliasId c)
+        bindCategory newAliasId Alias
 
     classValue qn = noFail do
         (q, c) <- option Nil forTypeHead
@@ -492,6 +498,7 @@ classDef vqn = sym "class" >> noFail do
             withFreshItemId (withParent bindType) body
         unless (isNil q) (withParent bindQuantifier newDeclId q)
         unless (isNil c) (withParent bindQualifier newDeclId c)
+        bindCategory newDeclId Decl
 
 
 -- | Parse a class instance definition
@@ -501,7 +508,7 @@ instanceDef :: Has m
     , M.ParserDefs, M.Group, M.UnresolvedImports
     , Parse
     , Diag
-    ] => Visible QualifiedName -> m ()
+    ] => Visible QualifiedName -> m ItemId
 instanceDef vqn = do
     sym "instance" >> noFail do
         (q, c) <- option Nil (typeHeadDelim "for")
@@ -517,6 +524,7 @@ instanceDef vqn = do
         unless (isNil q) (withParent bindQuantifier newGroupId q)
         unless (isNil c) (withParent bindQualifier newGroupId c)
         withParent bindType newGroupId for
+        pure newGroupId
     where
     instanceItem = noFail do
         qn <- qualifiedName
@@ -536,11 +544,13 @@ instanceDef vqn = do
         newAliasId <- insertNew (Visible Public $ Categorical Alias qn) do
             withFreshItemId (withParent bindType) body
         unless (isNil q) (withParent bindQuantifier newAliasId q)
+        bindCategory newAliasId Alias
 
     instanceValue qn = noFail do
         body <- grabWhitespaceDomainAll
-        void $ insertNew (Visible Public $ Categorical Value qn) do
+        newValueId <- insertNew (Visible Public $ Categorical Value qn) do
             withFreshItemId (withParent bindValue) body
+        bindCategory newValueId Value
 
 
 -- | Parse a type alias definition
@@ -550,13 +560,14 @@ typeDef :: Has m
     , M.ParserDefs, M.Group, M.UnresolvedImports
     , Parse
     , Diag
-    ] => Visible QualifiedName -> m ()
+    ] => Visible QualifiedName -> m ItemId
 typeDef vqn = sym "type" >> noFail do
     q <- option Nil typeQuantifierArrow
     body <- grabWhitespaceDomainAll
     newAliasId <- insertNew (Categorical Alias <$> vqn) do
         withFreshItemId (withParent bindType) body
     unless (isNil q) (withParent bindQuantifier newAliasId q)
+    pure newAliasId
 
 
 -- | Parse a struct type definition
@@ -566,7 +577,7 @@ structDef :: Has m
     , M.ParserDefs, M.Group, M.UnresolvedImports
     , Parse
     , Diag
-    ] => Visible QualifiedName -> m ()
+    ] => Visible QualifiedName -> m ItemId
 structDef vqn = sym "struct" >> noFail do
     q <- option Nil typeQuantifierArrow
 
@@ -581,6 +592,7 @@ structDef vqn = sym "struct" >> noFail do
                 else named <$ reportAll diag
 
     unless (isNil q) (withParent bindQuantifier newGroupId q)
+    pure newGroupId
     where
     namedField idx = do
         n <- tag simpleName
@@ -604,7 +616,7 @@ unionDef :: Has m
     , M.ParserDefs, M.Group, M.UnresolvedImports
     , Parse
     , Diag
-    ] => Visible QualifiedName -> m ()
+    ] => Visible QualifiedName -> m ItemId
 unionDef vqn = sym "union" >> noFail do
     q <- option Nil typeQuantifierArrow
 
@@ -615,6 +627,7 @@ unionDef vqn = sym "union" >> noFail do
             fields (bindingField Injection field) lns.value
 
     unless (isNil q) (withParent bindQuantifier newGroupId q)
+    pure newGroupId
     where
     field idx = do
         lbl <- asum [ numbered, nameOnly ]
@@ -656,11 +669,11 @@ valueDef :: Has m
     , M.ParserDefs, M.Group, M.UnresolvedImports
     , Parse
     , Diag
-    ] => Visible QualifiedName -> m ()
+    ] => Visible QualifiedName -> m ItemId
 valueDef vqn = noFail do
     body <- grabWhitespaceDomainAll
 
-    void $ insertNew (Categorical Value <$> vqn) do
+    insertNew (Categorical Value <$> vqn) do
         withFreshItemId (withParent bindValue) body
 
 
@@ -680,10 +693,11 @@ bindingField c fm i = do
     let lbl = Label
             (TConstant . CInt <$> off)
             (TConstant . CString . (.value) <$> n)
-    void $ insertNew (Visible Public $
+    newFieldId <- insertNew (Visible Public $
             Categorical c $ QualifiedName NonAssociative 0 $
                 SimpleFixName <$> n) do
         withFreshItemId (withParent bindField) (Field lbl f :@: at)
+    bindCategory newFieldId c
     pure off.value
 
 -- | Helper for @structDef@ and @unionDef@

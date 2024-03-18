@@ -16,6 +16,8 @@ module Language.Ribbon.Analysis.Builder
     , bindType
     , bindValue
     , bindImports
+    , bindCategory
+    , bindCategory'
     , bindParent, bindChildHere
     , withParent
 
@@ -164,6 +166,15 @@ bindParent :: MonadDefs m => ItemId -> ItemId -> m ()
 bindParent child parent = defsModify $ second \defs ->
     defs { M.parents = Map.insert child parent defs.parents }
 
+-- | Insert a @Category@ for a given @ItemId@
+bindCategory :: MonadDefs m => ItemId -> Category -> m ()
+bindCategory eid category = defsModify $ second \defs ->
+    defs { M.categories = Map.insert eid category defs.categories }
+
+-- | Insert a @Category@ for a given @ItemId@
+bindCategory' :: MonadDefs m => Category -> ItemId -> m ()
+bindCategory' = flip bindCategory
+
 bindChildHere :: Has m [ItemId, M.ParserDefs] =>
     ItemId -> m ()
 bindChildHere eid = do
@@ -202,7 +213,7 @@ insertRef :: Has m [ Ref, M.Group, Diag ] =>
     Visible M.GroupBinding -> m ()
 insertRef b =
     do groupState \g ->
-        case M.insertRef b g of
+        case M.groupInsertRef b g of
             Left e -> (Just e, g)
             Right g' -> (Nothing, g')
     >>= whenJust \(err :@: at) ->
