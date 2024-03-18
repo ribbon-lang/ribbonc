@@ -71,10 +71,10 @@ parseStringWith p s = lexStringWith (tag L.doc) s >>= \case
             runReaderT (evalParserT p ts) "stdin"
 
 parseModule ::
-    FilePath -> IO (Either Doc (ParserModule, [Diagnostic]))
+    FilePath -> IO (Either Doc (ResolverModule, [Diagnostic]))
 parseModule fp = do
     hSetBuffering stdout LineBuffering
-    runErrorT $ runWriterT $ A.loadParserModule ctx 1 fp
+    runErrorT $ runWriterT $ A.loadResolverModule ctx 1 fp
     where
     ctx = ModuleContext
         { modules = mempty

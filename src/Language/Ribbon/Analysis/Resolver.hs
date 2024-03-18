@@ -130,10 +130,17 @@ resolveImports ii = do
             doExtraction OValue rs at ua >>= bindAlias at v ua
 
         Nothing -> do
-            doExtraction ONamespace rs at ua >>= bindAlias at v ua
-            doExtraction OInstance rs at ua >>= bindAlias at v ua
-            doExtraction OType rs at ua >>= bindAlias at v ua
-            doExtraction OValue rs at ua >>= bindAlias at v ua
+            -- NOTE: since the other functions eliminate empty branches,
+            --       tryBindAlias will definitely succeed on one of these
+            doExtraction ONamespace rs at ua >>= tryBindAlias
+            doExtraction OInstance rs at ua >>= tryBindAlias
+            doExtraction OType rs at ua >>= tryBindAlias
+            doExtraction OValue rs at ua >>= tryBindAlias
+            where
+            tryBindAlias = \case
+                NoResolution -> pure ()
+                r -> bindAlias at v ua r
+
 
     doExtraction c rs at ua =
         extractResolutions (isOverloadedCategoryItem c) rs >>= \case
