@@ -366,43 +366,6 @@ groupInsertRef b g =
         _ -> Right $ b : g
 
 
-data Resolution
-    = NoResolution
-    | BranchResolution ![Resolution]
-    | FileResolution !FilePath !ItemId
-    | ModuleResolution !SimpleName !ModuleId
-    | BindingResolution !(Visible GroupBinding)
-    deriving (Eq, Ord, Show)
-
-instance Pretty Resolution where
-    pPrintPrec lvl _ = \case
-        NoResolution -> "NoResolution"
-        BranchResolution rs -> hang "BranchResolution" $ vcat' $ pPrintPrec lvl 0 <$> rs
-        FileResolution fp _ -> "file" <+> doubleQuotes (text fp)
-        ModuleResolution sn _ -> "module" <+> pPrintPrec lvl 0 sn
-        BindingResolution b -> pPrintPrec lvl 0 b
-
-isResolution :: Resolution -> Bool
-isResolution = \case
-    NoResolution -> False
-    _ -> True
-
-resolutionFromPathStack :: PathStack -> Resolution
-resolutionFromPathStack = \case
-    PsBase k r n _ -> case k of
-        PsFileBase -> FileResolution n r.itemId
-        PsModuleBase -> ModuleResolution (SimpleName n) r.moduleId
-    PsCons _ ref name _ -> BindingResolution $
-        Visible Public $ GroupBinding name ref
-
-resolutionName :: Resolution -> String
-resolutionName = \case
-    NoResolution -> "NoResolution"
-    BranchResolution rs -> resolutionName (head rs)
-    FileResolution p _ -> p
-    ModuleResolution n _ -> n.value
-    BindingResolution b -> prettyShow b.value.name.value.value.value
-
 data ResolvedBlob
     = ResolvedBlob
     { pathStack :: !PathStack

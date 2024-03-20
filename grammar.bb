@@ -60,16 +60,18 @@ Def = Visibility? (Use | Namespace | TypeDef | ValueDef) where
 
     Namespace = SimpleName "=" "namespace" wsBlock<Doc>
 
-    TypeDef = FixNameDecl "=" TypeBody where
+    TypeDef = SimpleName "=" TypeBody where
         EffectDec = FixNameDecl ":" wsBlock<Type>
         FieldDec = Field<":" wsBlock<Type>>
         StructFields
             = WsBlock<",", wsBlock<Type>>
             | WsBlock<",", SimpleName ":" wsBlock<Type>>
         ClassDec
-            = FixNameDecl ":" (("for" TypeHead "=>")? Type | "type" TypeHead?)
+            = SimpleName ":" "type" TypeHead?
+            | FixNameDecl ":" ("for" TypeHead "=>")? Type
         InstanceDef
-            = FixNameDecl "=" (wsBlock<Value> | "type" (TypeHead "=>"?) Type)
+            = SimpleName "=" "type" (TypeHead "=>")? Type
+            | FixNameDecl "=" wsBlock<Value>
         TypeBody
             = "type" (TypeHead "=>")? wsBlock<Type>
             | "struct" (TypeHead "=>")? StructFields
@@ -79,12 +81,12 @@ Def = Visibility? (Use | Namespace | TypeDef | ValueDef) where
             | "instance" TypeHead? "for" Type "=>" WsLines<InstanceDef>
 
     ValueDef = FixNameDecl (ValueType? ValueExpr | ValueType) where
-        ValueType = ":" ("for" TypeHead)? wsBlock<Type>
+        ValueType = ":" ("for" TypeHead "=>")? wsBlock<Type>
         ValueExpr = "=" wsBlock<Value>
 
 Kind
     = "Type" | "Effect"
-    | "Int" | "String"
+    | "Int"  | "String"
     | "Data" | "Effects"
     | "Constraint"
     | Kind "->" Kind
@@ -110,10 +112,6 @@ Type |=
         RowSub = Type "<" Type?
         RowCat = Type "<>" Type ("~" Type)?
         Equality = Type "~" Type
-    User |=
-        Infix = Type Path Type
-        Prefix = Path Type
-        Postfix = Type Path
 
 Value |=
     Var = identifier

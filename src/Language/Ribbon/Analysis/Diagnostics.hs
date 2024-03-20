@@ -52,7 +52,7 @@ reportFull d = tell [d]
 --   a @Doc@ created from the given item,
 --   with help @Doc@s
 reportH :: (Pretty a, MonadDiagnostics m) => Attr -> DiagnosticKind -> a -> [Doc] -> m ()
-reportH at k a h = reportFull (Diagnostic at k (pPrint a) h [])
+reportH at k a h = reportFull (Diagnostic at k (pPrint a) h)
 
 -- | Report a new @Error@ @Diagnostic@ using
 --   a @Doc@ created from the given item,
