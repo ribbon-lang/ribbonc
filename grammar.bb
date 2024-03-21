@@ -15,23 +15,24 @@ FixNameDecl
     | FixName/Infix uInt?
     | ("(" uInt ")")? FixName/Infix
 
-TypeHead = listSome<identifier (":" Kind)?> ("where" listSome<Type>)?
+TypeHead = Qualifier Quantifier?
+Qualifier = listSome<identifier (":" Kind)?>
+Quantifier = "where" listSome<Type>
 
 Field body = Label body where
     Label = uInt ("\\" SimpleName)? | SimpleName
 
 Path
-    = PlainBase ("/" Component++"/")?
-    | SlashBase Component**"/"
-    | Component++"/" where
+    = PlainBase ("/" FixName++"/")?
+    | SlashBase FixName**"/"
+    | FixName++"/" where
     PlainBase = "module" SimpleName | "file" string
-    SlashBase = "/" | "./" | "../"+
-    Component = ("namespace" | "instance" | "type" | "value")? FixName
+    SlashBase = "~/" | "./" | "../"+
 
 PathExt tail
-    = Path/PlainBase ("/" Path/Component++"/")? "/" tail
-    | Path/SlashBase (Path/Component++"/" "/" tail | tail)
-    | Path/Component++"/" "/" tail
+    = Path/PlainBase ("/" FixName++"/")? "/" tail
+    | Path/SlashBase (FixName++"/" "/" tail | tail)
+    | FixName++"/" "/" tail
     | tail
 
 WsList sep elem = wsBlock<wsBlock<elem>++(sep?) | elem (sep elem)*>
@@ -40,12 +41,12 @@ WsLines elem = wsBlock<wsBlock<elem>*>
 
 Module = ModuleHead Doc
 
-ModuleHead = "module" string "@" version wsBlock<Meta> where
+ModuleHead = "module" string "@" Version wsBlock<Meta> where
     Meta
         = "sources" WsList<",", string>
         | "dependencies" WsList<",", Dependency>
         | identifier WsList<",", string>
-    Dependency = string "@" version ("as" SimpleName)?
+    Dependency = string "@" Version ("as" SimpleName)?
     Version
         = $uInt "." $uInt "." $uInt
         if $1 > 0 or $2 > 0 or $3 > 0
@@ -58,27 +59,33 @@ Def = Visibility? (Use | Namespace | TypeDef | ValueDef) where
         Elem = Path | PathExt<"{" Tree**"," "}" | FixName | (".." Hiding?)>
         Hiding = "hiding" ("{" FixName**"," "}" | FixName)
 
-    Namespace = SimpleName "=" "namespace" wsBlock<Doc>
+    Namespace = "namespace" SimpleName "=" wsBlock<Doc>
 
-    TypeDef = SimpleName "=" TypeBody where
+    TypeDef = TypeBody where
         EffectDec = FixNameDecl ":" wsBlock<Type>
         FieldDec = Field<":" wsBlock<Type>>
         StructFields
             = WsBlock<",", wsBlock<Type>>
             | WsBlock<",", SimpleName ":" wsBlock<Type>>
         ClassDec
-            = SimpleName ":" "type" TypeHead?
+            = "type" SimpleName ":" TypeHead?
             | FixNameDecl ":" ("for" TypeHead "=>")? Type
         InstanceDef
-            = SimpleName "=" "type" (TypeHead "=>")? Type
+            = "type" SimpleName "=" (Quantifier "=>")? Type
             | FixNameDecl "=" wsBlock<Value>
         TypeBody
-            = "type" (TypeHead "=>")? wsBlock<Type>
-            | "struct" (TypeHead "=>")? StructFields
-            | "union" (TypeHead "=>")? WsBlock<",", FieldDec>
-            | "effect" (TypeHead "=>")? WsLines<EffectDec>
-            | "class" (TypeHead "=>")? WsLines<ClassDec>
-            | "instance" TypeHead? "for" Type "=>" WsLines<InstanceDef>
+            = "type" SimpleName "="
+                (Quantifier "=>")? wsBlock<Type>
+            | "struct" SimpleName "="
+                (Quantifier "=>")? StructFields
+            | "union" SimpleName "="
+                (Quantifier "=>")? WsBlock<",", FieldDec>
+            | "effect" SimpleName "="
+                (TypeHead "=>")? WsLines<EffectDec>
+            | "class" SimpleName "="
+                (TypeHead "=>")? WsLines<ClassDec>
+            | "instance" SimpleName "="
+                TypeHead? "for" Type "=>" WsLines<InstanceDef>
 
     ValueDef = FixNameDecl (ValueType? ValueExpr | ValueType) where
         ValueType = ":" ("for" TypeHead "=>")? wsBlock<Type>
