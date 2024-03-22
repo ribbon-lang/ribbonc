@@ -30,6 +30,7 @@ import Language.Ribbon.Lexical
 import Language.Ribbon.Parsing.Monad
 import Language.Ribbon.Parsing.Lexer qualified as L
 import Language.Ribbon.Parsing.Parser qualified as P
+import Language.Ribbon.Parsing.Parse
 import Language.Ribbon.Analysis qualified as A
 import Language.Ribbon.Syntax.Raw
 

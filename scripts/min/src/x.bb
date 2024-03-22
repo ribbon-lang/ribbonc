@@ -1,6 +1,9 @@
 #!/usr/env/bin ribboni
 
-Llama = namespace
+namespace Llama =
+    use ~/test
+    use file "foo.bb"
+    use ./Quux/test as ` Qux `
     use ../Foo/{ bar
                , ../tuple
                , baz as (0) ` qux `
@@ -17,68 +20,65 @@ Llama = namespace
 
     thisShouldFail
 
-test = namespace
+namespace test
+namespace test1 =
 
-test2 = namespace
+namespace test2 =
     ;; intentionally empty
 
-foo = effect
+effect foo =
     ;; intentially empty
 
-axx = effect
+effect axx =
     expectAFailInAxx
 
-qubert = effect a =>
+effect qubert a =
     ` qube ` : a -> a
 
-Semigroup = class a =>
+class Semigroup a =
     ` <> ` : a -> a -> a
 
-Monoid = class a where Semigroup a =>
+class Monoid a where Semigroup a =
     mempty : a
 
-Monad = class m where Applicative m =>
+class Monad m where Applicative m =
     ` >>= ` : m a -> (a -> m b) -> m b
 
-MonadTrans = class t : Type -> (Type -> Type) -> Type -> Type =>
+class MonadTrans t : Type -> (Type -> Type) -> Type -> Type =
     lift : where Monad m => m a -> t m a
 
-AssociatedTypeTest = class x =>
-    AssocType : type
-    AssocTypeQuant1 : type a
-    AssocTypeQuant2 : type a, b : Int
-    AssocTypeQual : type where FooBar AssocTypeQual
-    AssocTypeFull : type a where LlamaDuck a
+class AssociatedTypeTest x =
+    type AssocType
+    type AssocTypeQuant1 a
+    type AssocTypeQuant2 a, b : Int
+    type AssocTypeQual where FooBar AssocTypeQual
+    type AssocTypeFull a where LlamaDuck a
 
-InstanceTest = class x =>
-    Lifted : type x
+class InstanceTest x =
+    type Lifted x
     lift : x -> Lifted x
 
-Int'InstanceTest = instance a for Maybe a =>
-    Lifted = type Maybe a
+instance InstanceTest'Int a for Maybe a =
+    type Lifted = Maybe a
     lift = fun x => +/Just x
 
-TestResult1 = type a => Result TestFailure a
-TestResult2 = type
+type TestResult1 a = Result TestFailure a
+type TestResult2 =
     Result TestFailure
-ExpectTypeFail = type
+type ExpectTypeFail =
 
-MyTuple =
-    struct a, b => a, b
+struct MyTuple a, b = a, b
 
-MyStruct
-    = struct a, b =>
-        x : a,
-        y : b
+struct MyStruct a, b =
+    x : a,
+    y : b
 
-MyUnion
-    =
-        union a =>
-            99 \ foo : a,
-            tumadre : (),
+union MyUnion a =
+    99 \ foo : a,
+    tumadre : (),
 
 id
-    : forall a => a -> a
+    : for a => a -> a
     = fun x => x
 
 decrement : Int -> Int

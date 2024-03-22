@@ -449,6 +449,14 @@ expectSeq e = expecting (pPrint e) (expectSeq' e)
 expectAnySeq :: MonadParser x m => [[InputElement x]] -> m [InputElement x]
 expectAnySeq es = expectingMulti (pPrint <$> es) (expectAnySeq' es)
 
+-- | expect the end of the input
+eof :: MonadParser x m => m ()
+eof = expecting "end of input" do
+    ps <- getParseState
+    unless (isNil ps) do
+        fp <- getFilePath
+        throwError $ SyntaxError Recoverable $
+            formatInput fp ps
 
 -- | Run a parser without consuming input
 lookahead :: MonadParser x m => m a -> m a

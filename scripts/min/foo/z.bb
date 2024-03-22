@@ -1,31 +1,32 @@
 pub foo = 1 + 1
 
-pub quux = namespace
+pub namespace quux =
     use module core/{list/{./, List}, ops/{` + `, ` - `, ` < ` as lt}}
     use module tag/{./, Tag}
 
-    Semigroup = class a =>
+    class Semigroup a =
         9 ` <> ` : (a, a) -> a
 
-    Semigroup'Tag =
-        instance t, a where Semigroup t, Semigroup a for Semigroup (Tag t a) =>
+    instance Semigroup'Tag t, a
+        where Semigroup t, Semigroup a
+        for Semigroup (Tag t a) =>
             ` <> ` = tag/concat
 
-    Vec2 = struct a =>
+    struct Vec2 a =
         x : a
         y : a
 
-    Maybe = union a =>
+    union Maybe a =
         Just : a
         Nothing : ()
 
-    Read = effect a =>
+    union Read a =
         read : () -> a
 
-    Write = effect a =>
+    union Write a =
         write : a -> ()
 
-    Mem = type a => [Read a, Write a]
+    type Mem a = [Read a, Write a]
 
     fib : forall n where Num n => n -> n
         = fun n => if lt(n, 2)

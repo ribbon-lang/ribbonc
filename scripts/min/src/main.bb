@@ -17,17 +17,17 @@ use ../{../../baz/.., qux/.., ..} as Qux
 lits = 'x'; '\x00'; "\"abc\""; "\0foo"; 1; 1.0
 
 
-Baz = namespace
+namespace Baz =
     ` ~ ` 10 = type whatever
     (10) ` + ` : (Int, Int) -> Int = whatever
 
-Bar = effect
+effect Bar =
     bar : Int -> Int
 
-Read = effect a =>
+effect Read a =
     read : () -> a
 
-Write = effect
+effect Write =
     write : 'a -> ()
 
 Wem = type

@@ -129,7 +129,7 @@ data PathBase
 
 instance Pretty PathBase where
     pPrint = \case
-        PbRoot -> "/"
+        PbRoot -> "~/"
         PbThis -> "./"
         PbModule n -> "module" <+> pPrint n
         PbFile f -> "file" <+> shown f

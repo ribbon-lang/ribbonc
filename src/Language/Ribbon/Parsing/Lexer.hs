@@ -140,7 +140,7 @@ token ind = asum do
     treeToken ind :
         [ TVersion <$> version
         , TLiteral <$> literal
-        , TFixName <$> fixName
+        , TFixName <$> name
         ,  TSymbol <$> symbol
         ]
 

@@ -36,7 +36,6 @@ PathExt tail
     | tail
 
 WsList sep elem = wsBlock<wsBlock<elem>++(sep?) | elem (sep elem)*>
-WsLines elem = wsBlock<wsBlock<elem>*>
 
 
 Module = ModuleHead Doc
@@ -68,24 +67,24 @@ Def = Visibility? (Use | Namespace | TypeDef | ValueDef) where
             = WsBlock<",", wsBlock<Type>>
             | WsBlock<",", SimpleName ":" wsBlock<Type>>
         ClassDec
-            = "type" SimpleName ":" TypeHead?
+            = "type" SimpleName TypeHead?
             | FixNameDecl ":" ("for" TypeHead "=>")? Type
         InstanceDef
-            = "type" SimpleName "=" (Quantifier "=>")? Type
+            = "type" SimpleName Quantifier? "=" Type
             | FixNameDecl "=" wsBlock<Value>
         TypeBody
-            = "type" SimpleName "="
-                (Quantifier "=>")? wsBlock<Type>
-            | "struct" SimpleName "="
-                (Quantifier "=>")? StructFields
-            | "union" SimpleName "="
-                (Quantifier "=>")? WsBlock<",", FieldDec>
-            | "effect" SimpleName "="
-                (TypeHead "=>")? WsLines<EffectDec>
-            | "class" SimpleName "="
-                (TypeHead "=>")? WsLines<ClassDec>
-            | "instance" SimpleName "="
-                TypeHead? "for" Type "=>" WsLines<InstanceDef>
+            = "type" SimpleName Quantifier? "="
+                wsBlock<Type>
+            | "struct" SimpleName Quantifier? "="
+                StructFields
+            | "union" SimpleName Quantifier? "="
+                WsList<",", FieldDec>
+            | "effect" SimpleName TypeHead? "="
+                WsList<",", EffectDec>
+            | "class" SimpleName TypeHead? "="
+                WsList<",", ClassDec>
+            | "instance" SimpleName TypeHead? "for" Type "="
+                WsList<",", InstanceDef>
 
     ValueDef = FixNameDecl (ValueType? ValueExpr | ValueType) where
         ValueType = ":" ("for" TypeHead "=>")? wsBlock<Type>

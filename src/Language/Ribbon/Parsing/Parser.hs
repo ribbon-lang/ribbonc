@@ -180,38 +180,28 @@ item :: Has m
     , M.ParserDefs, M.Group, M.UnresolvedImports
     , Diag, Parse
     ] => m ()
-item = asum
-    [ useDef
+item = option Private visibility >>= \v -> asum
+    [ useDef v
     , do
-        vqn <- defHead
-        usingFixName vqn.value.value.value $
-            liftedSyntaxErrorRefName BadDefinition $
-                optionalIndent $ asum
-                    [ sym "=" >> noFail do
-                        asum
-                            [ namespaceDef vqn >>= bindCategory' Namespace
-                            , effectDef vqn >>= bindCategory' Effect
-                            , classDef vqn >>= bindCategory' Class
-                            , instanceDef vqn >>= bindCategory' Instance
-                            , typeDef vqn >>= bindCategory' Alias
-                            , structDef vqn >>= bindCategory' Struct
-                            , unionDef vqn >>= bindCategory' Union
-                            , valueDef vqn >>= bindCategory' Value
-                            ]
-                    , do
-                        newDeclId <- optionalIndent $ sym ":" >> noFail do
-                            valueDec vqn
-
-                        bindCategory newDeclId Value
+        c <- option Value category
+        n <- qualifiedName
+        let vqn = Visible v n
+        usingFixName n.value.value $ liftedSyntaxErrorRefName BadDefinition do
+            parentItemId <- getItemId
+            newItemId <- optionalIndent case c of
+                Value -> asum
+                    [ do
+                        newDeclId <- optionalIndent do
+                            sym ":"
+                            noFail $ valueDec vqn
 
                         option () $ asum
                             [ consumesAll $ grabLines >>= \case
                                 [] -> empty
                                 ln1 : lns -> do
-                                    ln1' <- snd <$>
-                                        recurseParser (sym "=") ln1
+                                    ln1' <- snd <$> recurseParser (sym "=") ln1
 
-                                    withParent bindValue newDeclId $
+                                    bindValue newDeclId $
                                         foldWith Nil (ln1' : lns)
                                         \ln (acc :@: at) ->
                                             ((TTree BkWhitespace <$> ln)
@@ -219,10 +209,28 @@ item = asum
                                                     :@: (ln.tag <> at)
 
                             , optionalIndent $ sym "=" >> noFail do
-                                grabWhitespaceDomainAll
-                                    >>= withParent bindValue newDeclId
+                                grabWhitespaceDomainAll >>=
+                                    bindValue newDeclId
                             ]
+
+                        pure newDeclId
+
+                    , valueDef vqn
                     ]
+
+                _ -> asum
+                    [ case c of
+                        Namespace -> namespaceDef vqn
+                        Effect -> effectDef vqn
+                        Class -> classDef vqn
+                        Instance -> instanceDef vqn
+                        Alias -> typeDef vqn
+                        Struct -> structDef vqn
+                        Union -> unionDef vqn
+                        _ -> error "item: unexpected category"
+                    , freshItemId
+                    ]
+            bindParent newItemId parentItemId
     ]
 
 
@@ -234,17 +242,17 @@ useDef :: Has m
     [ Location, M.ParserDefs, M.Group, M.UnresolvedImports
     , Parse
     , Diag
-    ] => m ()
-useDef = sym "use" >> do
+    ] => Visibility -> m ()
+useDef vis = sym "use" >> do
     liftingSyntaxErrorRef BadDefinition Nothing
         (tag parseUseDef)
         discardParseState
-        \(Visible vis use :@: at) ->
+        \(use :@: at) ->
             runReaderT' (Nil :: Path) $
             runReaderT' (Nil :: [ATag FixName]) $
-                addUse vis (use :@: at)
+                addUse (use :@: at)
     where
-    parseUseDef = noFail (consumesAll $ visible use) where
+    parseUseDef = noFail (consumesAll use) where
         use = optional (tag path) >>= \case
             Just p -> do
                 liftA2 (RawUse p)
@@ -279,8 +287,8 @@ useDef = sym "use" >> do
         , Rd [ATag FixName]
         , Rd Path
         , Diag
-        ] => Visibility -> ATag RawUse -> m ()
-    addUse vis (RawUse{..} :@: at) = do
+        ] => ATag RawUse -> m ()
+    addUse (RawUse{..} :@: at) = do
         previousPath <- ask @Path
         maybe
             do reportErrorRef at
@@ -353,9 +361,9 @@ useDef = sym "use" >> do
 
             using fullPath.value do
                 names <- Maybe.catMaybes <$> forM rest \u ->
-                    hidableFixNameFromUse u.value <$ addUse vis u
+                    hidableFixNameFromUse u.value <$ addUse u
 
-                using names (forM_ blobs $ addUse vis)
+                using names (forM_ blobs addUse)
 
 
         asNewNamespace fullPath unresolvedName action =
@@ -367,9 +375,10 @@ useDef = sym "use" >> do
                 Just groupName -> do
                     newNamespaceId <- inNewNamespace unresolvedName.value.tag do
                         action (newFullPath <$ basePath)
-                    modId <- getModuleId
+                    Ref modId parentItemId <- getRef
                     insertRef (Visible Public $
                         M.GroupBinding groupName (Ref modId newNamespaceId))
+                    bindParent newNamespaceId parentItemId
                     bindCategory newNamespaceId Namespace
                 _ -> getFixName >>= reportInvalidCombo . Just
 
@@ -380,31 +389,28 @@ useDef = sym "use" >> do
                 (prettyShow <$> referenceName)
                 (text "this use has an invalid alias &"
                     <+> "path or extension combination")
-                [ hang "potential problems:" $ bulletList
+                [hang "potential problems:" $ bulletList
                     [ "you are aliasing a namespace or instance as a"
                         <+> "non-atomic operator"
                     , "you have not provided an alias, but the tail of the path"
                         <+> "cannot be used as a symbol,"
                         <+> "such as certain file names"
-                    ]
-                ]
+                    ]]
 
 
 -- | Parse a namespace definition
---   @ "namespace" ... @
 namespaceDef :: Has m
     [ Location, FixName
     , M.ParserDefs, M.Group, M.UnresolvedImports
     , Parse
     , Diag
     ] => Visible QualifiedName -> m ItemId
-namespaceDef vqn = sym "namespace" >> noFail do
+namespaceDef vqn = sym "=" >> noFail do
     diagAssertRefNameH (isSimpleQualifiedName vqn.value)
         vqn.value.value.tag BadDefinition
         (text "namespace definitions must be bound to simple names")
-        [ backticked vqn <+> "is not a simple name, it should be more like"
-            <+> backticked (simplifyFixName vqn.value.value.value)
-        ]
+        [backticked vqn <+> "is not a simple name, it should be more like"
+            <+> backticked (simplifyFixName vqn.value.value.value)]
 
     lns <- tryGrabBlock vqn.value.value.tag
 
@@ -413,130 +419,118 @@ namespaceDef vqn = sym "namespace" >> noFail do
             lineParser item lns.value
 
 -- | Parse an effect type definition
---   @ "effect" (... "=>")? ... @
 effectDef :: Has m
     [ Location, FixName
     , M.ParserDefs, M.Group, M.UnresolvedImports
     , Parse
     , Diag
     ] => Visible QualifiedName -> m ItemId
-effectDef vqn = sym "effect" >> noFail do
-    (q, c) <- option Nil typeHeadArrow
+effectDef vqn = noFail do
+    (q, c) <- typeHeadEq False
 
     lns <- tryGrabBlock vqn.value.value.tag
 
-    newGroupId <- insertNew vqn do
-        inNewGroup lns.tag do
-            lineParser caseDef lns.value
+    newGroupId <- insertNew vqn $ inNewGroup lns.tag do
+        lineParser caseDef lns.value
 
-    unless (isNil q) (withParent bindQuantifier newGroupId q)
-    unless (isNil c) (withParent bindQualifier newGroupId c)
+    unless (isNil q) (bindQuantifier newGroupId q)
+    unless (isNil c) (bindQualifier newGroupId c)
+
     pure newGroupId
     where
     caseDef = noFail do
         qn <- qualifiedName
-        usingFixName qn.value.value $
-            liftedSyntaxErrorRefName BadDefinition do
-                sym ":"
-                body <- grabWhitespaceDomainAll
-                newCaseId <- insertNew (Visible Public qn) do
-                    withFreshItemId (withParent bindType) body
-                bindCategory newCaseId Case
+        usingFixName qn.value.value $ liftedSyntaxErrorRefName BadDefinition do
+            sym ":"
+            body <- grabWhitespaceDomainAll
+            newCaseId <- insertNew (Visible Public qn) do
+                withFreshItemId (withParent bindType) body
+            bindCategory newCaseId Case
 
 
 -- | Parse a type class definition
---   @ "class" (... "=>")? ... @
 classDef :: Has m
     [ Location, FixName
     , M.ParserDefs, M.Group, M.UnresolvedImports
     , Parse
     , Diag
     ] => Visible QualifiedName -> m ItemId
-classDef vqn = sym "class" >> noFail do
-    (q, c) <- option Nil typeHeadArrow
+classDef vqn = noFail do
+    (q, c) <- typeHeadEq False
 
     lns <- tryGrabBlock vqn.value.value.tag
 
-    newGroupId <- insertNew vqn do
-        inNewGroup lns.tag do
-            lineParser classItem lns.value
+    newGroupId <- insertNew vqn $ inNewGroup lns.tag do
+        lineParser classItem lns.value
 
-    unless (isNil q) (withParent bindQuantifier newGroupId q)
-    unless (isNil c) (withParent bindQualifier newGroupId c)
+    unless (isNil q) (bindQuantifier newGroupId q)
+    unless (isNil c) (bindQualifier newGroupId c)
+
     pure newGroupId
     where
     classItem = noFail do
+        c <- option Decl (Alias <$ sym "type")
         qn <- qualifiedName
-        usingFixName qn.value.value $
-            liftedSyntaxErrorRefName BadDefinition do
-                sym ":"
-                grabWhitespaceDomainAll >>= recurseParserAll do
-                    asum
-                        [ classType qn
-                        , classValue qn
-                        ]
 
-    classType qn = sym "type" >> noFail do
-        (q, c) <- consumesAll (option Nil typeHeadNoDelim)
-        newAliasId <- insertNew
-            (Visible Public qn) freshItemId
-        unless (isNil q) (withParent bindQuantifier newAliasId q)
-        unless (isNil c) (withParent bindQualifier newAliasId c)
+        usingFixName qn.value.value $ liftedSyntaxErrorRefName BadDefinition do
+            asum [grabWhitespaceDomainAll, (Nil :@: qn.value.tag) <$ eof]
+                >>= recurseParserAll case c of
+                    Alias -> classType qn
+                    _ -> classValue qn
+
+    classType qn = noFail do
+        (q, c) <- consumesAll $ typeHeadNoDelim False
+        newAliasId <- insertNew (Visible Public qn) freshItemId
+        unless (isNil q) (bindQuantifier newAliasId q)
+        unless (isNil c) (bindQualifier newAliasId c)
         bindCategory newAliasId Alias
 
-    classValue qn = noFail do
-        (q, c) <- option Nil forTypeHead
+    classValue qn = sym ":" >> noFail do
+        (q, c) <- option Nil (forTypeHead True)
         body <- grabWhitespaceDomainAll
         newDeclId <- insertNew (Visible Public qn) do
             withFreshItemId (withParent bindType) body
-        unless (isNil q) (withParent bindQuantifier newDeclId q)
-        unless (isNil c) (withParent bindQualifier newDeclId c)
+        unless (isNil q) (bindQuantifier newDeclId q)
+        unless (isNil c) (bindQualifier newDeclId c)
         bindCategory newDeclId Decl
 
 
 -- | Parse a class instance definition
---   @ "instance" (... "=>")? ... @
 instanceDef :: Has m
     [ Location, FixName
     , M.ParserDefs, M.Group, M.UnresolvedImports
     , Parse
     , Diag
     ] => Visible QualifiedName -> m ItemId
-instanceDef vqn = do
-    sym "instance" >> noFail do
-        (q, c) <- option Nil (typeHeadDelim "for")
+instanceDef vqn = noFail do
+    (q, c) <- typeHeadDelim False "for"
 
-        for <- grabDomain (not . isSymbol "=>" . untag) << sym "=>"
+    for <- grabDomain (not . isSymbol "=" . untag) << sym "="
 
-        lns <- tryGrabBlock vqn.value.value.tag
+    lns <- tryGrabBlock vqn.value.value.tag
 
-        newGroupId <- insertNew vqn do
-            inNewGroup lns.tag do
-                lineParser instanceItem lns.value
+    newGroupId <- insertNew vqn $ inNewGroup lns.tag do
+        lineParser instanceItem lns.value
 
-        unless (isNil q) (withParent bindQuantifier newGroupId q)
-        unless (isNil c) (withParent bindQualifier newGroupId c)
-        withParent bindType newGroupId for
-        pure newGroupId
+    unless (isNil q) (bindQuantifier newGroupId q)
+    unless (isNil c) (bindQualifier newGroupId c)
+    bindType newGroupId for
+    pure newGroupId
     where
     instanceItem = noFail do
+        c <- option Value (Alias <$ sym "type")
         qn <- qualifiedName
-        usingFixName qn.value.value $
-            liftedSyntaxErrorRefName BadDefinition do
-                sym "="
-                grabWhitespaceDomainAll >>= recurseParserAll do
-                    asum
-                        [ instanceType qn
-                        , instanceValue qn
-                        ]
+        usingFixName qn.value.value $ liftedSyntaxErrorRefName BadDefinition do
+            grabWhitespaceDomainAll >>= recurseParserAll case c of
+                Alias -> instanceType qn
+                _ -> sym "=" >> instanceValue qn
 
-    instanceType qn = sym "type" >> noFail do
-        q <- option Nil $ typeHeadOf (Just "=>") $ const do
-           option Nil $ tag quantifier
+    instanceType qn = noFail do
+        q <- typeQuantifierEq False
         body <- grabWhitespaceDomainAll
         newAliasId <- insertNew (Visible Public qn) do
             withFreshItemId (withParent bindType) body
-        unless (isNil q) (withParent bindQuantifier newAliasId q)
+        unless (isNil q) (bindQuantifier newAliasId q)
         bindCategory newAliasId Alias
 
     instanceValue qn = noFail do
@@ -547,44 +541,41 @@ instanceDef vqn = do
 
 
 -- | Parse a type alias definition
---   @ "type" (... "=>")? ... @
 typeDef :: Has m
     [ Location, FixName
     , M.ParserDefs, M.Group, M.UnresolvedImports
     , Parse
     , Diag
     ] => Visible QualifiedName -> m ItemId
-typeDef vqn = sym "type" >> noFail do
-    q <- option Nil typeQuantifierArrow
+typeDef vqn = noFail do
+    q <- typeQuantifierEq False
     body <- grabWhitespaceDomainAll
     newAliasId <- insertNew vqn do
         withFreshItemId (withParent bindType) body
-    unless (isNil q) (withParent bindQuantifier newAliasId q)
+    unless (isNil q) (bindQuantifier newAliasId q)
     pure newAliasId
 
 
 -- | Parse a struct type definition
---   @ "struct" (... "=>")? ... @
 structDef :: Has m
     [ Location, FixName
     , M.ParserDefs, M.Group, M.UnresolvedImports
     , Parse
     , Diag
     ] => Visible QualifiedName -> m ItemId
-structDef vqn = sym "struct" >> noFail do
-    q <- option Nil typeQuantifierArrow
+structDef vqn = noFail do
+    q <- typeQuantifierEq False
 
     lns <- tryWsListBody vqn.value.value.tag True ","
 
-    newGroupId <- insertNew vqn do
-        inNewGroup lns.tag do
-            (named, diag) <- runWriterT do
-                fields (bindingField Projection namedField) lns.value
-            if any isError diag
-                then fields (bindingField Projection tupleField) lns.value
-                else named <$ reportAll diag
+    newGroupId <- insertNew vqn $ inNewGroup lns.tag do
+        (named, diag) <- runWriterT do
+            fields (bindingField Projection namedField) lns.value
+        if any isError diag
+            then fields (bindingField Projection tupleField) lns.value
+            else named <$ reportAll diag
 
-    unless (isNil q) (withParent bindQuantifier newGroupId q)
+    unless (isNil q) (bindQuantifier newGroupId q)
     pure newGroupId
     where
     namedField idx = do
@@ -603,23 +594,21 @@ structDef vqn = sym "struct" >> noFail do
 
 
 -- | Parse a union type definition
---   @ "union" (... "=>")? ... @
 unionDef :: Has m
     [ Location, FixName
     , M.ParserDefs, M.Group, M.UnresolvedImports
     , Parse
     , Diag
     ] => Visible QualifiedName -> m ItemId
-unionDef vqn = sym "union" >> noFail do
-    q <- option Nil typeQuantifierArrow
+unionDef vqn = noFail do
+    q <- typeQuantifierEq False
 
     lns <- tryWsListBody vqn.value.value.tag True ","
 
-    newGroupId <- insertNew vqn do
-        inNewGroup lns.tag do
-            fields (bindingField Injection field) lns.value
+    newGroupId <- insertNew vqn $ inNewGroup lns.tag do
+        fields (bindingField Injection field) lns.value
 
-    unless (isNil q) (withParent bindQuantifier newGroupId q)
+    unless (isNil q) (bindQuantifier newGroupId q)
     pure newGroupId
     where
     field idx = do
@@ -639,7 +628,6 @@ unionDef vqn = sym "union" >> noFail do
             pure (idx :@: n.tag, n, )
 
 -- | Parse a value declaration
---   @ ":" ("for" ... "=>")? ... @
 valueDec :: Has m
     [ Location, FixName
     , M.ParserDefs, M.Group, M.UnresolvedImports
@@ -647,16 +635,15 @@ valueDec :: Has m
     , Diag
     ] => Visible QualifiedName -> m ItemId
 valueDec vqn = noFail do
-    (q, c) <- option Nil forTypeHead
+    (q, c) <- option Nil (forTypeHead True)
     header <- grabDomain (not . isSymbol "=" . untag)
     newDeclId <- insertNew vqn do
         withFreshItemId (withParent bindType) header
-    unless (isNil q) (withParent bindQuantifier newDeclId q)
-    unless (isNil c) (withParent bindQualifier newDeclId c)
+    unless (isNil q) (bindQuantifier newDeclId q)
+    unless (isNil c) (bindQualifier newDeclId c)
     pure newDeclId
 
 -- | Parse a value definition body
---   @ "=" ... @
 valueDef :: Has m
     [ Location, FixName
     , M.ParserDefs, M.Group, M.UnresolvedImports
@@ -665,7 +652,6 @@ valueDef :: Has m
     ] => Visible QualifiedName -> m ItemId
 valueDef vqn = noFail do
     body <- grabWhitespaceDomainAll
-
     insertNew vqn do
         withFreshItemId (withParent bindValue) body
 
@@ -725,10 +711,10 @@ inNewNamespace at' action = do
         runStateT (execStateT action Nil) Nil
 
     unless (isNil newGroup) do
-        withParent bindGroup newNamespaceId (newGroup :@: at')
+        bindGroup newNamespaceId (newGroup :@: at')
 
     unless (isNil newUnresolvedImports) do
-        withParent bindImports newNamespaceId (newUnresolvedImports :@: at')
+        bindImports newNamespaceId (newUnresolvedImports :@: at')
 
     pure newNamespaceId
 
@@ -742,7 +728,7 @@ inNewGroup at action = do
         execStateT action Nil
 
     unless (isNil newGroup) do
-        withParent bindGroup newGroupId (newGroup :@: at)
+        bindGroup newGroupId (newGroup :@: at)
 
     pure newGroupId
 
@@ -777,7 +763,7 @@ path = do
         Just base -> option Nil do
             if requiresSlash base
                 then do
-                    at <- attrOf $ connected base.tag $ sym "/"
+                    at <- attrOf $ connected base.tag $ simpleNameOf "/"
                     connected at body
                 else connected base.tag body
         _ -> body
@@ -790,7 +776,7 @@ path = do
     body = do
         fc@(_ :@: at) <- tag fixName
         Seq.fromList . (fc :) <$> connectMany at do
-            at' <- attrOf $ sym "/"
+            at' <- attrOf $ simpleNameOf "/"
             connected at' (tag fixName)
 
 -- | Parse a @PathBase@
@@ -799,7 +785,7 @@ pathBase = expecting "a path base" $ asum
     [ PbRoot <$ sym "~/"
     , PbThis <$ do
         sym "."
-        sym "/"
+        simpleNameOf "/"
     , PbModule <$> do
         sym "module"
         simpleName
@@ -809,7 +795,7 @@ pathBase = expecting "a path base" $ asum
     , PbUp <$> do
         fromIntegral . length <$> some do
             sym ".."
-            sym "/"
+            simpleNameOf "/"
     ]
 
 -- | Parse a @FixName@
@@ -842,9 +828,17 @@ visible = liftA2 Visible (option Private visibility)
 visibility :: Has m '[Parse] => m Visibility
 visibility = Public <$ sym "pub"
 
--- | Parse a @QualifiedName@ proceeded optionally by a @pub@ qualifier
-defHead :: Has m '[Parse] => m (Visible QualifiedName)
-defHead = visible qualifiedName
+-- | Parse a @Category@
+category :: Has m '[Parse] => m Category
+category = expecting "a category" $ asum
+    [ Namespace <$ sym "namespace"
+    , Effect <$ sym "effect"
+    , Class <$ sym "class"
+    , Instance <$ sym "instance"
+    , Alias <$ sym "type"
+    , Struct <$ sym "struct"
+    , Union <$ sym "union"
+    ]
 
 -- | Parse a @QualifiedName@;
 --   ie. either a @SimpleName@, or a @FixName@
@@ -892,8 +886,7 @@ qualifiedName = expecting "a qualified name" do
         unless (fst apt) $ parseErrorAt at Unrecoverable $
             pPrint fx <+> "names are always non-associative;"
                 <+> "parens are not allowed"
-        pure $
-            QualifiedName NonAssociative (snd apt) n
+        pure $ QualifiedName NonAssociative (snd apt) n
 
 -- | Parse an associative @Precedence@ level;
 --   Either an integer in the range {@0@, @maxBound Precedence@},
@@ -911,7 +904,7 @@ precedence = do
     i :@: at <- tag int
     assertAt at (i <= bound) Unrecoverable $
         "precedence level" <+> backticked i
-            <+> "is out of range, max is " <+> shown bound
+            <+> "is out of range, max is" <+> shown bound
     pure (fromIntegral i) where
     bound = fromIntegral @Precedence @Word32 maxBound
 
@@ -919,37 +912,48 @@ precedence = do
 -- | Parse a type scheme, where the quantifier is proceeded by a @for@ keyword,
 --   and the qualifier is delimited by an arrow @=>@; consumes the arrow
 forTypeHead :: Has m '[Parse] =>
-    m (ATag Quantifier, ATag (Qualifier TokenSeq))
-forTypeHead = typeHeadOf (Just "=>") $ const $ liftA2 (,)
+    Bool -> m (ATag Quantifier, ATag (Qualifier TokenSeq))
+forTypeHead nilCheck = typeHeadOf nilCheck (Just "=>") $ const $ liftA2 (,)
     do option Nil $ tag (sym "for" >> quantifier)
     do option Nil $ tag (qualifier $ Just "=>")
 
 -- | Parse a type scheme, delimited by the given symbol; consumes the delimiter
 typeHeadDelim :: Has m '[Parse] =>
-    String -> m (ATag Quantifier, ATag (Qualifier TokenSeq))
-typeHeadDelim = typeHeadMaybeDelim . Just
+    Bool -> String -> m (ATag Quantifier, ATag (Qualifier TokenSeq))
+typeHeadDelim nilCheck = typeHeadMaybeDelim nilCheck . Just
 
 -- | Parse a type scheme, with no delimiter
 typeHeadNoDelim :: Has m '[Parse] =>
-    m (ATag Quantifier, ATag (Qualifier TokenSeq))
-typeHeadNoDelim = typeHeadMaybeDelim Nothing
+    Bool -> m (ATag Quantifier, ATag (Qualifier TokenSeq))
+typeHeadNoDelim nilCheck = typeHeadMaybeDelim nilCheck Nothing
+
+-- | Parse a type scheme, delimited by an @=@, and consume the equal sign
+typeHeadEq :: Has m '[Parse] =>
+    Bool -> m (ATag Quantifier, ATag (Qualifier TokenSeq))
+typeHeadEq nilCheck = typeHeadDelim nilCheck "="
 
 -- | Parse a type scheme, delimited by an arrow @=>@, and consume the arrow
 typeHeadArrow :: Has m '[Parse] =>
-    m (ATag Quantifier, ATag (Qualifier TokenSeq))
-typeHeadArrow = typeHeadDelim "=>"
+    Bool -> m (ATag Quantifier, ATag (Qualifier TokenSeq))
+typeHeadArrow nilCheck = typeHeadDelim nilCheck "=>"
+
+-- | Parse a type quantifier, delimited by an @=@ and consume the equal sign
+typeQuantifierEq :: Has m '[Parse] =>
+    Bool -> m (ATag Quantifier)
+typeQuantifierEq nilCheck = typeHeadOf nilCheck (Just "=") $ const do
+    option Nil (tag quantifier)
 
 -- | Parse a type quantifier, delimited by an arrow @=>@ and consume the arrow
 typeQuantifierArrow :: Has m '[Parse] =>
-    m (ATag Quantifier)
-typeQuantifierArrow = typeHeadOf (Just "=>") $ const do
+    Bool -> m (ATag Quantifier)
+typeQuantifierArrow nilCheck = typeHeadOf nilCheck (Just "=>") $ const do
     option Nil (tag quantifier)
 
 -- | Parse a type scheme, delimited by the given symbol, if one is provided;
 --   consumes the delimiter
 typeHeadMaybeDelim :: Has m '[Parse] =>
-    Maybe String -> m (ATag Quantifier, ATag (Qualifier TokenSeq))
-typeHeadMaybeDelim = (`typeHeadOf` typeHeadMaybeDelimBody)
+    Bool -> Maybe String -> m (ATag Quantifier, ATag (Qualifier TokenSeq))
+typeHeadMaybeDelim nilCheck = flip (typeHeadOf nilCheck) typeHeadMaybeDelimBody
 
 -- | Parse a type scheme body,
 --   delimited by the given symbol, if one is provided;
@@ -964,10 +968,10 @@ typeHeadMaybeDelimBody delim = liftA2 (,)
 --   and delimited by the given symbol, if one is provided;
 --   consumes the delimiter
 typeHeadOf :: Has m '[Parse, With '[Nil a, Pretty a]] =>
-    Maybe String -> (Maybe String -> m a) -> m a
-typeHeadOf delim p = do
+    Bool -> Maybe String -> (Maybe String -> m a) -> m a
+typeHeadOf nilCheck delim p = do
     r :@: at <- tag (p delim)
-    guard (notNil r)
+    guard (not nilCheck || notNil r)
     r <$ case delim of
         Just d -> expectingAt at "to close type head" (sym d)
         _ -> pure ()
