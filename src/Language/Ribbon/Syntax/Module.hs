@@ -309,11 +309,11 @@ type RawDependencies = [(ATag (String, Version), Maybe (ATag SimpleName))]
 
 
 
--- | Pair of @Visible GroupName@ and @ATag Ref@,
+-- | Pair of @QualifiedName@ and @ATag Ref@,
 --   making up an entry in the @Group@'s associative array
 data GroupBinding
     = GroupBinding
-    { name :: !GroupName
+    { name :: !QualifiedName
     ,  ref :: !Ref
     }
     deriving (Eq, Ord, Show)
@@ -331,34 +331,26 @@ type Group = [Visible GroupBinding]
 
 mergeGroups :: Group -> Group -> Group
 mergeGroups lbs = (lbs <>) . filter \ib ->
-    Maybe.isNothing $ groupGetRef (specificNameFromGroupName ib.value.name) lbs
+    Maybe.isNothing $ groupGetRef ib.value.name.value.value lbs
 
 filterGroupByVis :: Group -> Group
 filterGroupByVis = filter \def -> def.visibility == Public
 
--- | Lookup @Ref@s matching a generic @PathName@ in a @Group@
-groupSearchRef :: PathName -> Group -> Group
-groupSearchRef n = filter \def ->
-    let n' = def.value.name.value.value.value
-        c = def.value.name.category
-    in n' == n.name && sameCategory n.category c
-    where
-        sameCategory = \case
-            Just oc -> (oc ==) . overloadedCategory
-            _ -> const True
+-- | Lookup @Ref@s matching a generic @FixName@ in a @Group@
+groupSearchRef :: FixName -> Group -> Group
+groupSearchRef n = filter $ (n ==) . (.value.name.value.value)
 
--- | Lookup the @Ref@ associated with a @SpecificName@ in a @Group@
-groupGetRef :: SpecificName -> Group -> Maybe (ATag (Visible Ref))
-groupGetRef sn = lookupWith \def ->
-    let n = def.value.name.value.value.value
-        c = def.value.name.category
-    in guard (n == sn.value.value && c == sn.category) $> do
-        def.value.ref <$ def <$ def.value.name.value.value
+-- | Lookup the @Ref@ associated with a @FixName@ in a @Group@
+groupGetRef :: FixName -> Group -> Maybe (ATag (Visible Ref))
+groupGetRef fn = lookupWith \def ->
+    let n = def.value.name.value.value
+    in guard (n == fn) $> do
+        def.value.ref <$ def <$ def.value.name.value
 
 -- | Insert a new @Ref@ into a @Group@, bound to a @Visible GroupName@
 groupInsertRef :: Visible GroupBinding -> Group -> Either (ATag Doc) Group
 groupInsertRef b g =
-    let sn = specificNameFromGroupName b.value.name
+    let sn = b.value.name.value.value
     in case groupGetRef sn g of
         Just ex -> Left $
             ("name" <+> pPrint b.value.name <+> "already exists")
@@ -369,7 +361,7 @@ groupInsertRef b g =
 data ResolvedBlob
     = ResolvedBlob
     { pathStack :: !PathStack
-    ,    hiding :: ![ATag PathName]
+    ,    hiding :: ![ATag FixName]
     }
     deriving (Eq, Ord, Show)
 
@@ -386,11 +378,9 @@ type ResolvedImports
     = [Visible ResolvedBlob]
 
 filterResolvedImports ::
-    PathName -> ResolvedImports -> ResolvedImports
+    FixName -> ResolvedImports -> ResolvedImports
 filterResolvedImports n = filter $
-    not . any (pathNameMatch n . untag) . (.value.hiding) where
-    pathNameMatch (PathName n1 k1) (PathName n2 k2) =
-        n1 == n2 && (Maybe.isNothing k2 || k1 == k2)
+    not . any ((== n) . untag) . (.value.hiding)
 
 data UnresolvedAlias
     = UnresolvedAlias
@@ -408,7 +398,7 @@ instance Pretty UnresolvedAlias where
 data UnresolvedBlob
     = UnresolvedBlob
     {   path :: !(ATag Path)
-    , hiding :: ![ATag PathName]
+    , hiding :: ![ATag FixName]
     }
     deriving (Eq, Ord, Show)
 

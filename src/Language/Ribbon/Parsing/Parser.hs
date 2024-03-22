@@ -241,7 +241,7 @@ useDef = sym "use" >> do
         discardParseState
         \(Visible vis use :@: at) ->
             runReaderT' (Nil :: Path) $
-            runReaderT' (Nil :: [ATag PathName]) $
+            runReaderT' (Nil :: [ATag FixName]) $
                 addUse vis (use :@: at)
     where
     parseUseDef = noFail (consumesAll $ visible use) where
@@ -264,8 +264,8 @@ useDef = sym "use" >> do
             [ RawUseBlob <$> do
                 sym ".." >> option [] do
                     sym "hiding" >> asum
-                        [ braces $ wsList True "," (tag pathName)
-                        , pure <$> tag pathName
+                        [ braces $ wsList True "," (tag fixName)
+                        , pure <$> tag fixName
                         ]
             , RawUseBranch <$> braces do
                 wsList True "," (tag use)
@@ -276,7 +276,7 @@ useDef = sym "use" >> do
     addUse :: Has m
         [ Location
         , M.ParserDefs, M.Group, M.UnresolvedImports
-        , Rd [ATag PathName]
+        , Rd [ATag FixName]
         , Rd Path
         , Diag
         ] => Visibility -> ATag RawUse -> m ()
@@ -293,7 +293,7 @@ useDef = sym "use" >> do
         useBody fullPath = case alias of
             Just newName ->
                 runReaderT' newName.value.value
-                case makeNewName fullPath newName of
+                case unresolvedFromQualified newName of
                     Just unresolvedName -> case tree.value of
                         RawUseSingle ->
                             insertAlias $ Visible vis $
@@ -316,9 +316,8 @@ useDef = sym "use" >> do
 
                 RawUseSingle -> case getPathName fullPath.value of
                     Just name ->
-                        let category = getPathCategory fullPath.value
-                            unresolvedName =
-                                UnresolvedName category Nothing name
+                        let unresolvedName =
+                                UnresolvedName Nothing name
                         in insertAlias $ Visible vis $
                             M.UnresolvedAlias unresolvedName fullPath
 
@@ -327,9 +326,9 @@ useDef = sym "use" >> do
         addUseBlob :: Has m
             [ Location
             , M.ParserDefs, M.Group, M.UnresolvedImports
-            , Rd [ATag PathName]
+            , Rd [ATag FixName]
             , Diag
-            ] => ATag Path -> [ATag PathName] -> m ()
+            ] => ATag Path -> [ATag FixName] -> m ()
         addUseBlob fullPath explicit = do
             context <- ask
             insertBlob $ Visible vis $
@@ -342,7 +341,7 @@ useDef = sym "use" >> do
         addUseBranch :: Has m
             [ Location
             , M.ParserDefs, M.Group, M.UnresolvedImports
-            , Rd [ATag PathName]
+            , Rd [ATag FixName]
             , Rd Path
             , Diag
             ] => ATag Path -> [ATag RawUse] -> m ()
@@ -354,7 +353,7 @@ useDef = sym "use" >> do
 
             using fullPath.value do
                 names <- Maybe.catMaybes <$> forM rest \u ->
-                    hidablePathNameFromUse u.value <$ addUse vis u
+                    hidableFixNameFromUse u.value <$ addUse vis u
 
                 using names (forM_ blobs $ addUse vis)
 
@@ -366,24 +365,18 @@ useDef = sym "use" >> do
                         fullPath.value
             in case groupFromUnresolvedInCategory Namespace unresolvedName of
                 Just groupName -> do
-                    newId <- inNewNamespace unresolvedName.value.tag do
+                    newNamespaceId <- inNewNamespace unresolvedName.value.tag do
                         action (newFullPath <$ basePath)
                     modId <- getModuleId
                     insertRef (Visible Public $
-                        M.GroupBinding groupName (Ref modId newId))
+                        M.GroupBinding groupName (Ref modId newNamespaceId))
+                    bindCategory newNamespaceId Namespace
                 _ -> getFixName >>= reportInvalidCombo . Just
 
 
-        makeNewName fullPath =
-            unresolvedFromQualified case tree.value of
-                RawUseSingle -> getPathCategory fullPath.value
-                _ -> Just ONamespace
-
         reportInvalidCombo :: Has m '[Ref, Diag] => Maybe FixName -> m ()
         reportInvalidCombo referenceName = do
-            reportErrorRefH
-                basePath.tag
-                BadDefinition
+            reportErrorRefH basePath.tag BadDefinition
                 (prettyShow <$> referenceName)
                 (text "this use has an invalid alias &"
                     <+> "path or extension combination")
@@ -415,7 +408,7 @@ namespaceDef vqn = sym "namespace" >> noFail do
 
     lns <- tryGrabBlock vqn.value.value.tag
 
-    insertNew (Categorical Namespace <$> vqn) do
+    insertNew vqn do
         inNewNamespace lns.tag do
             lineParser item lns.value
 
@@ -432,7 +425,7 @@ effectDef vqn = sym "effect" >> noFail do
 
     lns <- tryGrabBlock vqn.value.value.tag
 
-    newGroupId <- insertNew (Categorical Effect <$> vqn) do
+    newGroupId <- insertNew vqn do
         inNewGroup lns.tag do
             lineParser caseDef lns.value
 
@@ -446,7 +439,7 @@ effectDef vqn = sym "effect" >> noFail do
             liftedSyntaxErrorRefName BadDefinition do
                 sym ":"
                 body <- grabWhitespaceDomainAll
-                newCaseId <- insertNew (Categorical Case <$> Visible Public qn) do
+                newCaseId <- insertNew (Visible Public qn) do
                     withFreshItemId (withParent bindType) body
                 bindCategory newCaseId Case
 
@@ -464,7 +457,7 @@ classDef vqn = sym "class" >> noFail do
 
     lns <- tryGrabBlock vqn.value.value.tag
 
-    newGroupId <- insertNew (Categorical Class <$> vqn) do
+    newGroupId <- insertNew vqn do
         inNewGroup lns.tag do
             lineParser classItem lns.value
 
@@ -486,7 +479,7 @@ classDef vqn = sym "class" >> noFail do
     classType qn = sym "type" >> noFail do
         (q, c) <- consumesAll (option Nil typeHeadNoDelim)
         newAliasId <- insertNew
-            (Visible Public $ Categorical Alias qn) freshItemId
+            (Visible Public qn) freshItemId
         unless (isNil q) (withParent bindQuantifier newAliasId q)
         unless (isNil c) (withParent bindQualifier newAliasId c)
         bindCategory newAliasId Alias
@@ -494,7 +487,7 @@ classDef vqn = sym "class" >> noFail do
     classValue qn = noFail do
         (q, c) <- option Nil forTypeHead
         body <- grabWhitespaceDomainAll
-        newDeclId <- insertNew (Visible Public $ Categorical Decl qn) do
+        newDeclId <- insertNew (Visible Public qn) do
             withFreshItemId (withParent bindType) body
         unless (isNil q) (withParent bindQuantifier newDeclId q)
         unless (isNil c) (withParent bindQualifier newDeclId c)
@@ -517,7 +510,7 @@ instanceDef vqn = do
 
         lns <- tryGrabBlock vqn.value.value.tag
 
-        newGroupId <- insertNew (Categorical Instance <$> vqn) do
+        newGroupId <- insertNew vqn do
             inNewGroup lns.tag do
                 lineParser instanceItem lns.value
 
@@ -541,14 +534,14 @@ instanceDef vqn = do
         q <- option Nil $ typeHeadOf (Just "=>") $ const do
            option Nil $ tag quantifier
         body <- grabWhitespaceDomainAll
-        newAliasId <- insertNew (Visible Public $ Categorical Alias qn) do
+        newAliasId <- insertNew (Visible Public qn) do
             withFreshItemId (withParent bindType) body
         unless (isNil q) (withParent bindQuantifier newAliasId q)
         bindCategory newAliasId Alias
 
     instanceValue qn = noFail do
         body <- grabWhitespaceDomainAll
-        newValueId <- insertNew (Visible Public $ Categorical Value qn) do
+        newValueId <- insertNew (Visible Public qn) do
             withFreshItemId (withParent bindValue) body
         bindCategory newValueId Value
 
@@ -564,7 +557,7 @@ typeDef :: Has m
 typeDef vqn = sym "type" >> noFail do
     q <- option Nil typeQuantifierArrow
     body <- grabWhitespaceDomainAll
-    newAliasId <- insertNew (Categorical Alias <$> vqn) do
+    newAliasId <- insertNew vqn do
         withFreshItemId (withParent bindType) body
     unless (isNil q) (withParent bindQuantifier newAliasId q)
     pure newAliasId
@@ -583,7 +576,7 @@ structDef vqn = sym "struct" >> noFail do
 
     lns <- tryWsListBody vqn.value.value.tag True ","
 
-    newGroupId <- insertNew (Categorical Struct <$> vqn) do
+    newGroupId <- insertNew vqn do
         inNewGroup lns.tag do
             (named, diag) <- runWriterT do
                 fields (bindingField Projection namedField) lns.value
@@ -622,7 +615,7 @@ unionDef vqn = sym "union" >> noFail do
 
     lns <- tryWsListBody vqn.value.value.tag True ","
 
-    newGroupId <- insertNew (Categorical Union <$> vqn) do
+    newGroupId <- insertNew vqn do
         inNewGroup lns.tag do
             fields (bindingField Injection field) lns.value
 
@@ -656,7 +649,7 @@ valueDec :: Has m
 valueDec vqn = noFail do
     (q, c) <- option Nil forTypeHead
     header <- grabDomain (not . isSymbol "=" . untag)
-    newDeclId <- insertNew (Categorical Decl <$> vqn) do
+    newDeclId <- insertNew vqn do
         withFreshItemId (withParent bindType) header
     unless (isNil q) (withParent bindQuantifier newDeclId q)
     unless (isNil c) (withParent bindQualifier newDeclId c)
@@ -673,7 +666,7 @@ valueDef :: Has m
 valueDef vqn = noFail do
     body <- grabWhitespaceDomainAll
 
-    insertNew (Categorical Value <$> vqn) do
+    insertNew vqn do
         withFreshItemId (withParent bindValue) body
 
 
@@ -694,7 +687,7 @@ bindingField c fm i = do
             (TConstant . CInt <$> off)
             (TConstant . CString . (.value) <$> n)
     newFieldId <- insertNew (Visible Public $
-            Categorical c $ QualifiedName NonAssociative 0 $
+            QualifiedName NonAssociative 0 $
                 SimpleFixName <$> n) do
         withFreshItemId (withParent bindField) (Field lbl f :@: at)
     bindCategory newFieldId c
@@ -774,24 +767,56 @@ lineParser p lns = forM_ lns \ln -> do
 
 
 
--- | Parse a @Path@
-path :: Has m '[Parse] => m Path
-path = nextMap \case
-    TPath p -> Just p
-    _ -> Nothing
 
--- | Parse a @PathName@
---   ie. a @Path@ with only a single optionally qualified @FixName@
-pathName :: Has m '[Parse] => m PathName
-pathName = nextMap \case
-    TPath (SingleNamePath n) -> Just n
-    _ -> Nothing
+-- | Lex a @Path@ sequence
+path :: Has m '[Parse] => m Path
+path = do
+    b <- optional $ tag pathBase
+
+    cs <- case b of
+        Just base -> option Nil do
+            if requiresSlash base
+                then do
+                    at <- attrOf $ connected base.tag $ sym "/"
+                    connected at body
+                else connected base.tag body
+        _ -> body
+
+    pure $ Path
+        { base = b
+        , components = cs
+        }
+    where
+    body = do
+        fc@(_ :@: at) <- tag fixName
+        Seq.fromList . (fc :) <$> connectMany at do
+            at' <- attrOf $ sym "/"
+            connected at' (tag fixName)
+
+-- | Parse a @PathBase@
+pathBase :: Has m '[Parse] => m PathBase
+pathBase = expecting "a path base" $ asum
+    [ PbRoot <$ sym "~/"
+    , PbThis <$ do
+        sym "."
+        sym "/"
+    , PbModule <$> do
+        sym "module"
+        simpleName
+    , PbFile <$> do
+        sym "file"
+        noFail string
+    , PbUp <$> do
+        fromIntegral . length <$> some do
+            sym ".."
+            sym "/"
+    ]
 
 -- | Parse a @FixName@
 --   ie. a @Path@ with only a single unqualified @FixName@
 fixName :: Has m '[Parse] => m FixName
 fixName = expecting "a fix name" $ nextMap \case
-    TPath (SingleNamePath (FixPathName f)) -> Just f
+    TFixName f -> Just f
     _ -> Nothing
 
 -- | Parse a @SimpleName@;
@@ -799,13 +824,13 @@ fixName = expecting "a fix name" $ nextMap \case
 --   and only a single @SimpleName@ within that
 simpleName :: Has m '[Parse] => m SimpleName
 simpleName = expecting "an unreserved identifier or operator" $ nextMap \case
-    TPath (SingleSimplePath n) -> Just n
+    TFixName (SimpleFixName n) -> Just n
     _ -> Nothing
 
 -- | Parse a specific @SimpleName@
 simpleNameOf :: Has m '[Parse] => String -> m ()
 simpleNameOf s = expecting (Pretty.backticks $ text s) $ nextIf_ \case
-    TPath (SingleSimplePath (SimpleName n)) -> n == s
+    TFixName (SimpleFixName (SimpleName n)) -> n == s
     _ -> False
 
 -- | Run a parser proceeded optionally by a @pub@ qualifier,

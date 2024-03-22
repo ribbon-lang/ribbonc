@@ -23,9 +23,9 @@ import Text.Pretty
 
 import Language.Ribbon.Util
 import Language.Ribbon.Lexical.Literal
-import Language.Ribbon.Lexical.Path
 import Language.Ribbon.Lexical.Version
 import Language.Ribbon.Parsing.Text
+import Language.Ribbon.Lexical.Name
 
 
 
@@ -44,8 +44,8 @@ data Token
     | TVersion !Version
     -- | A sequence of tokens delimited by something
     | TTree !BlockKind !TokenSeq
-    -- | A sequence of names and symbols
-    | TPath !Path
+    -- | A variable name with operator semantics
+    | TFixName !FixName
     deriving (Eq, Ord, Show)
 
 instance SyntaxInput Token where
@@ -54,7 +54,7 @@ instance SyntaxInput Token where
         TLiteral l -> inputPretty l
         TVersion v -> "version" <+> backticked v
         TTree k _ -> pPrint k <+> "tree"
-        TPath p -> "path" <+> backticked p
+        TFixName f -> pPrint f
 
 instance (Applicative m, MonadState BlockCounter m) => PrettyWith m Token where
     pPrintPrecWith lvl prec = \case
@@ -62,7 +62,7 @@ instance (Applicative m, MonadState BlockCounter m) => PrettyWith m Token where
         TLiteral l -> pPrintPrecWith lvl prec l
         TVersion v -> pPrintPrecWith lvl prec v
         TTree k ts -> blockPrintWith lvl k ts
-        TPath p -> pPrintPrecWith lvl prec p
+        TFixName f -> pPrintPrecWith lvl prec f
 
 instance Pretty Token where
     pPrintPrec lvl prec t =

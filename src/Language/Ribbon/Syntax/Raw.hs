@@ -15,14 +15,15 @@ import Language.Ribbon.Syntax.Module
 
 
 
+
 -- | Raw output from a parser of the head section of a module
 data RawModuleHeader
     = RawModuleHeader
-    { name :: !(ATag String)
-    , version :: !(ATag Version)
-    , sources :: ![ATag FilePath]
+    {         name :: !(ATag String)
+    ,      version :: !(ATag Version)
+    ,      sources :: ![ATag FilePath]
     , dependencies :: !RawDependencies
-    , meta :: !MetaData
+    ,         meta :: !MetaData
     }
     deriving Show
 
@@ -43,8 +44,8 @@ instance Pretty RawModuleHeader where
 data RawUse
     = RawUse
     { basePath :: !(ATag Path)
-    , tree :: !(ATag RawUseTree)
-    , alias :: !(Maybe QualifiedName)
+    ,     tree :: !(ATag RawUseTree)
+    ,    alias :: !(Maybe QualifiedName)
     }
     deriving (Eq, Ord, Show)
 
@@ -60,7 +61,7 @@ instance Pretty RawUse where
 -- | Raw output from a parser of the imported item/s in a use declaration
 data RawUseTree
     = RawUseBranch ![ATag RawUse]
-    | RawUseBlob ![ATag PathName]
+    | RawUseBlob ![ATag FixName]
     | RawUseSingle
     deriving (Eq, Ord, Show)
 
@@ -78,17 +79,15 @@ rawUseTreeIsSingle = \case
     RawUseSingle -> True
     _ -> False
 
--- | Extract a hidable @PathName@ from a @RawUse@;
+-- | Extract a hidable @FixName@ from a @RawUse@;
 --   this is the path to be ignored by adjacent blobs
 --   Fails if:
---   + @getPathName@ fails
-hidablePathNameFromUse :: RawUse -> Maybe (ATag PathName)
-hidablePathNameFromUse RawUse{..} =
+--   + @getFixName@ fails
+hidableFixNameFromUse :: RawUse -> Maybe (ATag FixName)
+hidableFixNameFromUse RawUse{..} =
     let pathFixName = untag <$> getPathName basePath.value
-        pathCategory = getPathCategory basePath.value
     in if isHidableBase (untag <$> basePath.value.base)
-        then pathFixName <&> \f ->
-            PathName f pathCategory <$ basePath
+        then (<$ basePath) <$> pathFixName
         else Nothing
     where
     isHidableBase = \case

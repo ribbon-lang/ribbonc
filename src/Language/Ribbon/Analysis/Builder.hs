@@ -218,17 +218,17 @@ insertRef b =
             Right g' -> (Nothing, g')
     >>= whenJust \(err :@: at) ->
         reportErrorRefH
-            b.value.name.value.value.tag
+            b.value.name.value.tag
             ConflictingDefinition
-            (Just $ prettyShow b.value.name.value.value.value)
+            (Just $ prettyShow b.value.name.value.value)
             err
             ["it was first defined here:" <+> pPrint at]
 
 
--- | Insert a new @Ref@ into a @Group@, bound to a @Visible GroupName@,
+-- | Insert a new @Ref@ into a @Group@, bound to a @Visible QualifiedName@,
 --   where the @Ref@ is generated from an action producing an @ItemId@
 insertNew :: Has m [ Ref, M.Group, Diag ] =>
-    Visible GroupName -> m ItemId -> m ItemId
+    Visible QualifiedName -> m ItemId -> m ItemId
 insertNew n m = do
     mi <- getModuleId
     ii <- m

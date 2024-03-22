@@ -60,48 +60,11 @@ instance Pretty Category where
         Injection -> "injection"
 
 
--- | The generic category of a @Binding@,
---   used for determining overload compatibility
-data OverloadCategory
-    -- | A namespace-like item
-    = ONamespace
-    -- | An instance-like item
-    | OInstance
-    -- | A type-like item
-    | OType
-    -- | A value-like item
-    | OValue
-    deriving (Eq, Ord, Show, Enum, Bounded)
-
-instance Pretty OverloadCategory where
-    pPrint = \case
-        ONamespace -> "namespace"
-        OInstance -> "instance"
-        OType -> "type"
-        OValue -> "value"
-
-overloadedCategory :: Category -> OverloadCategory
-overloadedCategory = \case
-    Namespace -> ONamespace
-    Effect -> OType
-    Class -> OType
-    Instance -> OInstance
-    Struct -> OType
-    Union -> OType
-    Alias -> OType
-    Value -> OValue
-    Decl -> OValue
-    Case -> OValue
-    Projection -> OValue
-    Injection -> OValue
-
-
-
 -- | Wrapper for an item with a @Category@
 data Categorical a
     = Categorical
     { category :: !Category
-    , value :: !a
+    ,    value :: !a
     }
     deriving (Eq, Ord, Functor, Foldable, Traversable, Show)
 

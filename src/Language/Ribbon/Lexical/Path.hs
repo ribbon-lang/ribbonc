@@ -17,7 +17,6 @@ import Text.Pretty
 
 import Language.Ribbon.Util
 import Language.Ribbon.Lexical.Fixity
-import Language.Ribbon.Lexical.Category
 import Language.Ribbon.Lexical.Name
 import Language.Ribbon.Syntax.Ref
 
@@ -44,24 +43,19 @@ instance RequiresSlash (Seq a) where
 data Path
     = Path
     { base :: !(Maybe (ATag PathBase))
-    , components :: !(Seq (ATag PathName))
+    , components :: !(Seq (ATag FixName))
     }
     deriving (Eq, Ord, Show)
 
--- | Pattern alias for a @Path@ with a single @PathName@ component
-pattern SingleNamePath :: PathName -> Path
+-- | Pattern alias for a @Path@ with a single @FixName@ component
+pattern SingleNamePath :: FixName -> Path
 pattern SingleNamePath pn <-
     Path Nothing ((pn :@: _) Seq.:<| Nil)
-
--- | Pattern alias for a @Path@ with a single @FixName@ component
-pattern SingleFixPath :: FixName -> Path
-pattern SingleFixPath fn <-
-    SingleNamePath (FixPathName fn)
 
 -- | Pattern alias for a @Path@ with a single @SimpleName@ component
 pattern SingleSimplePath :: SimpleName -> Path
 pattern SingleSimplePath sn <-
-    SingleFixPath (SimpleFixName sn)
+    SingleNamePath (SimpleFixName sn)
 
 instance Pretty Path where
     pPrintPrec lvl _ (Path b cs) =
@@ -86,33 +80,23 @@ instance Nil Path where
 
 
 joinPath :: Path -> Path -> Maybe Path
-joinPath (Path b1 c1) (Path b2 c2) =
-        case b2 of
-            Nothing -> Just $ Path b1 (c1 <> c2)
-            Just b -> case b.value of
-                PbThis -> Just $ Path b1 (c1 <> c2)
-                PbUp lvls ->
-                    let lc = fromIntegral (Seq.length c1)
-                    in if lvls > lc
-                        then case b1 of
-                            Just (PbUp lvls' :@: _) ->
-                                Just $ Path (Just $ PbUp (lvls + lvls') :@: b.tag) c2
-                            Just (PbThis :@: _) ->
-                                Just $ Path (Just $ PbUp (lvls - lc) :@: b.tag) c2
-                            Nothing ->
-                                Just $ Path (Just $ PbUp (lvls - lc) :@: b.tag) c2
-                            _ -> Nothing
-                        else Just $ Path b1 (Seq.drop (fromIntegral lvls) c1 <> c2)
-                _ -> Just $ Path b2 c2
-
--- | Attempt to extract an @OverloadCategory@ from a @Path@;
---   Fails if:
---   + The @Path@ is empty (shouldn't happen)
---   + The @Path@ has @PathName@s, but the final one has no @OverloadCategory@
-getPathCategory :: Path -> Maybe OverloadCategory
-getPathCategory (Path _ (_ Seq.:|> c)) = c.value.category
-getPathCategory (Path (Just _) Nil) = Just ONamespace
-getPathCategory _ = Nothing
+joinPath (Path b1 c1) (Path b2 c2) = case b2 of
+    Nothing -> Just $ Path b1 (c1 <> c2)
+    Just b -> case b.value of
+        PbThis -> Just $ Path b1 (c1 <> c2)
+        PbUp lvls ->
+            let lc = fromIntegral (Seq.length c1)
+            in if lvls > lc
+                then case b1 of
+                    Just (PbUp lvls' :@: _) ->
+                        Just $ Path (Just $ PbUp (lvls + lvls') :@: b.tag) c2
+                    Just (PbThis :@: _) ->
+                        Just $ Path (Just $ PbUp (lvls - lc) :@: b.tag) c2
+                    Nothing ->
+                        Just $ Path (Just $ PbUp (lvls - lc) :@: b.tag) c2
+                    _ -> Nothing
+                else Just $ Path b1 (Seq.drop (fromIntegral lvls) c1 <> c2)
+        _ -> Just $ Path b2 c2
 
 -- | Attempt to extract a @FixName@ from a @Path@;
 --   Fails if:
@@ -121,7 +105,7 @@ getPathCategory _ = Nothing
 --   + The @Path@ has no @PathName@s,
 --     and its base is a file that cannot be converted to a @SimpleName@
 getPathName :: Path -> Maybe (ATag FixName)
-getPathName (Path _ (_ Seq.:|> c)) = Just (c.value.name <$ c)
+getPathName (Path _ (_ Seq.:|> c)) = Just c
 getPathName (Path (Just b) Nil) = case b.value of
     PbModule n -> Just (SimpleFixName n <$ b)
     PbFile f -> (<$ b) . SimpleFixName <$> simpleNameFromFile f
@@ -165,10 +149,10 @@ data PathStackBaseKind
 
 data PathStack
     = PsBase PathStackBaseKind Ref String Attr
-    | PsCons PathStack Ref GroupName Attr
+    | PsCons PathStack Ref QualifiedName Attr
     deriving (Eq, Ord, Show)
 
-pattern PsCons' :: Ref -> GroupName -> Attr -> PathStack -> PathStack
+pattern PsCons' :: Ref -> QualifiedName -> Attr -> PathStack -> PathStack
 pattern PsCons' r g a ps = PsCons ps r g a
 
 instance Pretty PathStack where

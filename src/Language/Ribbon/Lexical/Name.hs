@@ -76,6 +76,36 @@ pattern SimpleFixName n = FixName (FixSimple n Seq.:<| Nil)
 pattern StringFixName :: String -> FixName
 pattern StringFixName s = SimpleFixName (SimpleName s)
 
+instance Pretty FixName where
+    pPrint fn@(FixName cs) = maybeBackticks (needsEscape fn) $
+        hcat $ pPrint <$> Fold.toList cs
+
+instance NeedsEscape FixName where
+    needsEscape (FixName cs) = any needsEscape cs
+
+instance HasFixity FixName where
+    getFixity (FixName Nil) = error "getFixity: FixName with no components"
+    getFixity (FixName s@(h Seq.:<| _))
+        | FixSimple _ <- h = case s of
+            _ Seq.:|> q
+                | FixSimple _ <- q -> Atom
+                | FixOperand <- q -> Prefix
+        | FixOperand <- h = case s of
+            _ Seq.:|> q
+                | FixSimple _ <- q -> Postfix
+                | FixOperand <- q -> Infix
+
+validateFixName :: FixName -> Maybe Doc
+validateFixName (FixName cs) = do
+    if not $ any isFixSimple cs
+        then Just "fix name must contain at least one identifier or operator"
+        else checkAdjacencies cs where
+    checkAdjacencies Nil = Nothing
+    checkAdjacencies (l Seq.:<| r)
+        | FixOperand <- l, FixOperand Seq.:<| _ <- r =
+            Just "fix name must not contain adjacent operands"
+        | otherwise = checkAdjacencies r
+
 -- | Compare two @FixName@s by their @OverloadFixity@
 --   and then by their @SimpleNames@
 fixNameCompare :: FixName -> FixName -> Ordering
@@ -102,47 +132,6 @@ isSimpleFixName = \case SimpleFixName _ -> True; _ -> False
 isCompoundFixName :: FixName -> Bool
 isCompoundFixName = not . isSimpleFixName
 
-instance Pretty FixName where
-    pPrint fn@(FixName cs) = maybeBackticks (needsEscape fn) $
-        hcat $ pPrint <$> Fold.toList cs
-
-instance NeedsEscape FixName where
-    needsEscape (FixName cs) = any needsEscape cs
-
-instance HasFixity FixName where
-    getFixity (FixName Nil) = error "getFixity: FixName with no components"
-    getFixity (FixName s@(h Seq.:<| _))
-        | FixSimple _ <- h = case s of
-            _ Seq.:|> q
-                | FixSimple _ <- q -> Atom
-                | FixOperand <- q -> Prefix
-        | FixOperand <- h = case s of
-            _ Seq.:|> q
-                | FixSimple _ <- q -> Postfix
-                | FixOperand <- q -> Infix
-
-data FixNameError
-    = FixNameMissingSimple
-    | FixNameAdjacentOperands
-    deriving (Eq, Ord, Show)
-
-instance Pretty FixNameError where
-    pPrint = \case
-        FixNameMissingSimple ->
-            "fix name must contain at least one identifier or operator"
-        FixNameAdjacentOperands ->
-            "fix name must not contain adjacent operands"
-
-validateFixName :: FixName -> Maybe FixNameError
-validateFixName (FixName cs) = do
-    if not $ any isFixSimple cs
-        then Just FixNameMissingSimple
-        else checkAdjacencies cs where
-    checkAdjacencies Nil = Nothing
-    checkAdjacencies (l Seq.:<| r)
-        | FixOperand <- l, FixOperand Seq.:<| _ <- r =
-            Just FixNameAdjacentOperands
-        | otherwise = checkAdjacencies r
 
 -- | A component of a variable name with operator semantics;
 --   see @FixName@ for usage details
@@ -172,6 +161,7 @@ isFixOperand :: FixNameComponent -> Bool
 isFixOperand = \case
     FixOperand -> True
     _ -> False
+
 
 
 -- | A @FixName@ qualified with
@@ -217,48 +207,12 @@ isSimpleQualifiedName QualifiedName{..} =
     && isSimpleFixName value.value
 
 
--- | @Categorical FixName@
-type SpecificName = Categorical (ATag FixName)
-
-
--- | A component of a @Path@,
---   specifying a name to look up, optionally within an overload category
-data PathName
-    = PathName
-    {     name :: !FixName
-    , category :: !(Maybe OverloadCategory)
-    }
-    deriving (Eq, Ord, Show)
-
--- | Pattern alias for a @PathName@ with no @Category@
-pattern FixPathName :: FixName -> PathName
-pattern FixPathName n = PathName n Nothing
-
-instance Pretty PathName where
-    pPrintPrec lvl _ = \case
-        PathName n k -> hsep
-            [ pPrintPrec lvl 0 n
-            , maybeMEmpty (pPrintPrec lvl 0 <$> k)
-            ]
-
-instance HasFixity PathName where
-    getFixity (PathName n _) = getFixity n
-
--- | A @FixName@ qualified with
---   a @Visibility@, @Category@, @Associativity@, and @Precedence@
---   used for binding elements in a @Group@
-type GroupName = Categorical QualifiedName
-
-specificNameFromGroupName :: GroupName -> SpecificName
-specificNameFromGroupName gn = (.value) <$> gn
-
 
 -- | A @FixName@ associated with an import that has not been resolved yet
 data UnresolvedName
     = UnresolvedName
-    { category :: !(Maybe OverloadCategory)
-    , fixitySpecifics :: !(Maybe (Associativity, Precedence))
-    , value :: !(ATag FixName)
+    { fixitySpecifics :: !(Maybe (Associativity, Precedence))
+    ,           value :: !(ATag FixName)
     }
     deriving Show
 
@@ -267,16 +221,15 @@ instance Eq UnresolvedName where
 
 instance Ord UnresolvedName where
     compare a b = compare
-        (a.category, overloadedFixity $ getFixity a, a.value)
-        (b.category, overloadedFixity $ getFixity b, b.value)
+        (overloadedFixity $ getFixity a, a.value)
+        (overloadedFixity $ getFixity b, b.value)
 
 instance HasFixity UnresolvedName where
     getFixity = getFixity . (.value)
 
 instance Pretty UnresolvedName where
     pPrintPrec lvl _ UnresolvedName{..} =
-        hsep [ maybeMEmpty (pPrintPrec lvl 0 <$> category)
-             , case getFixity value of
+        hsep [ case getFixity value of
                 Atom -> pPrintPrec lvl 0 value
                 _ -> case fixitySpecifics of
                     Just (a, p) -> case a of
@@ -290,25 +243,18 @@ instance Pretty UnresolvedName where
              ]
 
 -- | Convert a @QualifiedName@ to an @UnresolvedName@,
---   given an optional @OverloadCategory@;
+--   given an optional @Category@;
 --   Fails if:
---   + @OverloadCategory@ is @ONamespace@ or @OInstance@ and the @QualifiedName@
---     is not an atom with associativity @NonAssociative@ and precedence @0@
 --   + The @QualifiedName@ has an associativity other than @NonAssociative@,
 --     with a @Fixity@ of @Atom@, @Prefix@, or @Postfix@
 --   + The @QualifiedName@ has a non-zero precedence,
 --     with a @Fixity@ of @Atom@
-unresolvedFromQualified ::
-    Maybe OverloadCategory -> QualifiedName -> Maybe UnresolvedName
-unresolvedFromQualified category QualifiedName{..} = UnresolvedName
-    { category
-    , fixitySpecifics = Just (associativity, precedence)
+unresolvedFromQualified :: QualifiedName -> Maybe UnresolvedName
+unresolvedFromQualified QualifiedName{..} =
+    UnresolvedName
+    { fixitySpecifics = Just (associativity, precedence)
     , value
     } <$ guard if
-        | category == Just ONamespace || category == Just OInstance
-            -> getFixity value == Atom
-            && associativity == NonAssociative
-            && precedence == 0
         | getFixity value == Atom
             -> associativity == NonAssociative
             && precedence == 0
@@ -318,32 +264,27 @@ unresolvedFromQualified category QualifiedName{..} = UnresolvedName
 
 -- | Convert an @UnresolvedName@ to a @QualifiedName@, using a target @Category@
 --   Fails if:
---   + Respective @Category@s are mismatched
 --   + The @UnresolvedName@ has a @fixitySpecifics@ that is incompatible
 --   + The @UnresolvedName@ has a @Fixity@ that is incompatible
---   + @Category@ is not @ONamespace@ or @OInstance@ and the @UnresolvedName@
+--   + @Category@ is not @Namespace@ or @Instance@ and the @UnresolvedName@
 --     has no @fixitySpecifics@
 groupFromUnresolvedInCategory ::
-    Category -> UnresolvedName -> Maybe GroupName
-groupFromUnresolvedInCategory exactCategory UnresolvedName{..} =
-    let category' = overloadedCategory exactCategory
-    in if
-        | category' == ONamespace || category' == OInstance
-        , maybe True (== category') category
-        , maybe True (== (NonAssociative, 0)) fixitySpecifics
-        , getFixity value == Atom ->
-            Just $ Categorical exactCategory QualifiedName
-                { associativity = NonAssociative
-                ,    precedence = 0
-                ,         value = value
-                }
+    Category -> UnresolvedName -> Maybe QualifiedName
+groupFromUnresolvedInCategory category UnresolvedName{..}
+    | category == Namespace || category == Instance
+    , maybe True (== (NonAssociative, 0)) fixitySpecifics
+    , getFixity value == Atom =
+        Just $ QualifiedName
+            { associativity = NonAssociative
+            ,    precedence = 0
+            ,         value = value
+            }
 
-        | Just (a, p) <- fixitySpecifics
-        , maybe True (== category') category ->
-            Just $ Categorical exactCategory QualifiedName
-                { associativity = a
-                ,    precedence = p
-                ,         value = value
-                }
+    | Just (a, p) <- fixitySpecifics =
+        Just $ QualifiedName
+            { associativity = a
+            ,    precedence = p
+            ,         value = value
+            }
 
-        | otherwise -> Nothing
+    | otherwise = Nothing

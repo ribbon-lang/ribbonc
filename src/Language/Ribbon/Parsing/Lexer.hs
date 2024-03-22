@@ -140,7 +140,7 @@ token ind = asum do
     treeToken ind :
         [ TVersion <$> version
         , TLiteral <$> literal
-        ,    TPath <$> path
+        , TFixName <$> fixName
         ,  TSymbol <$> symbol
         ]
 
@@ -201,57 +201,6 @@ bracketBlock = expecting "bracket block" .
 
 
 
-
--- | Lex a @Path@ sequence
-path :: Has m '[Lex] => m Path
-path = do
-    b <- optional $ tag pathBase
-
-    cs <- case b of
-        Just base -> option Nil do
-            if requiresSlash base
-                then do
-                    at <- attrOf $ connected base.tag $ expectSymbol "/"
-                    connected at body
-                else connected base.tag body
-        _ -> body
-
-    pure $ Path
-        { base = b
-        , components = cs
-        }
-    where
-    body = do
-        fc@(_ :@: at) <- tag pathName
-        Seq.fromList . (fc :) <$> connectMany at do
-            at' <- attrOf $ expectSymbol "/"
-            connected at' (tag pathName)
-
--- | Lex a @PathBase@
-pathBase :: Has m '[Lex] => m PathBase
-pathBase = expecting "a path base" $ asum
-    [ PbRoot <$ expectSymbol "~/"
-    , PbThis <$ do
-        expectSymbol "."
-        expectSymbol "/"
-    , PbModule <$> do
-        expectSymbol "module"
-        hScanning simpleName
-    , PbFile <$> do
-        expectSymbol "file"
-        noFail (hScanning string)
-    , PbUp <$> do
-        fromIntegral . length <$> some do
-            expectSymbol ".."
-            expectSymbol "/"
-    ]
-
--- | Lex a @PathName@
-pathName :: Has m '[Lex] => m PathName
-pathName = expecting "a path component" do
-    liftA2 PathName
-        do name
-        do optional (hScanning category)
 
 
 
@@ -536,15 +485,6 @@ string = expecting "a string literal" do
             , nextIf (`notElem` '\"' : mustEscapes)
             ]
     s <$ noFail (expect '\"')
-
--- | Lex an @OverloadCategory@ (does not succeed on @OUnresolved@, use @option@)
-category :: Has m '[Lex] => m OverloadCategory
-category = asum
-    [ ONamespace <$ expectSeq "namespace"
-    , OInstance <$ expectSeq "instance"
-    , OType <$ expectSeq "type"
-    , OValue <$ expectSeq "value"
-    ]
 
 
 -- | Lex an atomic punctuation symbol like @,@
