@@ -1,7 +1,5 @@
 module Language.Ribbon.Syntax.Kind where
 
-import Data.Attr
-
 import Text.Pretty
 
 
@@ -15,10 +13,7 @@ data Kind
     -- | Nullary constructor such as @type@, @effect@, @constraint@, etc
     | KConstant !String
     -- | Type constructor, such as @type -> type@, @effect -> type@, etc
-    | KArrow
-    { input :: !(ATag Kind)
-    , output :: !(ATag Kind)
-    }
+    | KArrow !Kind !Kind
     deriving (Eq, Ord, Show)
 
 instance Pretty Kind where
@@ -32,9 +27,9 @@ instance Pretty Kind where
 type KindVar = Int
 
 -- | Infix alias for `KArrow`
-pattern (:~>:) :: ATag Kind -> ATag Kind -> Kind
+pattern (:~>:) :: Kind -> Kind -> Kind
 pattern (:~>:) a b = KArrow a b
-infixr 9 :~>:
+infixr 8 :~>:
 
 -- | The kind of types
 pattern KType :: Kind

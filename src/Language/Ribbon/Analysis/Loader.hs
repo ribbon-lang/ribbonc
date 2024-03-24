@@ -30,8 +30,9 @@ import Language.Ribbon.Lexical
 import Language.Ribbon.Syntax.Ref
 import Language.Ribbon.Syntax.Module
     ( ModuleContext, ResolverModule
-    , AnalysisModuleHeader(..), Module(..)
-    , parserDefsToResolverDefs
+    , ResolverModuleHeader(..)
+    , AnalysisModuleHeader(..)
+    , Module(..)
     )
 import Language.Ribbon.Analysis.Context
 import Language.Ribbon.Analysis.Diagnostics
@@ -181,6 +182,7 @@ loadResolverModule ctx modId modPath' = do
     -- build up a list of IO actions to load and parse the source files
     ioDiags <- liftIO $ newIORef Nil
     ioDefMap <- liftIO $ newIORef Nil
+    ioUnresolved <- liftIO $ newIORef Nil
     ioSourceMap <- liftIO $ newIORef Nil
     ioDependencyMap <- liftIO $ newIORef Nil
 
@@ -193,9 +195,10 @@ loadResolverModule ctx modId modPath' = do
             in ((itemId + itemIdIncr, ) . (: acc)) do
                 putStrLn $ render $
                     "processing file" <+> brackets (text fullPath)
-                (!defs, !diags) <- P.parseSourceFile modId itemId fullPath
+                ((!defs, !unresolved), !diags) <- P.parseSourceFile modId itemId fullPath
                 modifyIORef' ioDiags (<> diags)
                 modifyIORef' ioDefMap (<> defs)
+                modifyIORef' ioUnresolved (<> unresolved)
                 modifyIORef' ioSourceMap (Map.insert fullPath itemId)
 
     -- run all the IO actions at once and wait on them all to finish
@@ -203,9 +206,11 @@ loadResolverModule ctx modId modPath' = do
         parallelInterleavedE
             $ do -- add the header defs to the list of actions
                 putStrLn "processing module root"
-                (!defs, !diags) <- P.parseSourceFileBody modId 0 modPath rootLns
+                ((!defs, !unresolved), !diags) <-
+                    P.parseSourceFileBody modId 0 modPath rootLns
                 modifyIORef' ioDiags (<> diags)
                 modifyIORef' ioDefMap (<> defs)
+                modifyIORef' ioUnresolved (<> unresolved)
             : do -- add dependency resolution to the list of actions
                 putStrLn "processing module dependencies"
                 (depMap, diags) <- runReaderT' ctx $ runWriterT $
@@ -225,16 +230,20 @@ loadResolverModule ctx modId modPath' = do
     -- assemble the module
     fullSourceMap <- liftIO (readIORef ioSourceMap)
     fullDefs <- liftIO (readIORef ioDefMap)
+    unresolvedImportMap <- liftIO (readIORef ioUnresolved)
     dependencyMap <- liftIO (readIORef ioDependencyMap)
 
     pure Module
-        { moduleId = modId
-        , header = AnalysisModuleHeader
-            { files = fullSourceMap
-            , dependencies = Map.toList dependencyMap
+        { header = ResolverModuleHeader
+            { analysis = AnalysisModuleHeader
+                { files = fullSourceMap
+                , dependencies = dependencyMap
+                , metaData = rawHeader.value.meta
+                , moduleId = modId
+                }
+            , unresolved = unresolvedImportMap
             }
-        , meta = rawHeader.value.meta
-        , defSet = parserDefsToResolverDefs fullDefs
+        , defSet = fullDefs
         }
     where
     -- | we use a @Word64@ for @ItemId@,
@@ -274,10 +283,10 @@ loadResolverModule ctx modId modPath' = do
         diagAssertH (Maybe.isJust alias || isUserSymbol actualName)
             nameVer.tag
                 DiagnosticBinder
-                    { kind = BadDefinition
-                    , ref = Ref modId 0
-                    , name = Just actualName
-                    }
+                { kind = BadDefinition
+                , ref = Ref modId 0
+                , name = Just actualName
+                }
                 ("imported module name"
                     <+> pPrint actualName
                     <+> "is not a valid identifier and must be aliased")
@@ -285,8 +294,8 @@ loadResolverModule ctx modId modPath' = do
                     <+> "to alias the module name"]
 
         let depName = case alias of
-                Just a -> a
-                _ -> SimpleName actualName :@: nameVer.tag
+                Just a -> untag a
+                _ -> SimpleName actualName
 
         -- lookupModule provides some suggestions in the event of a failure
         -- so we need to format that into a diagnostic
@@ -294,25 +303,25 @@ loadResolverModule ctx modId modPath' = do
             Left (e, h) ->
                 Nil <$ reportErrorH nameVer.tag
                     DiagnosticBinder
-                        { kind = BadDefinition
-                        , ref = Ref modId 0
-                        , name = Just actualName
-                        }
+                    { kind = BadDefinition
+                    , ref = Ref modId 0
+                    , name = Just actualName
+                    }
                     e h
             Right depId -> pure depId
 
         -- make sure the name isn't already bound
-        case List.find (== depName) (Map.keys depMap) of
+        case Map.lookup depName depMap of
             Just existing -> do
                 reportErrorH nameVer.tag
                     DiagnosticBinder
-                        { kind = ConflictingDefinition
-                        , ref = Ref modId 0
-                        , name = Just depName.value.value
-                        }
+                    { kind = ConflictingDefinition
+                    , ref = Ref modId 0
+                    , name = Just depName.value
+                    }
                     ("an import module has already been bound to the name"
                         <+> pPrint actualName)
                     ["it was first bound here:" <+> pPrint existing.tag]
                 pure depMap
-            _ -> pure $ Map.insert depName depId depMap
+            _ -> pure $ Map.insert depName (depId :@: nameVer.tag) depMap
 

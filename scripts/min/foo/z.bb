@@ -9,7 +9,7 @@ pub namespace quux =
 
     instance Semigroup'Tag t, a
         where Semigroup t, Semigroup a
-        for Semigroup (Tag t a) =>
+        for Semigroup (Tag t a) =
             ` <> ` = tag/concat
 
     struct Vec2 a =

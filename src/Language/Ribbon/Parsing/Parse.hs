@@ -37,7 +37,7 @@ parseModuleHead fp = do
 
 parseSourceFile ::
     ModuleId -> ItemId -> FilePath ->
-        IO (M.ParserDefs, [Diagnostic])
+        IO ((M.ParserDefs, M.UnresolvedImportMap), [Diagnostic])
 parseSourceFile mi ii fp =
     do runWriterT $
         runErrorT @SyntaxError $
@@ -59,7 +59,7 @@ parseSourceFile mi ii fp =
 
 parseSourceFileBody ::
     ModuleId -> ItemId -> FilePath -> [ATag TokenSeq] ->
-        IO (M.ParserDefs, [Diagnostic])
+        IO ((M.ParserDefs, M.UnresolvedImportMap), [Diagnostic])
 parseSourceFileBody mi ii fp lns =
     do runWriterT $
         runErrorT @SyntaxError $

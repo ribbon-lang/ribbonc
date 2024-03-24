@@ -3,6 +3,8 @@ module Language.Ribbon.Analysis.Builder
     , DefsState
 
     , MonadDefs
+    , freshDefsState
+    , defsStateExtract
     , defsState
     , defsGet
     , defsPut
@@ -57,7 +59,6 @@ module Language.Ribbon.Analysis.Builder
     , resolverModuleId
     )where
 
-import Data.Bifunctor
 
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
@@ -83,13 +84,42 @@ import Language.Ribbon.Syntax.Module qualified as M
 
 import Language.Ribbon.Analysis.Diagnostics
 import Language.Ribbon.Analysis.Context
-import Control.Monad (guard)
+import Language.Ribbon.Syntax.Type (UserType)
+import Data.Nil
 
 
 
 
 -- | State object for @MonadDefs@
-type DefsState = (ItemId, M.ParserDefs)
+type DefsState = (ItemId, M.ParserDefs, M.UnresolvedImportMap)
+
+freshDefsState :: ItemId -> DefsState
+freshDefsState i = (i + 1, Nil, Nil)
+
+defsStateExtract :: DefsState ->
+    (M.ParserDefs, M.UnresolvedImportMap)
+defsStateExtract (_, d, u) = (d, u)
+
+stateId :: (ItemId -> (a, ItemId)) -> DefsState -> (a, DefsState)
+stateId f (i, d, u) = let (a, i') = f i in (a, (i', d, u))
+
+stateDefs :: (M.ParserDefs -> (a, M.ParserDefs)) -> DefsState -> (a, DefsState)
+stateDefs f (i, d, u) = let (a, d') = f d in (a, (i, d', u))
+
+onDefs :: (M.ParserDefs -> M.ParserDefs) -> DefsState -> DefsState
+onDefs f = snd . stateDefs \d -> ((), f d)
+
+stateImports ::
+    (M.UnresolvedImportMap ->
+        (a, M.UnresolvedImportMap)) ->
+        DefsState -> (a, DefsState)
+stateImports f (i, d, u) = let (a, u') = f u in (a, (i, d, u'))
+
+onImports ::
+    (M.UnresolvedImportMap ->
+        M.UnresolvedImportMap) ->
+        DefsState -> DefsState
+onImports f = snd . stateImports \u -> ((), f u)
 
 -- | @MonadState ParserDefs@
 type MonadDefs = MonadState DefsState
@@ -116,7 +146,7 @@ defsModify = modify
 
 -- | Get a fresh @ItemId@
 freshItemId :: MonadDefs m => m ItemId
-freshItemId = defsState \(i, d) -> (i, (i + 1, d))
+freshItemId = defsState $ stateId \i -> (i, i + 1)
 
 -- | Get a fresh @ItemId@, then call the given function to bind a @Def@ to it
 withFreshItemId :: MonadDefs m =>
@@ -128,47 +158,46 @@ withFreshItemId f def = do
 
 -- | Insert a @Group@ by @ItemId@
 bindGroup :: MonadDefs m => ItemId -> ATag M.Group -> m ()
-bindGroup eid def = defsModify $ second \defs ->
+bindGroup eid def = defsModify $ onDefs \defs ->
     defs { M.groups = Map.insert eid def defs.groups }
 
 -- | Insert a definition quantifier by @ItemId@
 bindQuantifier :: MonadDefs m => ItemId -> ATag Quantifier -> m ()
-bindQuantifier eid def = defsModify $ second \defs ->
+bindQuantifier eid def = defsModify $ onDefs \defs ->
     defs { M.quantifiers = Map.insert eid def defs.quantifiers }
 
 -- | Insert a definition qualifier by @ItemId@
-bindQualifier :: MonadDefs m => ItemId -> ATag (Qualifier TokenSeq) -> m ()
-bindQualifier eid def = defsModify $ second \defs ->
+bindQualifier :: MonadDefs m => ItemId -> ATag (Qualifier UserType) -> m ()
+bindQualifier eid def = defsModify $ onDefs \defs ->
     defs { M.qualifiers = Map.insert eid def defs.qualifiers }
 
 -- | Insert a field definition by @ItemId@
-bindField :: MonadDefs m => ItemId -> ATag (Field TokenSeq) -> m ()
-bindField eid def = defsModify $ second \defs ->
+bindField :: MonadDefs m => ItemId -> ATag (Field UserType) -> m ()
+bindField eid def = defsModify $ onDefs \defs ->
     defs { M.fields = Map.insert eid def defs.fields }
 
 -- | Insert a type definition by @ItemId@
-bindType :: MonadDefs m => ItemId -> ATag TokenSeq -> m ()
-bindType eid def = defsModify $ second \defs ->
+bindType :: MonadDefs m => ItemId -> ATag UserType -> m ()
+bindType eid def = defsModify $ onDefs \defs ->
     defs { M.types = Map.insert eid def defs.types }
 
 -- | Insert a value definition by @ItemId@
 bindValue :: MonadDefs m => ItemId -> ATag TokenSeq -> m ()
-bindValue eid def = defsModify $ second \defs ->
+bindValue eid def = defsModify $ onDefs \defs ->
     defs { M.values = Map.insert eid def defs.values }
 
 -- | Insert an @UnresolvedImports@ definition by @ItemId@
 bindImports :: MonadDefs m => ItemId -> ATag M.UnresolvedImports -> m ()
-bindImports eid def = defsModify $ second \defs ->
-    defs { M.imports = Map.insert eid def defs.imports }
+bindImports eid def = defsModify $ onImports $ Map.insert eid def
 
 -- | Insert a parent @ItemId@ for a given @ItemId@
 bindParent :: MonadDefs m => ItemId -> ItemId -> m ()
-bindParent child parent = defsModify $ second \defs ->
+bindParent child parent = defsModify $ onDefs \defs ->
     defs { M.parents = Map.insert child parent defs.parents }
 
 -- | Insert a @Category@ for a given @ItemId@
 bindCategory :: MonadDefs m => ItemId -> Category -> m ()
-bindCategory eid category = defsModify $ second \defs ->
+bindCategory eid category = defsModify $ onDefs \defs ->
     defs { M.categories = Map.insert eid category defs.categories }
 
 -- | Insert a @Category@ for a given @ItemId@
@@ -351,21 +380,18 @@ modifyResolverModule = modify
 
 -- | Lookup a file id in the @ResolverModule@
 lookupFileId :: MonadResolverModule m => FilePath -> m (Maybe ItemId)
-lookupFileId fp = getsResolverModule $ Map.lookup fp . (.header.files)
+lookupFileId fp = getsResolverModule $ Map.lookup fp . (.header.analysis.files)
 
 -- | Lookup a dependency id in the @ResolverModule@
 lookupDependencyId :: MonadResolverModule m =>
     SimpleName -> m (Maybe ModuleId)
-lookupDependencyId n = getsResolverModule $
-    compose (.header.dependencies) $ lookupWith \(an, mi) ->
-        mi <$ guard (n == an.value)
+lookupDependencyId n = fmap untag <$> lookupDependencyIdAttr n
 
 -- | Lookup a dependency id in the @ResolverModule@
 lookupDependencyIdAttr :: MonadResolverModule m =>
     SimpleName -> m (Maybe (ATag ModuleId))
 lookupDependencyIdAttr n = getsResolverModule $
-    compose (.header.dependencies) $ lookupWith \(an, mi) ->
-        mi <$ an <$ guard (n == an.value)
+    Map.lookup n . (.header.analysis.dependencies)
 
 
 -- | Lookup a dependency in the @ResolverModule@
@@ -379,4 +405,4 @@ lookupDependency n = do
 
 
 resolverModuleId :: MonadResolverModule m => m ModuleId
-resolverModuleId = getsResolverModule (.moduleId)
+resolverModuleId = getsResolverModule (.header.analysis.moduleId)

@@ -143,7 +143,7 @@ moduleHead = expecting "a valid module header" do
 
 -- | Parse a source file
 sourceFile :: Has m [ ModuleId, Diag, Err SyntaxError, OS ] =>
-    ItemId -> FilePath -> m M.ParserDefs
+    ItemId -> FilePath -> m (M.ParserDefs, M.UnresolvedImportMap)
 sourceFile i filePath =
     runReaderT' filePath do
         L.lexStreamFromFile filePath
@@ -153,16 +153,16 @@ sourceFile i filePath =
 
 sourceFileBody :: Has m
     [ ModuleId, FilePath, Diag, OS ] =>
-    ItemId -> [ATag TokenSeq] -> m M.ParserDefs
-sourceFileBody itemId lns = snd <$> do
+    ItemId -> [ATag TokenSeq] -> m (M.ParserDefs, M.UnresolvedImportMap)
+sourceFileBody itemId lns = defsStateExtract <$> do
     filePath <- getFilePath
     runReaderT' (StringFixName filePath) do
         let at = fileAttr filePath
 
-        runReaderT' itemId $ execStateT' (itemId + 1, Nil) do
+        runReaderT' itemId $ execStateT' (freshDefsState itemId) do
             (newGroup, newUnresolvedImports) <-
-                runStateT' Nil $
-                execStateT' Nil $
+                runStateT' (Nil :: M.UnresolvedImports) $
+                execStateT' (Nil :: M.Group) $
                     lineParser item lns
 
             unless (isNil newGroup) do
@@ -442,7 +442,7 @@ effectDef vqn = noFail do
         qn <- qualifiedName
         usingFixName qn.value.value $ liftedSyntaxErrorRefName BadDefinition do
             sym ":"
-            body <- grabWhitespaceDomainAll
+            body <- tag userType
             newCaseId <- insertNew (Visible Public qn) do
                 withFreshItemId (withParent bindType) body
             bindCategory newCaseId Case
@@ -487,7 +487,7 @@ classDef vqn = noFail do
 
     classValue qn = sym ":" >> noFail do
         (q, c) <- option Nil (forTypeHead True)
-        body <- grabWhitespaceDomainAll
+        body <- tag userType
         newDeclId <- insertNew (Visible Public qn) do
             withFreshItemId (withParent bindType) body
         unless (isNil q) (bindQuantifier newDeclId q)
@@ -505,7 +505,7 @@ instanceDef :: Has m
 instanceDef vqn = noFail do
     (q, c) <- typeHeadDelim False "for"
 
-    for <- grabDomain (not . isSymbol "=" . untag) << sym "="
+    for <- tag userType << sym "="
 
     lns <- tryGrabBlock vqn.value.value.tag
 
@@ -527,7 +527,7 @@ instanceDef vqn = noFail do
 
     instanceType qn = noFail do
         q <- typeQuantifierEq False
-        body <- grabWhitespaceDomainAll
+        body <- tag userType
         newAliasId <- insertNew (Visible Public qn) do
             withFreshItemId (withParent bindType) body
         unless (isNil q) (bindQuantifier newAliasId q)
@@ -549,7 +549,7 @@ typeDef :: Has m
     ] => Visible QualifiedName -> m ItemId
 typeDef vqn = noFail do
     q <- typeQuantifierEq False
-    body <- grabWhitespaceDomainAll
+    body <- tag userType
     newAliasId <- insertNew vqn do
         withFreshItemId (withParent bindType) body
     unless (isNil q) (bindQuantifier newAliasId q)
@@ -582,10 +582,10 @@ structDef vqn = noFail do
         n <- tag simpleName
         sym ":"
         (idx :@: n.tag, n, )
-            <$> grabWhitespaceDomainAll
+            <$> tag userType
 
     tupleField idx = do
-        body <- grabWhitespaceDomainAll
+        body <- tag userType
         pure
             ( idx :@: body.tag
             , SimpleName (show idx) :@: body.tag
@@ -615,7 +615,7 @@ unionDef vqn = noFail do
         lbl <- asum [ numbered, nameOnly ]
         noFail do
             sym ":"
-            lbl <$> grabWhitespaceDomainAll
+            lbl <$> tag userType
         where
         numbered = do
             off <- tag int
@@ -637,8 +637,9 @@ valueDec :: Has m
 valueDec vqn = noFail do
     (q, c) <- option Nil (forTypeHead True)
     header <- grabDomain (not . isSymbol "=" . untag)
+    t <- recurseParserAll (tag userType) header
     newDeclId <- insertNew vqn do
-        withFreshItemId (withParent bindType) header
+        withFreshItemId (withParent bindType) t
     unless (isNil q) (bindQuantifier newDeclId q)
     unless (isNil c) (bindQualifier newDeclId c)
     pure newDeclId
@@ -665,13 +666,13 @@ bindingField :: Has m
     , Parse
     , Diag
     ] => Category ->
-        (Word32 -> m (ATag Word32, ATag SimpleName, ATag TokenSeq)) ->
+        (Word32 -> m (ATag Word32, ATag SimpleName, ATag UserType)) ->
             Word32 -> m Word32
 bindingField c fm i = do
     (off, n, f) :@: at <- tag $ fm i
     let lbl = Label
-            (TConstant . CInt <$> off)
-            (TConstant . CString . (.value) <$> n)
+            (Mono . TConstant . CInt <$> off)
+            (Mono . TConstant . CString . (.value) <$> n)
     newFieldId <- insertNew (Visible Public $
             QualifiedName NonAssociative 0 $
                 SimpleFixName <$> n) do
@@ -912,29 +913,29 @@ precedence = do
 -- | Parse a type scheme, where the quantifier is proceeded by a @for@ keyword,
 --   and the qualifier is delimited by an arrow @=>@; consumes the arrow
 forTypeHead :: Has m '[Parse] =>
-    Bool -> m (ATag Quantifier, ATag (Qualifier TokenSeq))
+    Bool -> m (ATag Quantifier, ATag (Qualifier UserType))
 forTypeHead nilCheck = typeHeadOf nilCheck (Just "=>") $ const $ liftA2 (,)
-    do option Nil $ tag (sym "for" >> quantifier)
-    do option Nil $ tag (qualifier $ Just "=>")
+    do optionalIndent $ tag $ option Nil (sym "for" >> quantifier)
+    do optionalIndent $ tag $ option Nil (qualifier $ Just "=>")
 
 -- | Parse a type scheme, delimited by the given symbol; consumes the delimiter
 typeHeadDelim :: Has m '[Parse] =>
-    Bool -> String -> m (ATag Quantifier, ATag (Qualifier TokenSeq))
+    Bool -> String -> m (ATag Quantifier, ATag (Qualifier UserType))
 typeHeadDelim nilCheck = typeHeadMaybeDelim nilCheck . Just
 
 -- | Parse a type scheme, with no delimiter
 typeHeadNoDelim :: Has m '[Parse] =>
-    Bool -> m (ATag Quantifier, ATag (Qualifier TokenSeq))
+    Bool -> m (ATag Quantifier, ATag (Qualifier UserType))
 typeHeadNoDelim nilCheck = typeHeadMaybeDelim nilCheck Nothing
 
 -- | Parse a type scheme, delimited by an @=@, and consume the equal sign
 typeHeadEq :: Has m '[Parse] =>
-    Bool -> m (ATag Quantifier, ATag (Qualifier TokenSeq))
+    Bool -> m (ATag Quantifier, ATag (Qualifier UserType) )
 typeHeadEq nilCheck = typeHeadDelim nilCheck "="
 
 -- | Parse a type scheme, delimited by an arrow @=>@, and consume the arrow
 typeHeadArrow :: Has m '[Parse] =>
-    Bool -> m (ATag Quantifier, ATag (Qualifier TokenSeq))
+    Bool -> m (ATag Quantifier, ATag (Qualifier UserType))
 typeHeadArrow nilCheck = typeHeadDelim nilCheck "=>"
 
 -- | Parse a type quantifier, delimited by an @=@ and consume the equal sign
@@ -952,24 +953,24 @@ typeQuantifierArrow nilCheck = typeHeadOf nilCheck (Just "=>") $ const do
 -- | Parse a type scheme, delimited by the given symbol, if one is provided;
 --   consumes the delimiter
 typeHeadMaybeDelim :: Has m '[Parse] =>
-    Bool -> Maybe String -> m (ATag Quantifier, ATag (Qualifier TokenSeq))
+    Bool -> Maybe String -> m (ATag Quantifier, ATag (Qualifier UserType))
 typeHeadMaybeDelim nilCheck = flip (typeHeadOf nilCheck) typeHeadMaybeDelimBody
 
 -- | Parse a type scheme body,
 --   delimited by the given symbol, if one is provided;
 --   does not consume the delimiter
 typeHeadMaybeDelimBody :: Has m '[Parse] =>
-    Maybe String -> m (ATag Quantifier, ATag (Qualifier TokenSeq))
+    Maybe String -> m (ATag Quantifier, ATag (Qualifier UserType))
 typeHeadMaybeDelimBody delim = liftA2 (,)
-    do option Nil $ tag quantifier
-    do option Nil $ tag (qualifier delim)
+    do optionalIndent $ tag $ option Nil quantifier
+    do optionalIndent $ tag $ option Nil (qualifier delim)
 
 -- | Parse a type scheme, with its body given by a function,
 --   and delimited by the given symbol, if one is provided;
 --   consumes the delimiter
 typeHeadOf :: Has m '[Parse, With '[Nil a, Pretty a]] =>
     Bool -> Maybe String -> (Maybe String -> m a) -> m a
-typeHeadOf nilCheck delim p = do
+typeHeadOf nilCheck delim p = optionalIndent' do
     r :@: at <- tag (p delim)
     guard (not nilCheck || notNil r)
     r <$ case delim of
@@ -984,11 +985,9 @@ quantifier = evalStateT' (0 :: KindVar) do
 
 -- | Parse a type @Qualifier@, with its body as tokens,
 --   delimited by the given symbol
-qualifier :: Has m '[Parse] => Maybe String -> m (Qualifier TokenSeq)
-qualifier delim = sym "where" >> noFail do
-    Qualifier . pure <$> case delim of
-        Just d -> grabDomain (not . isSymbol d . untag)
-        _ -> grabWhitespaceDomainAll
+qualifier :: Has m '[Parse] => Maybe String -> m (Qualifier UserType)
+qualifier _delim = sym "where" >> noFail do
+    Qualifier <$> listSome (sym ",") (tag userType)
 
 -- | Parse a @TypeBinder@
 typeBinder :: Has m [St KindVar, Parse] => m TypeBinder
@@ -1004,7 +1003,7 @@ typeBinder = do
 
 -- | Parse a type @Kind@
 kind :: Has m '[Parse] => m Kind
-kind = tag atom >>= arrows where
+kind = atom >>= arrows where
     atom = asum
         [ KType <$ simpleNameOf "Type"
         , KInt <$ simpleNameOf "Int"
@@ -1015,9 +1014,26 @@ kind = tag atom >>= arrows where
         , KEffects <$ simpleNameOf "Effects"
         , parens kind
         ]
-    arrows l = option (untag l) do
+    arrows l = option l do
         simpleNameOf "->" >> noFail do
-            KArrow l <$> tag kind
+            KArrow l <$> kind
+
+-- | Parse a value @Type@
+userType :: Has m '[Parse] => m UserType
+userType = untag <$> do tag atom >>= infixLoop where
+    atom = asum
+        [ UtFree . Just <$> simpleName
+        ]
+
+    infixLoop l = option l (infixes l >>= infixLoop)
+
+    infixes l = asum
+        [ simpleNameOf "->" >> noFail do
+            r <- tag userType
+            x <- option (UtMono (TEffects []) :@: attrFlattenToEnd r.tag) do
+                sym "in" >> noFail (tag userType)
+            pure $ UtArrow l r x :@: (l.tag <> r.tag <> x.tag)
+        ]
 
 -- | Expect a @Version@
 version :: Has m '[Parse] => m Version
@@ -1115,12 +1131,16 @@ brackets px = do
 -- | Allow an optional indentation of the input to the parser
 optionalIndent :: Has m '[Parse] => m a -> m a
 optionalIndent p = do
-    -- (a, ps') <- recurseParser p =<< grabWhitespaceDomain
-    -- a <$ modifyParseState (ps' <>)
     getParseState >>= \case
         (TTree BkWhitespace ts :@: at Seq.:<| _) :@: _ ->
             advance >> recurseParserAll p (ts :@: at)
         _ -> p
+
+-- | Allow an optional indentation of the input to the parser
+optionalIndent' :: Has m '[Parse] => m a -> m a
+optionalIndent' p = do
+    (a, ps') <- recurseParser p =<< grabWhitespaceDomain
+    a <$ modifyParseState (ps' <>)
 
 -- | Consume the rest of the input,
 --   delimited by indentation, as well as a predicate

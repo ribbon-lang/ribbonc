@@ -28,12 +28,12 @@ pattern a ::: b = Field a b
 -- | A pair of types @t@ binding a layout and a name in a @Field@
 data Label
     = Label
-    { offset :: !(ATag Type)
-    , name :: !(ATag Type)
+    { offset :: !(ATag MonoType)
+    , name :: !(ATag MonoType)
     }
     deriving (Eq, Ord, Show)
 
-pattern (:\\:) :: ATag Type -> ATag Type -> Label
+pattern (:\\:) :: ATag MonoType -> ATag MonoType -> Label
 pattern a :\\: b = Label a b
 
 instance Pretty Label where

@@ -46,8 +46,7 @@ ModuleHead = "module" string "@" Version wsBlock<Meta> where
         | "dependencies" WsList<",", Dependency>
         | identifier WsList<",", string>
     Dependency = string "@" Version ("as" SimpleName)?
-    Version
-        = $uInt "." $uInt "." $uInt
+    Version = $uInt "." $uInt "." $uInt
         if $1 > 0 or $2 > 0 or $3 > 0
 
 Doc = Def*
@@ -64,8 +63,8 @@ Def = Visibility? (Use | Namespace | TypeDef | ValueDef) where
         EffectDec = FixNameDecl ":" wsBlock<Type>
         FieldDec = Field<":" wsBlock<Type>>
         StructFields
-            = WsBlock<",", wsBlock<Type>>
-            | WsBlock<",", SimpleName ":" wsBlock<Type>>
+            = WsList<",", wsBlock<Type>>
+            | WsList<",", SimpleName ":" wsBlock<Type>>
         ClassDec
             = "type" SimpleName TypeHead?
             | FixNameDecl ":" ("for" TypeHead "=>")? Type
@@ -155,7 +154,7 @@ Patt |=
     Unit = "(" ")"
     Group = "(" Patt ")"
     Tuple = "(" Patt "," Patt**"," ")"
-    Struct = "{" Field<"=" WsBlock<Patt>>**"," ".."? "}"
+    Struct = "{" Field<"=" wsBlock<Patt>>**"," ".."? "}"
     AnyUnion = "+/" SimpleName Patt?
     App = Path Patt?
     Alias = Patt "as" identifier
