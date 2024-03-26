@@ -4,15 +4,13 @@ import Data.Attr
 
 import Text.Pretty
 
-import Language.Ribbon.Syntax.Type
-
 
 
 
 -- | A binding between a @Label@ and some type @t@
 data Field t
     = Field
-    { label :: !Label
+    { label :: !(Label t)
     , ty :: !(ATag t)
     }
     deriving (Eq, Ord, Show)
@@ -21,21 +19,21 @@ instance Pretty t => Pretty (Field t) where
     pPrintPrec lvl _ (Field a b) =
         pPrintPrec lvl 0 a <+> ":" <+> pPrintPrec lvl 0 b
 
-pattern (:::) :: Label -> ATag t -> Field t
+pattern (:::) :: Label t -> ATag t -> Field t
 pattern a ::: b = Field a b
 
 
 -- | A pair of types @t@ binding a layout and a name in a @Field@
-data Label
+data Label t
     = Label
-    { offset :: !(ATag MonoType)
-    , name :: !(ATag MonoType)
+    { offset :: !(ATag t)
+    , name :: !(ATag t)
     }
     deriving (Eq, Ord, Show)
 
-pattern (:\\:) :: ATag MonoType -> ATag MonoType -> Label
+pattern (:\\:) :: ATag t -> ATag t -> Label t
 pattern a :\\: b = Label a b
 
-instance Pretty Label where
+instance Pretty t => Pretty (Label t) where
     pPrintPrec lvl _ (Label a b) =
         pPrintPrec lvl 0 a <+> "\\" <+> pPrintPrec lvl 0 b

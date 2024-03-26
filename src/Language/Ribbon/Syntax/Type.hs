@@ -8,34 +8,136 @@ import Data.Attr
 import Text.Pretty
 
 import Language.Ribbon.Syntax.Kind
+import Language.Ribbon.Syntax.Data
 import Language.Ribbon.Lexical.Name
+import Language.Ribbon.Lexical.Path
 
+
+
+
+-- | Constrains a type, inside a @Qualifier@
+data Constraint t
+    = CEquality !(EqualityConstraint t)
+    | CRow !(RowConstraint t)
+    | CData !(DataConstraint t)
+    | CClass !(ClassConstraint t)
+    deriving (Eq, Ord, Show)
+
+instance Pretty t => Pretty (Constraint t) where
+    pPrintPrec lvl p = \case
+        CEquality c -> pPrintPrec lvl p c
+        CRow c -> pPrintPrec lvl p c
+        CData c -> pPrintPrec lvl p c
+        CClass c -> pPrintPrec lvl p c
+
+data EqualityConstraint t
+    = Ec !t !t
+    deriving (Eq, Ord, Show)
+
+instance Pretty t => Pretty (EqualityConstraint t) where
+    pPrintPrec lvl p (Ec a b) = maybeParens (p > 0) do
+        pPrintPrec lvl 0 a <+> "~" <+> pPrintPrec lvl 0 b
+
+data RowConstraint t
+    = RcSub !(RowSubConstraint t)
+    | RcCat !(RowCatConstraint t)
+    deriving (Eq, Ord, Show)
+
+instance Pretty t => Pretty (RowConstraint t) where
+    pPrintPrec lvl p = \case
+        RcSub c -> pPrintPrec lvl p c
+        RcCat c -> pPrintPrec lvl p c
+
+data DataConstraint t
+    = DcStruct !(StructConstraint t)
+    | DcUnion !(UnionConstraint t)
+    deriving (Eq, Ord, Show)
+
+instance Pretty t => Pretty (DataConstraint t) where
+    pPrintPrec lvl p = \case
+        DcStruct c -> pPrintPrec lvl p c
+        DcUnion c -> pPrintPrec lvl p c
+
+data ClassConstraint t
+    = CcType !(TypeClassConstraint t)
+    | CcAssociate !(AssociateConstraint t)
+    deriving (Eq, Ord, Show)
+
+instance Pretty t => Pretty (ClassConstraint t) where
+    pPrintPrec lvl p = \case
+        CcType c -> pPrintPrec lvl p c
+        CcAssociate c -> pPrintPrec lvl p c
+
+data RowSubConstraint t
+    = RowSubConstraint !t !t
+    deriving (Eq, Ord, Show)
+
+instance Pretty t => Pretty (RowSubConstraint t) where
+    pPrintPrec lvl p (RowSubConstraint a b) = maybeParens (p > 0) do
+        pPrintPrec lvl 0 a <+> "<" <+> pPrintPrec lvl 0 b
+
+data RowCatConstraint t
+    = RowCatConstraint !t !t !t
+    deriving (Eq, Ord, Show)
+
+instance Pretty t => Pretty (RowCatConstraint t) where
+    pPrintPrec lvl p (RowCatConstraint a b c) = maybeParens (p > 0) do
+        pPrintPrec lvl 0 a <+> "<>" <+> pPrintPrec lvl 0 b
+            <+> "~" <+> pPrintPrec lvl 0 c
+
+data StructConstraint t
+    = StructConstraint !t !t
+    deriving (Eq, Ord, Show)
+
+instance Pretty t => Pretty (StructConstraint t) where
+    pPrintPrec lvl p (StructConstraint a b) = maybeParens (p > 0) do
+        "struct" <+> pPrintPrec lvl 0 a <+> "as" <+> pPrintPrec lvl 0 b
+
+data UnionConstraint t
+    = UnionConstraint !t !t
+    deriving (Eq, Ord, Show)
+
+instance Pretty t => Pretty (UnionConstraint t) where
+    pPrintPrec lvl p (UnionConstraint a b) = maybeParens (p > 0) do
+        "union" <+> pPrintPrec lvl 0 a <+> "as" <+> pPrintPrec lvl 0 b
+
+data TypeClassConstraint t
+    = TypeClassConstraint !t !t
+    deriving (Eq, Ord, Show)
+
+instance Pretty t => Pretty (TypeClassConstraint t) where
+    pPrintPrec lvl p (TypeClassConstraint a b) = maybeParens (p > 0) do
+        pPrintPrec lvl 0 a <+> "type" <+> pPrintPrec lvl 0 b
+
+data AssociateConstraint t
+    = AssociateConstraint !t !SimpleName !t
+    deriving (Eq, Ord, Show)
+
+instance Pretty t => Pretty (AssociateConstraint t) where
+    pPrintPrec lvl p (AssociateConstraint a b c) = maybeParens (p > 0) do
+        pPrintPrec lvl 0 a <+> "has" <+> pPrintPrec lvl 0 b
+            <+> "~" <+> pPrintPrec lvl 0 c
 
 
 
 -- | A raw type expression ast, given by the parser.
 --   Gives the type of a @Value@,
---   after kind inference performs various substitutions
+--   after kind inference performs various substitutions to form a @FixType@
 data UserType
-    = UtMono !(TypeF (ATag UserType))
-    | UtFree !(Maybe SimpleName)
+    = UtFix !(TypeF (ATag UserType))
+    | UtFree !(Maybe SimpleName) !(Maybe (ATag Kind))
+    | UtPath !Path
+    | UtInlineConstraint !(Constraint (ATag UserType))
     deriving (Eq, Ord, Show)
-
-instance Pretty UserType where
-    pPrintPrec lvl p = \case
-        UtMono t -> pPrintPrec lvl p t
-        UtFree (Just n) -> pPrintPrec lvl p n
-        UtFree Nothing -> "_"
 
 
 
 -- | A final type expression ast.
 --   Gives the type of a @Value@
-newtype MonoType = Mono {inner :: TypeF (ATag MonoType)}
+data FixType
+    = FtFix !(TypeF (ATag FixType))
+    | FtVar !TypeVar
     deriving (Eq, Ord, Show)
-
-instance Pretty MonoType where
-    pPrintPrec lvl p (Mono t) = pPrintPrec lvl p t
 
 
 
@@ -45,8 +147,48 @@ data TypeF t
     = TConstant !Constant
     | TApp !t !t
     | TEffects ![t]
+    | TData ![Field t]
     | T_FIXME -- placeholder
     deriving (Eq, Ord, Show)
+
+
+
+data TypeVar
+    = TvBound !SimpleName !Kind
+    | TvMeta !Int !Kind
+    deriving (Eq, Ord, Show)
+
+instance Pretty TypeVar where
+    pPrintPrec lvl prec = \case
+        TvBound n k
+            | lvl > PrettyNormal ->
+                maybeParens (prec > 0) do
+                    pPrintPrec lvl 0 n <+> ":" <+> pPrintPrec lvl 0 k
+            | otherwise ->
+                pPrintPrec lvl 0 n
+        TvMeta i k
+            | lvl > PrettyNormal ->
+                maybeParens (prec > 0) do
+                    ("$" <> pPrintPrec lvl 0 i) <+> ":" <+> pPrintPrec lvl 0 k
+            | otherwise ->
+                ("$" <> pPrintPrec lvl 0 i)
+
+
+instance Pretty UserType where
+    pPrintPrec lvl p = \case
+        UtFix t -> pPrintPrec lvl p t
+        UtFree n k
+            | lvl > PrettyNormal -> maybeParens (p > 0) do
+                maybe (text "_") (pPrintPrec lvl 0) n
+                    <+> ":" <+> maybe (text "_") (pPrintPrec lvl 0) k
+            | otherwise -> maybe (text "_") (pPrintPrec lvl 0) n
+        UtPath x -> pPrintPrec lvl p x
+        UtInlineConstraint c -> pPrintPrec lvl p c
+
+instance Pretty FixType where
+    pPrintPrec lvl p = \case
+        FtFix t -> pPrintPrec lvl p t
+        FtVar v -> pPrintPrec lvl p v
 
 pattern TArrowCon :: TypeF t
 pattern TArrowCon
@@ -55,33 +197,33 @@ pattern TArrowCon
 
 pattern UtArrow :: ATag UserType -> ATag UserType -> ATag UserType -> UserType
 pattern UtArrow a b x <-
-    UtMono (TApp
-        (UtMono (TApp
-            (UtMono (TApp (UtMono TArrowCon :@: _) a) :@: _)
+    UtFix (TApp
+        (UtFix (TApp
+            (UtFix (TApp (UtFix TArrowCon :@: _) a) :@: _)
             b) :@: _)
         x)
     where
     UtArrow a b x =
         let abx = a.tag <> b.tag <> x.tag
-        in UtMono (TApp
-            (UtMono (TApp
-                (UtMono (TApp (UtMono TArrowCon :@: abx) a) :@: abx)
+        in UtFix (TApp
+            (UtFix (TApp
+                (UtFix (TApp (UtFix TArrowCon :@: abx) a) :@: abx)
                 b) :@: abx)
             x)
 
-pattern MonoArrow :: ATag MonoType -> ATag MonoType -> ATag MonoType -> MonoType
-pattern MonoArrow a b x <-
-    Mono (TApp
-        (Mono (TApp
-            (Mono (TApp (Mono TArrowCon :@: _) a) :@: _)
+pattern FixArrow :: ATag FixType -> ATag FixType -> ATag FixType -> FixType
+pattern FixArrow a b x <-
+    FtFix (TApp
+        (FtFix (TApp
+            (FtFix (TApp (FtFix TArrowCon :@: _) a) :@: _)
             b) :@: _)
         x)
     where
-    MonoArrow a b x =
+    FixArrow a b x =
         let abx = a.tag <> b.tag <> x.tag
-        in Mono (TApp
-            (Mono (TApp
-                (Mono (TApp (Mono TArrowCon :@: abx) a) :@: abx)
+        in FtFix (TApp
+            (FtFix (TApp
+                (FtFix (TApp (FtFix TArrowCon :@: abx) a) :@: abx)
                 b) :@: abx)
             x)
 

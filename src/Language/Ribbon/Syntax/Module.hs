@@ -86,7 +86,7 @@ nameFuzzySearchOn f name ss =
 
 
 -- | A module that has been fully parsed and analyzed
-type FinalModule = Module MetaData MonoType Value
+type FinalModule = Module MetaData FixType Value
 
 -- | A module that is being analyzed
 type AnalysisModule = Module AnalysisModuleHeader UserType Value

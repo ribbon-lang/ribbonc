@@ -671,8 +671,8 @@ bindingField :: Has m
 bindingField c fm i = do
     (off, n, f) :@: at <- tag $ fm i
     let lbl = Label
-            (Mono . TConstant . CInt <$> off)
-            (Mono . TConstant . CString . (.value) <$> n)
+            (UtFix . TConstant . CInt <$> off)
+            (UtFix . TConstant . CString . (.value) <$> n)
     newFieldId <- insertNew (Visible Public $
             QualifiedName NonAssociative 0 $
                 SimpleFixName <$> n) do
@@ -1022,7 +1022,14 @@ kind = atom >>= arrows where
 userType :: Has m '[Parse] => m UserType
 userType = untag <$> do tag atom >>= infixLoop where
     atom = asum
-        [ UtFree . Just <$> simpleName
+        [ do
+            n <- simpleName
+            case n.value of
+                "_" -> pure $ UtFree Nothing Nothing
+                _ -> UtFree (Just n) <$> do
+                    option Nothing $ sym "of" >>
+                        Just <$> noFail (tag kind)
+        , UtPath <$> path
         ]
 
     infixLoop l = option l (infixes l >>= infixLoop)
@@ -1030,7 +1037,7 @@ userType = untag <$> do tag atom >>= infixLoop where
     infixes l = asum
         [ simpleNameOf "->" >> noFail do
             r <- tag userType
-            x <- option (UtMono (TEffects []) :@: attrFlattenToEnd r.tag) do
+            x <- option (UtFix (TEffects []) :@: attrFlattenToEnd r.tag) do
                 sym "in" >> noFail (tag userType)
             pure $ UtArrow l r x :@: (l.tag <> r.tag <> x.tag)
         ]
