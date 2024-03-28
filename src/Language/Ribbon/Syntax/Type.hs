@@ -31,7 +31,7 @@ instance Pretty t => Pretty (Constraint t) where
         CClass c -> pPrintPrec lvl p c
 
 data EqualityConstraint t
-    = Ec !t !t
+    = Ec !(ATag t) !(ATag t)
     deriving (Eq, Ord, Show)
 
 instance Pretty t => Pretty (EqualityConstraint t) where
@@ -69,7 +69,7 @@ instance Pretty t => Pretty (ClassConstraint t) where
         CcAssociate c -> pPrintPrec lvl p c
 
 data RowSubConstraint t
-    = RowSubConstraint !t !t
+    = RowSubConstraint !(ATag t) !(ATag t)
     deriving (Eq, Ord, Show)
 
 instance Pretty t => Pretty (RowSubConstraint t) where
@@ -77,7 +77,7 @@ instance Pretty t => Pretty (RowSubConstraint t) where
         pPrintPrec lvl 0 a <+> "<" <+> pPrintPrec lvl 0 b
 
 data RowCatConstraint t
-    = RowCatConstraint !t !t !t
+    = RowCatConstraint !(ATag t) !(ATag t) !(ATag t)
     deriving (Eq, Ord, Show)
 
 instance Pretty t => Pretty (RowCatConstraint t) where
@@ -86,7 +86,7 @@ instance Pretty t => Pretty (RowCatConstraint t) where
             <+> "~" <+> pPrintPrec lvl 0 c
 
 data StructConstraint t
-    = StructConstraint !t !t
+    = StructConstraint !(ATag t) !(ATag t)
     deriving (Eq, Ord, Show)
 
 instance Pretty t => Pretty (StructConstraint t) where
@@ -94,7 +94,7 @@ instance Pretty t => Pretty (StructConstraint t) where
         "struct" <+> pPrintPrec lvl 0 a <+> "as" <+> pPrintPrec lvl 0 b
 
 data UnionConstraint t
-    = UnionConstraint !t !t
+    = UnionConstraint !(ATag t) !(ATag t)
     deriving (Eq, Ord, Show)
 
 instance Pretty t => Pretty (UnionConstraint t) where
@@ -102,7 +102,7 @@ instance Pretty t => Pretty (UnionConstraint t) where
         "union" <+> pPrintPrec lvl 0 a <+> "as" <+> pPrintPrec lvl 0 b
 
 data TypeClassConstraint t
-    = TypeClassConstraint !t !t
+    = TypeClassConstraint !(ATag t) !(ATag t)
     deriving (Eq, Ord, Show)
 
 instance Pretty t => Pretty (TypeClassConstraint t) where
@@ -110,7 +110,7 @@ instance Pretty t => Pretty (TypeClassConstraint t) where
         pPrintPrec lvl 0 a <+> "type" <+> pPrintPrec lvl 0 b
 
 data AssociateConstraint t
-    = AssociateConstraint !t !SimpleName !t
+    = AssociateConstraint !(ATag t) !SimpleName !(ATag t)
     deriving (Eq, Ord, Show)
 
 instance Pretty t => Pretty (AssociateConstraint t) where
@@ -124,10 +124,10 @@ instance Pretty t => Pretty (AssociateConstraint t) where
 --   Gives the type of a @Value@,
 --   after kind inference performs various substitutions to form a @FixType@
 data UserType
-    = UtFix !(TypeF (ATag UserType))
+    = UtFix !(TypeF UserType)
     | UtFree !(Maybe SimpleName) !(Maybe (ATag Kind))
     | UtPath !Path
-    | UtInlineConstraint !(Constraint (ATag UserType))
+    | UtInlineConstraint !(Constraint UserType)
     deriving (Eq, Ord, Show)
 
 
@@ -135,7 +135,7 @@ data UserType
 -- | A final type expression ast.
 --   Gives the type of a @Value@
 data FixType
-    = FtFix !(TypeF (ATag FixType))
+    = FtFix !(TypeF FixType)
     | FtVar !TypeVar
     deriving (Eq, Ord, Show)
 
@@ -145,10 +145,9 @@ data FixType
 --   Gives the type of a @Value@, after instantiation with its recursive type
 data TypeF t
     = TConstant !Constant
-    | TApp !t !t
-    | TEffects ![t]
+    | TApp !(ATag t) !(ATag t)
+    | TEffects ![ATag t]
     | TData ![Field t]
-    | T_FIXME -- placeholder
     deriving (Eq, Ord, Show)
 
 
@@ -190,10 +189,18 @@ instance Pretty FixType where
         FtFix t -> pPrintPrec lvl p t
         FtVar v -> pPrintPrec lvl p v
 
+pattern TUnitCon :: TypeF t
+pattern TUnitCon
+    = TConstant (CConstructor (SimpleName "()") KType)
+
 pattern TArrowCon :: TypeF t
 pattern TArrowCon
     = TConstant (CConstructor (SimpleName " -> in ")
         (KType :~>: KType :~>: KEffects :~>: KType))
+
+pattern TTupleCon :: TypeF t
+pattern TTupleCon
+    = TConstant (CConstructor (SimpleName "Tuple") (KData :~>: KType))
 
 pattern UtArrow :: ATag UserType -> ATag UserType -> ATag UserType -> UserType
 pattern UtArrow a b x <-
@@ -232,7 +239,12 @@ instance Pretty t => Pretty (TypeF t) where
         TConstant a -> pPrintPrec lvl p a
         TApp a b -> maybeParens (p > 0) do
             pPrintPrec lvl p a <+> pPrintPrec lvl p b
-        _ -> error "FIXME"
+        TEffects es -> brackets do
+            lsep (pPrintPrec lvl 0 <$> es)
+        TData fs -> braces do
+            lsep (pPrintPrec lvl 0 <$> fs)
+
+
 
 
 data Constant

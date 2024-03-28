@@ -11,7 +11,7 @@ import Text.Pretty
 data Field t
     = Field
     { label :: !(Label t)
-    , ty :: !(ATag t)
+    , value :: !(ATag t)
     }
     deriving (Eq, Ord, Show)
 

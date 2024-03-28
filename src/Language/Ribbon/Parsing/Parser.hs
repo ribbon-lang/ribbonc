@@ -1018,9 +1018,10 @@ kind = atom >>= arrows where
         simpleNameOf "->" >> noFail do
             KArrow l <$> kind
 
--- | Parse a value @Type@
+-- | Parse a @UserType@
 userType :: Has m '[Parse] => m UserType
-userType = untag <$> do tag atom >>= infixLoop where
+userType = optionalIndent do
+    untag <$> do tag atom >>= infixLoop where
     atom = asum
         [ do
             n <- simpleName
@@ -1030,7 +1031,29 @@ userType = untag <$> do tag atom >>= infixLoop where
                     option Nothing $ sym "of" >>
                         Just <$> noFail (tag kind)
         , UtPath <$> path
+        , parens $ option (UtFix TUnitCon) do
+            t1 <- tag userType
+            option (untag t1) do
+                buildTuple . (t1 :) <$> do
+                    sym "," >> typeList
+        , UtFix . TEffects <$> brackets typeList
         ]
+
+    buildTuple ts =
+        let (fs, tg) =
+                foldWith Nil (zip [0..] ts) \(i, t) (fx, tx) ->
+                    (Field
+                    { label =
+                        Label
+                        { offset = UtFix (TConstant $ CInt i) :@: t.tag
+                        , name = UtFree Nothing (Just (KType :@: t.tag)) :@: t.tag
+                        }
+                    , value = t
+                    } : fx, tx <> t.tag)
+        in UtFix (TApp (UtFix TTupleCon :@: tg) (UtFix (TData fs) :@: tg))
+
+
+    typeList = listMany (sym ",") (tag userType)
 
     infixLoop l = option l (infixes l >>= infixLoop)
 
