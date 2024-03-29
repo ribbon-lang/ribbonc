@@ -51,7 +51,8 @@ class AssociatedTypeTest x =
     type AssocType
     type AssocTypeQuant1 a
     type AssocTypeQuant2 a, b : Int
-    type AssocTypeQual where FooBar AssocTypeQual
+    type AssocTypeQual
+        where FooBar AssocTypeQual
     type AssocTypeFull a where LlamaDuck a
 
 class InstanceTest x =
@@ -65,7 +66,8 @@ instance InstanceTest'Int a for Maybe a =
 type TestResult1 a = Result TestFailure a
 type TestResult2 =
     Result TestFailure
-type ExpectTypeFail =
+type ExpectTypeFail1 =
+type ExpectTypeFail2
 
 struct MyTuple a, b = a, b
 

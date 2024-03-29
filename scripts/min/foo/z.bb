@@ -28,7 +28,9 @@ pub namespace quux =
 
     type Mem a = [Read a, Write a]
 
-    fib : for n where Num n => n -> n
+    fib : for n
+          where Num n =>
+          n -> n
         = fun n => if lt(n, 2)
             then n
             else fib (n - 1) + fib (n - 2)

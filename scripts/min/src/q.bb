@@ -1,4 +1,4 @@
-foo : (Int, Int) -> Int in {Console}
+foo : (Int, Int) -> Int in [Console]
     = fun x, y =>
         printLn "foo"
         x + y
@@ -9,5 +9,5 @@ bar : Int
     do foo(1, 2)
 
 id
-    : forall a => a -> a
+    : for a => a -> a
     = fun x => x

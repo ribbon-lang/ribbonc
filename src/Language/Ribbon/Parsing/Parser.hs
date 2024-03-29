@@ -40,6 +40,7 @@ import Language.Ribbon.Analysis.Context
 import Language.Ribbon.Analysis.Diagnostics
 import Language.Ribbon.Syntax.Type
 import Language.Ribbon.Syntax.Data
+import Data.Functor
 
 
 
@@ -412,7 +413,8 @@ namespaceDef vqn = sym "=" >> noFail do
         [backticked vqn <+> "is not a simple name, it should be more like"
             <+> backticked (simplifyFixName vqn.value.value.value)]
 
-    lns <- tryGrabBlock vqn.value.value.tag
+    lns <- pTracedM "namespaceLns" do
+        tryGrabBlock vqn.value.value.tag
 
     insertNew vqn do
         inNewNamespace lns.tag do
@@ -503,9 +505,11 @@ instanceDef :: Has m
     , Diag
     ] => Visible QualifiedName -> m ItemId
 instanceDef vqn = noFail do
-    (q, c) <- typeHeadDelim False "for"
-
-    for <- tag userType << sym "="
+    (q, c) <- grabDomain (not . isSymbol "for" . untag)
+        >>= recurseParserAll (typeHeadNoDelim False)
+    sym "for"
+    for <- tag userType
+    sym "="
 
     lns <- tryGrabBlock vqn.value.value.tag
 
@@ -635,9 +639,15 @@ valueDec :: Has m
     , Diag
     ] => Visible QualifiedName -> m ItemId
 valueDec vqn = noFail do
-    (q, c) <- option Nil (forTypeHead True)
-    header <- grabDomain (not . isSymbol "=" . untag)
-    t <- recurseParserAll (tag userType) header
+    header <- pTracedM ("valueDec" <+> pPrint vqn) do grabDomain (not . isSymbol "=" . untag)
+    (q, c, t) <- flip recurseParserAll header do
+        (q, c) <- option Nil $ sym "for" >> noFail do
+            sch <- grabDomain (not . isSymbol "=>" . untag)
+                >>= recurseParserAll (typeHeadNoDelim False)
+            sch <$ optionalIndent (sym "=>")
+        t <- tag userType
+        pure (q, c, t)
+
     newDeclId <- insertNew vqn do
         withFreshItemId (withParent bindType) t
     unless (isNil q) (bindQuantifier newDeclId q)
@@ -847,39 +857,39 @@ category = expecting "a category" $ asum
 qualifiedName :: Has m '[Parse] =>
     m QualifiedName
 qualifiedName = expecting "a qualified name" do
-        (n, apt) <- asum
-            [ do
-                n@(_ :@: at) <- tag fixName
-                option (n, Nothing :@: at) do
-                    (n, ) <$> tag do
-                        Just . Right <$> associativePrecedence
-            , do
-                apt <- tag associativePrecedence
-                n <- tag fixName
-                pure (n, Just . Left <$> apt)
-            ]
-        case untag apt of
-            Nothing -> pure $
-                QualifiedName NonAssociative (defaultPrecedence (getFixity n)) n
-            Just aptLr -> case getFixity n of
-                Atom -> do
+    (n, apt) <- asum
+        [ do
+            n@(_ :@: at) <- tag fixName
+            option (n, Nothing :@: at) do
+                (n, ) <$> tag do
+                    Just . Right <$> associativePrecedence
+        , do
+            apt <- tag associativePrecedence
+            n <- tag fixName
+            pure (n, Just . Left <$> apt)
+        ]
+    case untag apt of
+        Nothing -> pure $
+            QualifiedName NonAssociative (defaultPrecedence (getFixity n)) n
+        Just aptLr -> case getFixity n of
+            Atom -> do
+                parseErrorAt apt.tag Unrecoverable
+                    "atom names do not have precedence;"
+            fx -> case (aptLr, fx) of
+                (Left _, Prefix) -> do
                     parseErrorAt apt.tag Unrecoverable
-                        "atom names do not have precedence;"
-                fx -> case (aptLr, fx) of
-                    (Left _, Prefix) -> do
-                        parseErrorAt apt.tag Unrecoverable
-                            "prefix names expect precedence on the right"
-                    (Right apt', Prefix) ->
-                        finishPfx apt.tag Prefix apt' n
-                    (Right _, Postfix) -> do
-                        parseErrorAt apt.tag Unrecoverable
-                            "postfix names expect precedence on the left"
-                    (Left apt', Postfix) ->
-                        finishPfx apt.tag Postfix apt' n
-                    (Left apt', Infix) ->
-                        finishIfx LeftAssociative apt' n
-                    (Right apt', Infix) ->
-                        finishIfx RightAssociative apt' n
+                        "prefix names expect precedence on the right"
+                (Right apt', Prefix) ->
+                    finishPfx apt.tag Prefix apt' n
+                (Right _, Postfix) -> do
+                    parseErrorAt apt.tag Unrecoverable
+                        "postfix names expect precedence on the left"
+                (Left apt', Postfix) ->
+                    finishPfx apt.tag Postfix apt' n
+                (Left apt', Infix) ->
+                    finishIfx LeftAssociative apt' n
+                (Right apt', Infix) ->
+                    finishIfx RightAssociative apt' n
     where
     finishIfx lr apt n = pure $
         QualifiedName (select (fst apt) lr NonAssociative) (snd apt) n
@@ -915,8 +925,8 @@ precedence = do
 forTypeHead :: Has m '[Parse] =>
     Bool -> m (ATag Quantifier, ATag (Qualifier UserType))
 forTypeHead nilCheck = typeHeadOf nilCheck (Just "=>") $ const $ liftA2 (,)
-    do optionalIndent $ tag $ option Nil (sym "for" >> quantifier)
-    do optionalIndent $ tag $ option Nil (qualifier $ Just "=>")
+    do optionalIndent' $ tag $ option Nil (sym "for" >> quantifier)
+    do optionalIndent' $ tag $ option Nil (qualifier $ Just "=>")
 
 -- | Parse a type scheme, delimited by the given symbol; consumes the delimiter
 typeHeadDelim :: Has m '[Parse] =>
@@ -1024,34 +1034,24 @@ userType = optionalIndent do
     untag <$> do tag atom >>= infixLoop where
     atom = asum
         [ do
-            n <- simpleName
-            case n.value of
-                "_" -> pure $ UtFree Nothing Nothing
-                _ -> UtFree (Just n) <$> do
-                    option Nothing $ sym "of" >>
-                        Just <$> noFail (tag kind)
+            sym "'"
+            asum
+                [ do n <- simpleName
+                     case n.value of
+                         "_" -> pure $ UtFree Nothing Nothing
+                         _ -> UtFree (Just n) <$> do
+                             option Nothing $ sym "of" >>
+                                 Just <$> noFail (tag kind)
+                , sym "of" >> UtFree Nothing . Just <$> noFail (tag kind)
+                ]
+
         , UtPath <$> path
         , parens $ option (UtFix TUnitCon) do
             t1 <- tag userType
-            option (untag t1) do
-                buildTuple . (t1 :) <$> do
-                    sym "," >> typeList
+            option (untag t1) $ buildTuple . (t1 :) <$> do
+                sym "," >> typeList
         , UtFix . TEffects <$> brackets typeList
         ]
-
-    buildTuple ts =
-        let (fs, tg) =
-                foldWith Nil (zip [0..] ts) \(i, t) (fx, tx) ->
-                    (Field
-                    { label =
-                        Label
-                        { offset = UtFix (TConstant $ CInt i) :@: t.tag
-                        , name = UtFree Nothing (Just (KType :@: t.tag)) :@: t.tag
-                        }
-                    , value = t
-                    } : fx, tx <> t.tag)
-        in UtFix (TApp (UtFix TTupleCon :@: tg) (UtFix (TData fs) :@: tg))
-
 
     typeList = listMany (sym ",") (tag userType)
 
@@ -1063,7 +1063,24 @@ userType = optionalIndent do
             x <- option (UtFix (TEffects []) :@: attrFlattenToEnd r.tag) do
                 sym "in" >> noFail (tag userType)
             pure $ UtArrow l r x :@: (l.tag <> r.tag <> x.tag)
+        , tag atom <&> \r -> UtFix (TApp l r) :@: (l.tag <> r.tag)
         ]
+
+buildTuple :: [ATag UserType] -> UserType
+buildTuple ts =
+    let (fs, tg) =
+            foldWith Nil (zip [0..] ts) \(i, t) (fx, tx) ->
+                (Field
+                { label =
+                    Label
+                    { offset =
+                        UtFix (TConstant $ CInt i) :@: t.tag
+                    , name =
+                        UtFree Nothing (Just (KString :@: t.tag)) :@: t.tag
+                    }
+                , value = t
+                } : fx, tx <> t.tag)
+    in UtFix (TApp (UtFix TTupleCon :@: tg) (UtFix (TData fs) :@: tg))
 
 -- | Expect a @Version@
 version :: Has m '[Parse] => m Version
@@ -1169,7 +1186,7 @@ optionalIndent p = do
 -- | Allow an optional indentation of the input to the parser
 optionalIndent' :: Has m '[Parse] => m a -> m a
 optionalIndent' p = do
-    (a, ps') <- recurseParser p =<< grabWhitespaceDomain
+    (a, ps') <- recurseParser p =<< asum [grabWhitespaceDomain, Nil <@> attr]
     a <$ modifyParseState (ps' <>)
 
 -- | Consume the rest of the input,
@@ -1237,8 +1254,8 @@ grabLines' = tag do
 -- | grab the whitespace domain, and break it into lines;
 --   ensures both steps consume all available input
 grabBlock :: Has m '[Parse] => m [ATag TokenSeq]
-grabBlock = grabWhitespaceDomainAll >>= recurseParserAll do
-    asum [grabLines, pure <$> takeParseState]
+grabBlock = pTracedM "grabBlock" grabWhitespaceDomainAll >>= recurseParserAll do
+    asum [pTracedM "grabLines" grabLines, pure <$> takeParseState]
 
 -- | attempt to grab the whitespace domain, and break it into lines;
 --   ensures both steps consume all available input;

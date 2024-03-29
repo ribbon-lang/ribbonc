@@ -30,7 +30,7 @@ effect Read a =
 effect Write =
     write : 'a -> ()
 
-Wem = type
+Mem = type
     [Read 'a, Write 'a]
 
 foo = fun x =>

@@ -196,7 +196,6 @@ eliminateEmpties = Seq.filter (not . nilTree . untag)
 
 reduceTree :: Token -> Token
 reduceTree = \case
-    TTree k ts ->
-        TTree k (reduceTokenSeq ts)
+    TTree k ts -> TTree k (reduceTokenSeq ts)
 
     t -> t
