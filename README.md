@@ -14,7 +14,7 @@
 -----
 
 This is a minimal implementation of Ribbon, an embeddable algebraic effects
-language with a focus on data polymorphism and allocator strategies, motivated
+language with a focus on data polymorphism and structured allocation, motivated
 by deep extensibility in the style of Lua/LISP
 
 This project is still in the very early development stages. The compiler created
@@ -44,7 +44,7 @@ understand if you know ebnf.
 
 #### Implementation progress
 - 🟩 Lexical analysis
-- 🟩 Syntactic analysis 1 (parsing top level items)
+- 🟨 Syntactic analysis 1 (parsing top level items)
 - 🟨 Semantic analysis  1 (graph of module, name resolution)
 - 🟥 Syntactic analysis 2 (parsing item bodies)
 - 🟥 Semantic analysis  2 (kind inference)
