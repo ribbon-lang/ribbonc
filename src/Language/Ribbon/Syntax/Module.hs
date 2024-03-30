@@ -86,7 +86,7 @@ nameFuzzySearchOn f name ss =
 
 
 -- | A module that has been fully parsed and analyzed
-type FinalModule = Module MetaData FixType Value
+type FinalModule = Module MetaData FinalType Value
 
 -- | A module that is being analyzed
 type AnalysisModule = Module AnalysisModuleHeader UserType Value
@@ -240,22 +240,24 @@ data DefSet t v
 instance (Pretty t, Pretty v) => Pretty (DefSet t v) where
     pPrintPrec lvl _ DefSet{..} =
         vcat'
-            [ hang "parents" $ printMap parents
-            , hang "categories" $ printMap categories
+            [ hang "parents" $ printMap pPrint parents
+            , hang "categories" $ printMap pPrint categories
 
-            , hang "groups" $ printMap groups
-            , hang "quantifiers" $ printMap quantifiers
-            , hang "qualifiers" $ printMap qualifiers
-            , hang "fields" $ printMap fields
-            , hang "types" $ printMap types
-            , hang "values" $ printMap values
+            , hang "groups" $ printMap tagPrint groups
+            , hang "quantifiers" $ printMap tagPrint quantifiers
+            , hang "qualifiers" $ printMap tagPrint qualifiers
+            , hang "fields" $ printMap tagPrint fields
+            , hang "types" $ printMap tagPrint types
+            , hang "values" $ printMap tagPrint values
             ]
         where
-        printMap :: Pretty a => Map ItemId a -> Doc
-        printMap = compose Map.toList do
+        tagPrint :: Pretty a => ATag a -> Doc
+        tagPrint v =
+            pPrintPrec lvl 0 v.value <+> "at" <+> pPrint v.tag
+        printMap :: Pretty a => (a -> Doc) -> Map ItemId a -> Doc
+        printMap vPrint = compose Map.toList do
             vcat' . fmap \(k, v) ->
-                hang (pPrint k <+> "=") do
-                    pPrintPrec lvl 0 v
+                hang (pPrintPrec lvl 0 k <+> "=") (vPrint v)
 
 instance Semigroup (DefSet t v) where
     DefSet p1 x1 g1 q1 c1 f1 t1 v1 <> DefSet p2 x2 g2 q2 c2 f2 t2 v2 =

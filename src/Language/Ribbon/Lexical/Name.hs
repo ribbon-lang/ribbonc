@@ -142,6 +142,9 @@ data FixNameComponent
     | FixOperand
     deriving (Eq, Ord, Show)
 
+pattern FixSimpleString :: String -> FixNameComponent
+pattern FixSimpleString s = FixSimple (SimpleName s)
+
 instance Pretty FixNameComponent where
     pPrint = \case
         FixSimple n -> pPrint n

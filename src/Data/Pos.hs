@@ -27,7 +27,7 @@ instance Pretty Pos where
     pPrintPrec lvl _ p@(Pos o l c) =
         select (isNil p) "{nil}"
         let s = pPrint l <> ":" <> pPrint c
-        in if lvl > PrettyNormal
+        in if lvl > PrettyRich
             then s <> parens (pPrint o)
             else s
 

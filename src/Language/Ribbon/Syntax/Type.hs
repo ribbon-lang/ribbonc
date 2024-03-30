@@ -11,6 +11,9 @@ import Language.Ribbon.Syntax.Kind
 import Language.Ribbon.Syntax.Data
 import Language.Ribbon.Lexical.Name
 import Language.Ribbon.Lexical.Path
+import Language.Ribbon.Syntax.Ref
+import qualified Data.Maybe as Maybe
+import Language.Ribbon.Util
 
 
 
@@ -120,37 +123,66 @@ instance Pretty t => Pretty (AssociateConstraint t) where
 
 
 
+
 -- | A raw type expression ast, given by the parser.
 --   Gives the type of a @Value@,
---   after kind inference performs various substitutions to form a @FixType@
-data UserType
-    = UtFix !(TypeF UserType)
-    | UtFree !(Maybe SimpleName) !(Maybe (ATag Kind))
-    | UtPath !Path
-    | UtInlineConstraint !(Constraint UserType)
-    deriving (Eq, Ord, Show)
-
+--   after kind inference performs various substitutions to form a @FinalType@
+type UserType = TypeF UserTypeVar
 
 
 -- | A final type expression ast.
 --   Gives the type of a @Value@
-data FixType
-    = FtFix !(TypeF FixType)
-    | FtVar !TypeVar
-    deriving (Eq, Ord, Show)
+type FinalType = TypeF TypeVar
 
 
 
 -- | A type expression ast.
 --   Gives the type of a @Value@, after instantiation with its recursive type
-data TypeF t
-    = TConstant !Constant
-    | TApp !(ATag t) !(ATag t)
-    | TEffects ![ATag t]
-    | TData ![Field t]
+data TypeF v
+    = TVar !v
+    | TConstant !Constant
+    | TConstructor !Constructor
+    | TApp !(ATag (TypeF v)) !(ATag (TypeF v))
+    | TEffects ![ATag (TypeF v)]
+    | TData ![Field (TypeF v)]
+    deriving (Eq, Ord, Show)
+
+data Constructor
+    = Constructor
+    { ref :: !Ref
+    , name :: !SimpleName
+    , kind :: !Kind
+    }
+    deriving (Eq, Ord, Show)
+
+instance Pretty Constructor where
+    pPrintPrec lvl prec (Constructor r n k)
+        | lvl > PrettyRich =
+            parens do
+                joinWith "↘" (pPrintPrec lvl 0 r) (pPrintPrec lvl 0 n)
+                    <+> "::" <+> pPrintPrec lvl 0 k
+        | lvl > PrettyNormal =
+            parens do
+                pPrintPrec lvl 0 n <+> "::" <+> pPrintPrec lvl 0 k
+        | otherwise = pPrintPrec lvl prec n
+
+
+data UserTypeVar
+    = TvFree !(Maybe SimpleName) !(Maybe (ATag Kind))
+    | TvPath !Path
+    | TvInlineConstraint !(Constraint UserType)
     deriving (Eq, Ord, Show)
 
 
+instance Pretty UserTypeVar where
+    pPrintPrec lvl p = \case
+        TvFree n k -> case n of
+            Just s -> maybeParens (p > 0 && Maybe.isJust k) do
+                pPrintPrec lvl 0 s
+                    <+> maybeMEmpty (("of" <+>) . pPrintPrec lvl 0 <$> k)
+            _ -> maybe (text "_") (("'of" <+>) . pPrintPrec lvl 0) k
+        TvPath x -> pPrintPrec lvl p x
+        TvInlineConstraint c -> pPrintPrec lvl p c
 
 data TypeVar
     = TvBound !SimpleName !Kind
@@ -173,92 +205,76 @@ instance Pretty TypeVar where
                 ("$" <> pPrintPrec lvl 0 i)
 
 
-instance Pretty UserType where
-    pPrintPrec lvl p = \case
-        UtFix t -> pPrintPrec lvl p t
-        UtFree n k
-            | lvl > PrettyNormal -> maybeParens (p > 0) do
-                maybe (text "_") (pPrintPrec lvl 0) n
-                    <+> ":" <+> maybe (text "_") (pPrintPrec lvl 0) k
-            | otherwise -> maybe (text "_") (pPrintPrec lvl 0) n
-        UtPath x -> pPrintPrec lvl p x
-        UtInlineConstraint c -> pPrintPrec lvl p c
-
-instance Pretty FixType where
-    pPrintPrec lvl p = \case
-        FtFix t -> pPrintPrec lvl p t
-        FtVar v -> pPrintPrec lvl p v
-
 pattern TUnitCon :: TypeF t
 pattern TUnitCon
-    = TConstant (CConstructor (SimpleName "()") KType)
+    = TConstructor Constructor
+    { ref = Ref 0 0
+    , name = SimpleName "()"
+    , kind = KType
+    }
 
 pattern TArrowCon :: TypeF t
 pattern TArrowCon
-    = TConstant (CConstructor (SimpleName " -> in ")
-        (KType :~>: KType :~>: KEffects :~>: KType))
+    = TConstructor Constructor
+    { ref = Ref 0 0
+    , name = SimpleName "->"
+    , kind = KType :~>: KType :~>: KEffects :~>: KType
+    }
 
 pattern TTupleCon :: TypeF t
 pattern TTupleCon
-    = TConstant (CConstructor (SimpleName "Tuple") (KData :~>: KType))
+    = TConstructor Constructor
+    { ref = Ref 0 0
+    , name = SimpleName "Tuple"
+    , kind = KData :~>: KType
+    }
 
-pattern UtArrow :: ATag UserType -> ATag UserType -> ATag UserType -> UserType
-pattern UtArrow a b x <-
-    UtFix (TApp
-        (UtFix (TApp
-            (UtFix (TApp (UtFix TArrowCon :@: _) a) :@: _)
-            b) :@: _)
-        x)
-    where
-    UtArrow a b x =
+pattern TArrow :: ATag (TypeF v) -> ATag (TypeF v) -> ATag (TypeF v) -> TypeF v
+pattern TArrow a b x <-
+    TApp (TApp (TApp (TArrowCon :@: _) a :@: _) b :@: _) x where
+    TArrow a b x =
         let abx = a.tag <> b.tag <> x.tag
-        in UtFix (TApp
-            (UtFix (TApp
-                (UtFix (TApp (UtFix TArrowCon :@: abx) a) :@: abx)
-                b) :@: abx)
-            x)
+        in TApp (TApp (TApp (TArrowCon :@: abx) a :@: abx) b :@: abx) x
 
-pattern FixArrow :: ATag FixType -> ATag FixType -> ATag FixType -> FixType
-pattern FixArrow a b x <-
-    FtFix (TApp
-        (FtFix (TApp
-            (FtFix (TApp (FtFix TArrowCon :@: _) a) :@: _)
-            b) :@: _)
-        x)
-    where
-    FixArrow a b x =
-        let abx = a.tag <> b.tag <> x.tag
-        in FtFix (TApp
-            (FtFix (TApp
-                (FtFix (TApp (FtFix TArrowCon :@: abx) a) :@: abx)
-                b) :@: abx)
-            x)
-
-instance Pretty t => Pretty (TypeF t) where
+instance Pretty v => Pretty (TypeF v) where
     pPrintPrec lvl p = \case
+        TVar v -> pPrintPrec lvl p v
         TConstant a -> pPrintPrec lvl p a
-        TApp a b -> maybeParens (p > 0) do
-            pPrintPrec lvl p a <+> pPrintPrec lvl p b
+        TConstructor a -> pPrintPrec lvl p a
+        t@TApp{} -> let (f, xs) = forceUnTApp t in case untag f of
+            TTupleCon | [TData ts :@: _] <- xs ->
+                parens $ lsep (pPrintPrec lvl 0 . (.value) <$> ts)
+            TArrowCon | [a, b, x] <- xs ->
+                maybeParens (p > 10) do
+                    pPrintPrec lvl 11 a <+> "->" <+> pPrintPrec lvl 10 b
+                        <+> case untag x of
+                            TEffects [] | lvl == PrettyNormal -> mempty
+                            _ -> "in" <+> pPrintPrec lvl 0 x
+            _ -> maybeParens (p > 70) do
+                hsep $ pPrintPrec lvl 71 f : (pPrintPrec lvl 71 <$> xs)
         TEffects es -> brackets do
             lsep (pPrintPrec lvl 0 <$> es)
         TData fs -> braces do
             lsep (pPrintPrec lvl 0 <$> fs)
 
+unTApp :: TypeF v -> Maybe (ATag (TypeF v), [ATag (TypeF v)])
+unTApp = \case
+    TApp a b -> case unTApp (untag a) of
+        Just (f, xs) -> Just (f, xs <> [b])
+        Nothing -> Just (a, [b])
+    _ -> Nothing
 
-
+forceUnTApp :: TypeF v -> (ATag (TypeF v), [ATag (TypeF v)])
+forceUnTApp t = Maybe.fromMaybe
+    (error "unTApp: not a TApp")
+    (unTApp t)
 
 data Constant
     = CInt !Word32
     | CString !String
-    | CConstructor !SimpleName !Kind
     deriving (Eq, Ord, Show)
 
 instance Pretty Constant where
     pPrintPrec lvl _ = \case
         CInt a -> pPrintPrec lvl 0 a
         CString a -> pPrintPrec lvl 0 a
-        CConstructor n k
-            | lvl > PrettyNormal ->
-                parens $ pPrintPrec lvl 0 n <+> ":" <+> pPrintPrec lvl 0 k
-            | otherwise ->
-                pPrintPrec lvl 0 n <+> ":" <+> pPrintPrec lvl 0 k

@@ -99,7 +99,6 @@ Kind
 
 Type |=
     Var = identifier
-    Free = "_"
     Con = Path
     Unit = "(" ")"
     Group = "(" Type ")"
@@ -108,7 +107,10 @@ Type |=
     EffectRow = "[" Type**"," "]"
     Function = Type "->" Type ("in" Type)?
     App = Type Type
-    QuantifiedInline = "'" identifier ("of" Kind)?
+    QuantifiedInline
+        = "_"
+        | "'" identifier ("of" Kind)?
+        | "'" "of" Kind
     Constraint |=
         IsStruct = "struct" Type ("as" Type)?
         IsUnion = "union" Type ("as" Type)?

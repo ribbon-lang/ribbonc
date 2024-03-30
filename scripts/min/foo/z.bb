@@ -20,10 +20,10 @@ pub namespace quux =
         Just : a
         Nothing : ()
 
-    union Read a =
+    effect Read a =
         read : () -> a
 
-    union Write a =
+    effect Write a =
         write : a -> ()
 
     type Mem a = [Read a, Write a]

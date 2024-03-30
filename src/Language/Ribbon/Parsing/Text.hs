@@ -100,7 +100,7 @@ reservedSymbols =
     , "union", "namespace"
     , "type", "value"
     , "module", "use", "file", "pub", "hiding"
-    , "in", "as", "do", "with", "where", "for"
+    , "in", "as", "of", "do", "with", "where", "for"
     , "fun", "let", "match", "if", "then", "else"
     , "'", "`"
     , "=", ":", "=>", ";", ",", "|", "~/"

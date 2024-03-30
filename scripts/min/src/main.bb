@@ -28,9 +28,12 @@ effect Read a =
     read : () -> a
 
 effect Write =
-    write : 'a -> ()
+    write : ('a of Type) -> ()
 
-Mem = type
+effect Except e =
+    throw : e -> _
+
+type Mem =
     [Read 'a, Write 'a]
 
 foo = fun x =>

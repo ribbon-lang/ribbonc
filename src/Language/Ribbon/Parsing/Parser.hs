@@ -681,8 +681,8 @@ bindingField :: Has m
 bindingField c fm i = do
     (off, n, f) :@: at <- tag $ fm i
     let lbl = Label
-            (UtFix . TConstant . CInt <$> off)
-            (UtFix . TConstant . CString . (.value) <$> n)
+            (TConstant . CInt <$> off)
+            (TConstant . CString . (.value) <$> n)
     newFieldId <- insertNew (Visible Public $
             QualifiedName NonAssociative 0 $
                 SimpleFixName <$> n) do
@@ -1033,24 +1033,26 @@ userType :: Has m '[Parse] => m UserType
 userType = optionalIndent do
     untag <$> do tag atom >>= infixLoop where
     atom = asum
-        [ do
-            sym "'"
-            asum
+        [ do sym "'"
+             asum
                 [ do n <- simpleName
                      case n.value of
-                         "_" -> pure $ UtFree Nothing Nothing
-                         _ -> UtFree (Just n) <$> do
+                         "_" -> pure $ TVar $ TvFree Nothing Nothing
+                         _ -> TVar . TvFree (Just n) <$> do
                              option Nothing $ sym "of" >>
                                  Just <$> noFail (tag kind)
-                , sym "of" >> UtFree Nothing . Just <$> noFail (tag kind)
+                , sym "of" >> TVar . TvFree Nothing . Just <$> noFail (tag kind)
                 ]
 
-        , UtPath <$> path
-        , parens $ option (UtFix TUnitCon) do
+        , do p <- path
+             pure if | SingleSimplePath (SimpleName "_") <- p ->
+                        TVar $ TvFree Nothing Nothing
+                     | otherwise -> TVar (TvPath p)
+        , parens $ option TUnitCon do
             t1 <- tag userType
             option (untag t1) $ buildTuple . (t1 :) <$> do
                 sym "," >> typeList
-        , UtFix . TEffects <$> brackets typeList
+        , TEffects <$> brackets typeList
         ]
 
     typeList = listMany (sym ",") (tag userType)
@@ -1060,27 +1062,29 @@ userType = optionalIndent do
     infixes l = asum
         [ simpleNameOf "->" >> noFail do
             r <- tag userType
-            x <- option (UtFix (TEffects []) :@: attrFlattenToEnd r.tag) do
+            x <- option (TEffects [] :@: attrFlattenToEnd r.tag) do
                 sym "in" >> noFail (tag userType)
-            pure $ UtArrow l r x :@: (l.tag <> r.tag <> x.tag)
-        , tag atom <&> \r -> UtFix (TApp l r) :@: (l.tag <> r.tag)
+            pure $ TArrow l r x :@: (l.tag <> r.tag <> x.tag)
+        , tag atom <&> \r -> TApp l r :@: (l.tag <> r.tag)
         ]
 
 buildTuple :: [ATag UserType] -> UserType
 buildTuple ts =
     let (fs, tg) =
             foldWith Nil (zip [0..] ts) \(i, t) (fx, tx) ->
-                (Field
-                { label =
-                    Label
-                    { offset =
-                        UtFix (TConstant $ CInt i) :@: t.tag
-                    , name =
-                        UtFree Nothing (Just (KString :@: t.tag)) :@: t.tag
-                    }
-                , value = t
-                } : fx, tx <> t.tag)
-    in UtFix (TApp (UtFix TTupleCon :@: tg) (UtFix (TData fs) :@: tg))
+                ( Field
+                    { label = Label
+                        { offset =
+                            TConstant (CInt i) :@: t.tag
+                        , name =
+                            TVar (TvFree Nothing (Just $ KString :@: t.tag))
+                                :@: t.tag
+                        }
+                    , value = t
+                    } : fx
+                , tx <> t.tag
+                )
+    in TApp (TTupleCon :@: tg) (TData fs :@: tg)
 
 -- | Expect a @Version@
 version :: Has m '[Parse] => m Version

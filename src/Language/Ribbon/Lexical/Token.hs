@@ -76,7 +76,7 @@ pPrintSeq lvl ts = hsep <$> do
     forM (toList ts) \(t :@: a) ->
         liftA2 (<+>)
             do pPrintPrecWith lvl 0 t
-            if lvl > PrettyNormal
+            if lvl >= PrettyVerbose
                 then ("@" <+>) <$> pPrintPrecWith lvl 0 a
                 else pure mempty
 

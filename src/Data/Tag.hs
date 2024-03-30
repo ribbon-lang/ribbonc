@@ -34,14 +34,14 @@ instance {-# OVERLAPPABLE #-} (Show t, Show a) => Show (Tag t a) where
 
 instance {-# OVERLAPPABLE #-} (Pretty t, Pretty a) => Pretty (Tag t a) where
     pPrintPrec l p (a :@: t) =
-        if l >= PrettyRich
+        if l >= PrettyVerbose
             then parens (pPrintPrec l 0 a) <> "@" <> brackets (pPrintPrec l 0 t)
             else pPrintPrec l p a
 
 instance {-# OVERLAPPABLE #-} (PrettyWith ctx t, PrettyWith ctx a)
     => PrettyWith ctx (Tag t a) where
         pPrintPrecWith l p (a :@: t) =
-            if l >= PrettyRich
+            if l >= PrettyVerbose
                 then liftA2 (joinWith "@")
                     do parens <$> pPrintPrecWith l 0 a
                     do brackets <$> pPrintPrecWith l 0 t
