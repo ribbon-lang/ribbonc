@@ -44,13 +44,13 @@ class Monoid a where Semigroup a =
 class Monad m where Applicative m =
     ` >>= ` : m a -> (a -> m b) -> m b
 
-class MonadTrans t : Type -> (Type -> Type) -> Type -> Type =
+class MonadTrans t : type -> (type -> type) -> type -> type =
     lift : where Monad m => m a -> t m a
 
 class AssociatedTypeTest x =
     type AssocType
     type AssocTypeQuant1 a
-    type AssocTypeQuant2 a, b : Int
+    type AssocTypeQuant2 a, b : int
     type AssocTypeQual
         where FooBar AssocTypeQual
     type AssocTypeFull a where LlamaDuck a

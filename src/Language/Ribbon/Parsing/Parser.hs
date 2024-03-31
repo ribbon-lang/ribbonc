@@ -428,7 +428,9 @@ effectDef :: Has m
     , Diag
     ] => Visible QualifiedName -> m ItemId
 effectDef vqn = noFail do
-    (q, c) <- typeHeadEq False
+    (q, c) <- grabDomain (not . isSymbol "=" . untag)
+        >>= recurseParserAll (typeHeadNoDelim False)
+    optionalIndent (sym "=")
 
     lns <- tryGrabBlock vqn.value.value.tag
 
@@ -458,7 +460,9 @@ classDef :: Has m
     , Diag
     ] => Visible QualifiedName -> m ItemId
 classDef vqn = noFail do
-    (q, c) <- typeHeadEq False
+    (q, c) <- grabDomain (not . isSymbol "=" . untag)
+        >>= recurseParserAll (typeHeadNoDelim False)
+    optionalIndent (sym "=")
 
     lns <- tryGrabBlock vqn.value.value.tag
 
@@ -507,9 +511,9 @@ instanceDef :: Has m
 instanceDef vqn = noFail do
     (q, c) <- grabDomain (not . isSymbol "for" . untag)
         >>= recurseParserAll (typeHeadNoDelim False)
-    sym "for"
+    optionalIndent (sym "for")
     for <- tag userType
-    sym "="
+    optionalIndent (sym "=")
 
     lns <- tryGrabBlock vqn.value.value.tag
 
@@ -706,7 +710,7 @@ fields fm = loop 0 where
                 }
             (recurseParserAll (fm i) ln)
             (loop i lns)
-            (\i' -> loop (i' + 1) lns)
+            \i' -> loop (i' + 1) lns
 
 
 
@@ -1015,13 +1019,13 @@ typeBinder = do
 kind :: Has m '[Parse] => m Kind
 kind = atom >>= arrows where
     atom = asum
-        [ KType <$ simpleNameOf "Type"
-        , KInt <$ simpleNameOf "Int"
-        , KString <$ simpleNameOf "String"
-        , KEffect <$ simpleNameOf "Effect"
-        , KConstraint <$ simpleNameOf "Constraint"
-        , KData <$ simpleNameOf "Data"
-        , KEffects <$ simpleNameOf "Effects"
+        [ KType <$ sym "type"
+        , KInt <$ simpleNameOf "int"
+        , KString <$ simpleNameOf "str"
+        , KEffect <$ sym "effect"
+        , KConstraint <$ simpleNameOf "constraint"
+        , KData <$ simpleNameOf "data"
+        , KEffects <$ simpleNameOf "effects"
         , parens kind
         ]
     arrows l = option l do
@@ -1031,27 +1035,26 @@ kind = atom >>= arrows where
 -- | Parse a @UserType@
 userType :: Has m '[Parse] => m UserType
 userType = optionalIndent do
-    untag <$> do tag atom >>= infixLoop where
+    untag <$> (tag atom >>= infixLoop) where
     atom = asum
-        [ do sym "'"
-             asum
-                [ do n <- simpleName
-                     case n.value of
-                         "_" -> pure $ TVar $ TvFree Nothing Nothing
-                         _ -> TVar . TvFree (Just n) <$> do
-                             option Nothing $ sym "of" >>
-                                 Just <$> noFail (tag kind)
-                , sym "of" >> TVar . TvFree Nothing . Just <$> noFail (tag kind)
-                ]
+        [ sym "'" >> asum
+            [ simpleName >>= \n ->
+                TVar . TvFree (Just n) <$> option Nothing do
+                    sym "of"
+                    Just <$> noFail (tag kind)
+            , sym "of" >> TVar . TvFree Nothing . Just <$>
+                noFail (tag kind)
+            ]
 
-        , do p <- path
-             pure if | SingleSimplePath (SimpleName "_") <- p ->
-                        TVar $ TvFree Nothing Nothing
-                     | otherwise -> TVar (TvPath p)
+        , TVar (TvFree Nothing Nothing) <$ sym "_"
+
+        , TVar . TvPath <$> path
+
         , parens $ option TUnitCon do
             t1 <- tag userType
             option (untag t1) $ buildTuple . (t1 :) <$> do
                 sym "," >> typeList
+
         , TEffects <$> brackets typeList
         ]
 
@@ -1063,9 +1066,11 @@ userType = optionalIndent do
         [ simpleNameOf "->" >> noFail do
             r <- tag userType
             x <- option (TEffects [] :@: attrFlattenToEnd r.tag) do
-                sym "in" >> noFail (tag userType)
+                sym "in"
+                noFail (tag userType)
             pure $ TArrow l r x :@: (l.tag <> r.tag <> x.tag)
-        , tag atom <&> \r -> TApp l r :@: (l.tag <> r.tag)
+        , tag atom <&> \r ->
+            TApp l r :@: (l.tag <> r.tag)
         ]
 
 buildTuple :: [ATag UserType] -> UserType
@@ -1082,7 +1087,7 @@ buildTuple ts =
                         }
                     , value = t
                     } : fx
-                , tx <> t.tag
+                , t.tag <> tx
                 )
     in TApp (TTupleCon :@: tg) (TData fs :@: tg)
 

@@ -105,6 +105,7 @@ reservedSymbols =
     , "'", "`"
     , "=", ":", "=>", ";", ",", "|", "~/"
     , "{", "}", "(", ")", "[", "]"
+    , "_"
     ]
 
 -- | List of @Char@s that are considered punctuation

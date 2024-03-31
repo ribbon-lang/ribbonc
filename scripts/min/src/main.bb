@@ -21,14 +21,15 @@ namespace Baz =
     ` ~ ` 10 = type whatever
     (10) ` + ` : (Int, Int) -> Int = whatever
 
-effect Bar =
-    bar : Int -> Int
+effect Bar k
+    where Semigroup k =
+    bar : k -> k
 
 effect Read a =
     read : () -> a
 
 effect Write =
-    write : ('a of Type) -> ()
+    write : ('a of type) -> ()
 
 effect Except e =
     throw : e -> _

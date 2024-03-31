@@ -90,10 +90,10 @@ Def = Visibility? (Use | Namespace | TypeDef | ValueDef) where
         ValueExpr = "=" wsBlock<Value>
 
 Kind
-    = "Type" | "Effect"
-    | "Int"  | "String"
-    | "Data" | "Effects"
-    | "Constraint"
+    = "type" | "effect"
+    | "int"  | "str"
+    | "data" | "effects"
+    | "constraint"
     | Kind "->" Kind
     | "(" Kind ")"
 
