@@ -20,7 +20,12 @@ Qualifier = listSome<identifier (":" Kind)?>
 Quantifier = "where" listSome<Type>
 
 Field body = Label body where
-    Label = uInt ("\\" SimpleName)? | SimpleName
+    ;; FIXME: Cannot vary over both layout and name
+    Label
+        = ("#" Type | uInt) "\\" ("#" Type | SimpleName)
+        | Int ("\\" Name)? | Name
+    Int = "#I" Type | uInt
+    Name = "#S" Type | SimpleName
 
 Path
     = PlainBase ("/" FixName++"/")?
@@ -64,7 +69,7 @@ Def = Visibility? (Use | Namespace | TypeDef | ValueDef) where
         FieldDec = Field<":" wsBlock<Type>>
         StructFields
             = WsList<",", wsBlock<Type>>
-            | WsList<",", SimpleName ":" wsBlock<Type>>
+            | WsList<",", FieldDec>
         ClassDec
             = "type" SimpleName TypeHead?
             | FixNameDecl ":" ("for" TypeHead "=>")? Type

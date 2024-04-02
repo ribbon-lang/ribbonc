@@ -1015,6 +1015,7 @@ typeBinder = do
             k' <- state \i -> (i, i + 1)
             pure $ n `Of` (KVar k' :@: n.tag)
 
+
 -- | Parse a type @Kind@
 kind :: Has m '[Parse] => m Kind
 kind = atom >>= arrows where
@@ -1032,31 +1033,67 @@ kind = atom >>= arrows where
         simpleNameOf "->" >> noFail do
             KArrow l <$> kind
 
+
 -- | Parse a @UserType@
 userType :: Has m '[Parse] => m UserType
-userType = optionalIndent do
-    untag <$> (tag atom >>= infixLoop) where
+userType = optionalIndent $ untag <$> (tag atom >>= infixLoop) where
     atom = asum
         [ sym "'" >> asum
             [ simpleName >>= \n ->
                 TVar . TvFree (Just n) <$> option Nothing do
                     sym "of"
                     Just <$> noFail (tag kind)
+
             , sym "of" >> TVar . TvFree Nothing . Just <$>
                 noFail (tag kind)
             ]
+
+        , do kat <- attrOf $ sym "struct"
+             TVar . TvInlineConstraint . CData . DcStruct <$>
+                liftA2 StructConstraint
+                    do tag userType
+                    do tag $ option
+                        (TVar $ TvFree Nothing $ Just (KType :@: kat))
+                        userType
+
+        , do kat <- attrOf $ sym "union"
+             TVar . TvInlineConstraint . CData . DcUnion <$>
+                liftA2 UnionConstraint
+                    do tag userType
+                    do tag $ option
+                        (TVar $ TvFree Nothing $ Just (KType :@: kat))
+                        userType
 
         , TVar (TvFree Nothing Nothing) <$ sym "_"
 
         , TVar . TvPath <$> path
 
+        , TEffects <$> brackets typeList
+
+        , TData <$> brackets fieldList
+
         , parens $ option TUnitCon do
             t1 <- tag userType
             option (untag t1) $ buildTuple . (t1 :) <$> do
                 sym "," >> typeList
-
-        , TEffects <$> brackets typeList
         ]
+
+    fieldList = listMany (sym ",") field
+    field = liftA2 Field
+        do asum
+            [ liftA2 Label
+                do tag (TConstant . CInt <$> int)
+                do simpleNameOf "\\"
+                   tag $ asum
+                        [ TVar . TvFree Nothing . Just <$>
+                            KString <@> attrOf (sym "_")
+                        , TConstant . CString . (.value) <$> simpleName
+                        ]
+
+            -- FIXME: vary over both layout and name
+            , todo
+            ]
+        do sym ":" >> tag userType
 
     typeList = listMany (sym ",") (tag userType)
 
@@ -1069,27 +1106,11 @@ userType = optionalIndent do
                 sym "in"
                 noFail (tag userType)
             pure $ TArrow l r x :@: (l.tag <> r.tag <> x.tag)
-        , tag atom <&> \r ->
-            TApp l r :@: (l.tag <> r.tag)
+
+        , tag atom <&> \r -> TApp l r :@: (l.tag <> r.tag)
         ]
 
-buildTuple :: [ATag UserType] -> UserType
-buildTuple ts =
-    let (fs, tg) =
-            foldWith Nil (zip [0..] ts) \(i, t) (fx, tx) ->
-                ( Field
-                    { label = Label
-                        { offset =
-                            TConstant (CInt i) :@: t.tag
-                        , name =
-                            TVar (TvFree Nothing (Just $ KString :@: t.tag))
-                                :@: t.tag
-                        }
-                    , value = t
-                    } : fx
-                , t.tag <> tx
-                )
-    in TApp (TTupleCon :@: tg) (TData fs :@: tg)
+
 
 -- | Expect a @Version@
 version :: Has m '[Parse] => m Version

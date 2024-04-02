@@ -14,6 +14,7 @@ import Language.Ribbon.Lexical.Path
 import Language.Ribbon.Syntax.Ref
 import qualified Data.Maybe as Maybe
 import Language.Ribbon.Util
+import Data.Nil
 
 
 
@@ -123,6 +124,84 @@ instance Pretty t => Pretty (AssociateConstraint t) where
 
 
 
+-- | A constant value usable in type position
+data Constant
+    = CInt !Word32
+    | CString !String
+    deriving (Eq, Ord, Show)
+
+instance Pretty Constant where
+    pPrintPrec lvl _ = \case
+        CInt a -> pPrintPrec lvl 0 a
+        CString a -> pPrintPrec lvl 0 a
+
+
+
+data Constructor
+    = Constructor
+    { ref :: !Ref
+    , name :: !SimpleName
+    , kind :: !Kind
+    }
+    deriving (Eq, Ord, Show)
+
+instance Pretty Constructor where
+    pPrintPrec lvl prec (Constructor r n k)
+        | lvl > PrettyRich =
+            parens do
+                joinWith "↘" (pPrintPrec lvl 0 r) (pPrintPrec lvl 0 n)
+                    <+> "::" <+> pPrintPrec lvl 0 k
+        | lvl > PrettyNormal =
+            parens do
+                pPrintPrec lvl 0 n <+> "::" <+> pPrintPrec lvl 0 k
+        | otherwise = pPrintPrec lvl prec n
+
+
+
+
+data UserTypeVar
+    = TvFree !(Maybe SimpleName) !(Maybe (ATag Kind))
+    | TvPath !Path
+    | TvInlineConstraint !(Constraint UserType)
+    deriving (Eq, Ord, Show)
+
+
+instance Pretty UserTypeVar where
+    pPrintPrec lvl p = \case
+        TvFree n k -> case n of
+            Just s -> maybeParens (p > 0 && Maybe.isJust k) do
+                pPrintPrec lvl 0 s
+                    <+> maybeMEmpty (("of" <+>) . pPrintPrec lvl 0 <$> k)
+            _ -> maybe (text "_") (("'of" <+>) . pPrintPrec lvl 0) k
+        TvPath x -> pPrintPrec lvl p x
+        TvInlineConstraint c -> pPrintPrec lvl p c
+
+
+
+
+data TypeVar
+    = TvBound !SimpleName !Kind
+    | TvMeta !Int !Kind
+    deriving (Eq, Ord, Show)
+
+instance Pretty TypeVar where
+    pPrintPrec lvl prec = \case
+        TvBound n k
+            | lvl > PrettyNormal ->
+                maybeParens (prec > 0) do
+                    pPrintPrec lvl 0 n <+> ":" <+> pPrintPrec lvl 0 k
+            | otherwise ->
+                pPrintPrec lvl 0 n
+        TvMeta i k
+            | lvl > PrettyNormal ->
+                maybeParens (prec > 0) do
+                    ("$" <> pPrintPrec lvl 0 i) <+> ":" <+> pPrintPrec lvl 0 k
+            | otherwise ->
+                ("$" <> pPrintPrec lvl 0 i)
+
+
+
+
 
 -- | A raw type expression ast, given by the parser.
 --   Gives the type of a @Value@,
@@ -146,64 +225,6 @@ data TypeF v
     | TEffects ![ATag (TypeF v)]
     | TData ![Field (TypeF v)]
     deriving (Eq, Ord, Show)
-
-data Constructor
-    = Constructor
-    { ref :: !Ref
-    , name :: !SimpleName
-    , kind :: !Kind
-    }
-    deriving (Eq, Ord, Show)
-
-instance Pretty Constructor where
-    pPrintPrec lvl prec (Constructor r n k)
-        | lvl > PrettyRich =
-            parens do
-                joinWith "↘" (pPrintPrec lvl 0 r) (pPrintPrec lvl 0 n)
-                    <+> "::" <+> pPrintPrec lvl 0 k
-        | lvl > PrettyNormal =
-            parens do
-                pPrintPrec lvl 0 n <+> "::" <+> pPrintPrec lvl 0 k
-        | otherwise = pPrintPrec lvl prec n
-
-
-data UserTypeVar
-    = TvFree !(Maybe SimpleName) !(Maybe (ATag Kind))
-    | TvPath !Path
-    | TvInlineConstraint !(Constraint UserType)
-    deriving (Eq, Ord, Show)
-
-
-instance Pretty UserTypeVar where
-    pPrintPrec lvl p = \case
-        TvFree n k -> case n of
-            Just s -> maybeParens (p > 0 && Maybe.isJust k) do
-                pPrintPrec lvl 0 s
-                    <+> maybeMEmpty (("of" <+>) . pPrintPrec lvl 0 <$> k)
-            _ -> maybe (text "_") (("'of" <+>) . pPrintPrec lvl 0) k
-        TvPath x -> pPrintPrec lvl p x
-        TvInlineConstraint c -> pPrintPrec lvl p c
-
-data TypeVar
-    = TvBound !SimpleName !Kind
-    | TvMeta !Int !Kind
-    deriving (Eq, Ord, Show)
-
-instance Pretty TypeVar where
-    pPrintPrec lvl prec = \case
-        TvBound n k
-            | lvl > PrettyNormal ->
-                maybeParens (prec > 0) do
-                    pPrintPrec lvl 0 n <+> ":" <+> pPrintPrec lvl 0 k
-            | otherwise ->
-                pPrintPrec lvl 0 n
-        TvMeta i k
-            | lvl > PrettyNormal ->
-                maybeParens (prec > 0) do
-                    ("$" <> pPrintPrec lvl 0 i) <+> ":" <+> pPrintPrec lvl 0 k
-            | otherwise ->
-                ("$" <> pPrintPrec lvl 0 i)
-
 
 pattern TUnitCon :: TypeF t
 pattern TUnitCon
@@ -269,12 +290,21 @@ forceUnTApp t = Maybe.fromMaybe
     (error "unTApp: not a TApp")
     (unTApp t)
 
-data Constant
-    = CInt !Word32
-    | CString !String
-    deriving (Eq, Ord, Show)
 
-instance Pretty Constant where
-    pPrintPrec lvl _ = \case
-        CInt a -> pPrintPrec lvl 0 a
-        CString a -> pPrintPrec lvl 0 a
+buildTuple :: [ATag UserType] -> UserType
+buildTuple ts =
+    let (fs, tg) =
+            foldWith Nil (zip [0..] ts) \(i, t) (fx, tx) ->
+                ( Field
+                    { label = Label
+                        { offset =
+                            TConstant (CInt i) :@: t.tag
+                        , name =
+                            TVar (TvFree Nothing (Just $ KString :@: t.tag))
+                                :@: t.tag
+                        }
+                    , value = t
+                    } : fx
+                , t.tag <> tx
+                )
+    in TApp (TTupleCon :@: tg) (TData fs :@: tg)
