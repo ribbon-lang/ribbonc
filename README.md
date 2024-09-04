@@ -581,18 +581,18 @@ Additionally, repeated binding symbols (ie `(a a)`) are allowed, and will have t
 > (assert-eq
 >     (run-lambda-list 1 1)
 >     ())
-
+>
 > (assert-eq '((x . (2 3)))
 >     (run-lambda-list
 >         (-> (lambda (x) (f-assert-eq x 2) (list x 3)) . x)
 >         2))
-
+>
 > (assert-eq 'okay
 >     (with ((fun fail () (terminate 'okay)))
 >         (f-lambda-list
 >             (-> (lambda (x) (f-assert-eq x 1) (list x)) a)
 >             2)))
-
+>
 > (assert-eq '((x . (1 . 2)))
 >     (run-lambda-list
 >         (@ x (: pair?))
