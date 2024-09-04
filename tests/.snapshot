@@ -1,0 +1,354 @@
+## fail:assertion-failed
+out[0]:
+```
+
+```
+err[110]:
+```
+! Evaluation error at [./tests/fail/assertion-failed.bb:1:1-16]: Panic
+	assert-eq failed:
+	a: 1 = 1
+	b: 2 = 2
+
+```
+
+## fail:empty-parse
+out[0]:
+```
+
+```
+err[165]:
+```
+! Evaluation error at [./tests/fail/empty-parse.bb:1:1 to 3:38]: Panic
+	global prompt `fail` terminated with:
+		[./tests/fail/empty-parse.bb:3:20-35]: uncaught fail
+
+```
+
+## fail:equality-types
+out[0]:
+```
+
+```
+err[131]:
+```
+! Evaluation error at [./tests/fail/equality-types.bb:1:1-31]: Panic
+	assert-eq-addr failed:
+	a: '(1 2) = (1 2)
+	b: '(1 2) = (1 2)
+
+```
+
+## fail:unhandled
+out[0]:
+```
+
+```
+err[111]:
+```
+! Evaluation error at [./tests/fail/unhandled.bb:1:1-17]: Missing dynamic binding
+	unhandled fetch `exception`
+
+```
+
+## fail:unstringify
+out[0]:
+```
+
+```
+err[177]:
+```
+! Evaluation error at [./tests/fail/unstringify.bb:1:1 to 3:64]: Panic
+	global prompt `exception` terminated with:
+		[./tests/fail/unstringify.bb:3:20-61]: uncaught ExpectedEof
+
+```
+
+## pass:alist
+out[30]:
+```
+a => 4
+x => 100
+y => 2
+z => 3
+
+```
+err[0]:
+```
+
+```
+
+## pass:assertion-pass
+out[0]:
+```
+
+```
+err[0]:
+```
+
+```
+
+## pass:attr
+out[101]:
+```
+[./tests/pass/attr.bb:1:14-17]
+[./tests/pass/attr.bb:4:21-22]
+[foo:100:50 to 200:22]
+[foo:?-?]
+[foo]
+
+```
+err[0]:
+```
+
+```
+
+## pass:begin
+out[4]:
+```
+1
+1
+
+```
+err[0]:
+```
+
+```
+
+## pass:branch
+out[75]:
+```
+when0
+unless1
+if0
+if2
+cond1
+cond3
+cond4
+match0
+match2
+match5
+match6
+match8
+
+```
+err[0]:
+```
+
+```
+
+## pass:catch
+out[21]:
+```
+exception: test
+fail
+
+```
+err[0]:
+```
+
+```
+
+## pass:env
+out[4]:
+```
+bar
+
+```
+err[0]:
+```
+
+```
+
+## pass:equality-types
+out[0]:
+```
+
+```
+err[0]:
+```
+
+```
+
+## pass:lambda-list
+out[18]:
+```
+((b . 2) (a . 1))
+
+```
+err[0]:
+```
+
+```
+
+## pass:ll-eff
+out[0]:
+```
+
+```
+err[0]:
+```
+
+```
+
+## pass:many-recursions
+out[0]:
+```
+
+```
+err[0]:
+```
+
+```
+
+## pass:match
+out[76]:
+```
+1
+2
+(3 4)
+1
+2
+()
+1
+2
+(3 4)
+1
+2
+()
+1
+2
+3
+4
+no match
+1
+2
+(3 4)
+1
+2
+(3)
+1
+2
+()
+
+```
+err[0]:
+```
+
+```
+
+## pass:module-system
+out[17]:
+```
+1
+2
+3
+100
+100
+11
+
+```
+err[0]:
+```
+
+```
+
+## pass:quasi
+out[0]:
+```
+
+```
+err[0]:
+```
+
+```
+
+## pass:simple-parse
+out[26]:
+```
+hello world
+goodbye world
+
+```
+err[0]:
+```
+
+```
+
+## pass:string
+out[0]:
+```
+
+```
+err[0]:
+```
+
+```
+
+## pass:text
+out[0]:
+```
+
+```
+err[0]:
+```
+
+```
+
+## pass:unstringify
+out[0]:
+```
+
+```
+err[0]:
+```
+
+```
+
+## pass:var-eff
+out[0]:
+```
+
+```
+err[0]:
+```
+
+```
+
+## pass:write
+out[13]:
+```
+hello world 
+
+```
+err[0]:
+```
+
+```
+
+## x86_64-linux-gnu-ctest
+out[26]:
+```
+(+ 1 2 3)Linux
+
+Result: 6
+
+```
+err[0]:
+```
+
+```
+
+## x86_64-windows-gnu-ctest
+out[31]:
+```
+(+ 1 2 3)Windows
+
+Result: 6
+
+```
+err[0]:
+```
+
+```
+

@@ -1,0 +1,35 @@
+.{
+    .name = "ribbonc",
+    .version = "0.0.0",
+    .dependencies = .{
+        .bdwgc = .{
+            .url = "https://github.com/noxabellus/bdwgc/archive/fa0b2f698d47f7af6bfb2cc1de93605df4564199.tar.gz",
+            .hash = "1220ec16d40f32cefb00fd5ceada1acf8757d03da5df13b5a8141da2fa8c336c646d",
+        },
+        .clap = .{
+            .url = "https://github.com/Hejsil/zig-clap/archive/2d9db156ae928860a9acf2f1260750d3b44a4c98.tar.gz",
+            .hash = "122005e589ab3b6bff8e589b45f5b12cd27ce79f266bdac17e9f33ebfe2fbaff7fe3",
+        },
+        .ZigBuilder = .{
+            .url = "https://github.com/noxabellus/zig-builder/archive/4daca88f98ea63a988e7fc63a2493f0590a5e11b.tar.gz",
+            .hash = "12209be27cf086f1f0fb2ac107df581cc8a34c0d22ad66847cd5fe219b63b1a8b7e2",
+        },
+        .ZigTextUtils = .{
+            .url = "https://github.com/noxabellus/zig-text-utils/archive/6e993b117d3815a9ff966ce81d730c9ea9b20dd3.tar.gz",
+            .hash = "12203aee906d0a12ca91875b067ce4e71a2bdd197309eb2a0792ae4aaa37629ac8f2",
+        },
+        .ZigTypeUtils = .{
+            .url = "https://github.com/noxabellus/zig-type-utils/archive/b840360feabbfaf57747815279fa2a38611538d1.tar.gz",
+            .hash = "12208dc685cffed38ce36ee5269983657ff526d11ce83f9807a34f67645ba58bcb48",
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+        "tools",
+        "scripts",
+        "LICENSE",
+        "README.md",
+    },
+}

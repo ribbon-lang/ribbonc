@@ -1,9 +1,7 @@
-.depr
-.local
 .vscode
-.stack-work
-dist-newstyle
-stack.yaml.lock
-ribbonc.cabal
-TODO
-NOTES
+.depr
+.zig-cache
+zig-out
+.ribbonc-repl-history
+stdin
+NOTES.md
