@@ -2,9 +2,9 @@ const std = @import("std");
 
 const Extern = @import("Extern");
 
-const TextUtils = @import("ZigTextUtils");
+const TextUtils = @import("ZigUtils").Text;
 
-const Support = @import("Support");
+const Support = @import("ZigUtils").Misc;
 const Unit = Support.Unit;
 const Ordering = Support.Ordering;
 
@@ -28,7 +28,9 @@ pub const SExpr = extern struct {
 
     pub const HashContext = struct {
         pub fn hash(_: @This(), key: SExpr) u32 {
-            return Support.externHash(key);
+            var hasher = Extern.Hasher.initFnv1a32();
+            Support.hashWith(&hasher, key);
+            return hasher.final();
         }
 
         pub fn eql(_: @This(), a: SExpr, b: SExpr, _: usize) bool {
@@ -888,7 +890,7 @@ pub const SExpr = extern struct {
 
     pub fn forceNil(self: SExpr) Unit {
         std.debug.assert(self.isNil());
-        return self.data.nil;
+        return .{};
     }
 
     pub fn forceBool(self: SExpr) bool {

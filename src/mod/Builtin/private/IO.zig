@@ -1,7 +1,7 @@
 const std = @import("std");
 
 const Extern = @import("Extern");
-const Support = @import("Support");
+const Support = @import("ZigUtils").Misc;
 
 const Core = @import("Core");
 const Source = Core.Source;

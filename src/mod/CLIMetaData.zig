@@ -1,13 +1,13 @@
 const std = @import("std");
 
-const Support = @import("Support");
-const TypeUtils = @import("ZigTypeUtils");
+const Support = @import("ZigUtils").Misc;
+const TypeUtils = @import("ZigUtils").Type;
 
 const clap = @import("clap");
 
 const Config = @import("Config");
 
-const ANSI = @import("ANSI");
+const ANSI = @import("ZigUtils").Ansi;
 
 pub const commands = .{
     .help = .{"Display commands help message"},

@@ -1,8 +1,8 @@
 const std = @import("std");
 
 const Builtin = @import("Builtin");
-const TextUtils = @import("ZigTextUtils");
-const TypeUtils = @import("ZigTypeUtils");
+const TextUtils = @import("ZigUtils").Text;
+const TypeUtils = @import("ZigUtils").Type;
 
 pub const std_options = std.Options{
     .log_level = .warn,

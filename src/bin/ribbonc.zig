@@ -3,11 +3,11 @@ const std = @import("std");
 const zig_builtin = @import("builtin");
 
 const Config = @import("Config");
-const Support = @import("Support");
+const Support = @import("ZigUtils").Misc;
 const REPL = @import("REPL").Builder(Compilation);
 const CLIMetaData = @import("CLIMetaData");
-const TextUtils = @import("ZigTextUtils");
-const ANSI = @import("ANSI");
+const TextUtils = @import("ZigUtils").Text;
+const ANSI = @import("ZigUtils").Ansi;
 const Builtin = @import("Builtin");
 
 const Core = @import("Core");

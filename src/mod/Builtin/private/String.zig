@@ -1,6 +1,6 @@
 const std = @import("std");
 
-const TextUtils = @import("ZigTextUtils");
+const TextUtils = @import("ZigUtils").Text;
 
 const Core = @import("Core");
 const Source = Core.Source;

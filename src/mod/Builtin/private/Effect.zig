@@ -2,7 +2,7 @@ const std = @import("std");
 
 const Binding = @import("Builtin:Binding");
 
-const Support = @import("Support");
+const Support = @import("ZigUtils").Misc;
 
 const Core = @import("Core");
 const Source = Core.Source;

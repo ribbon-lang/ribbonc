@@ -6,7 +6,7 @@ const Snapshot = Builder.Snapshot;
 const Manifest = Builder.Manifest;
 const SourceTree = Builder.SourceTree;
 const Compilation = Builder.Compilation;
-const TypeUtils = Builder.ZigTypeUtils;
+const TypeUtils = @import("ZigUtils").Module.Type;
 
 const Builtin = @import("builtin");
 
@@ -47,13 +47,20 @@ pub fn build(b: *Build) !void {
 
     const stripDebugInfo = buildOptions.stripDebugInfo;
 
+    const compilationMetaModule = Compilation.Meta {
+        .native = b.dependency("ZigUtils", .{
+            .target = nativeTarget,
+            .optimize = nativeOptimize,
+        }),
+    };
+
     const nativeCompSet = try Compilation.init(
         b,
         "native",
         toolingTree,
         dependencies,
         .{
-            .meta = .native,
+            .meta = compilationMetaModule,
             .vis = .private,
             .target = nativeTarget,
             .optimize = nativeOptimize,

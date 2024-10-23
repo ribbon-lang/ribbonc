@@ -123,7 +123,7 @@ for now you can reach me via:
 
 ### Building from source
 You will need [`zig`](https://ziglang.org/); likely, the nightly build.
-The latest version known to work is `0.14.0-dev.1417+242d268a0`.
+The latest version known to work is `0.14.0-dev.1583+812557bfd`.
 
 You can either:
 + Get it through [ZVM](https://www.zvm.app/) or [Zigup](https://marler8997.github.io/zigup/) (Recommended)

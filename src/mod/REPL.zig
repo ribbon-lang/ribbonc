@@ -5,14 +5,14 @@ const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const File = std.fs.File;
 
-const TypeUtils = @import("ZigTypeUtils");
-const TextUtils = @import("ZigTextUtils");
+const TypeUtils = @import("ZigUtils").Type;
+const TextUtils = @import("ZigUtils").Text;
 
-const ANSI = @import("ANSI");
+const ANSI = @import("ZigUtils").Ansi;
 
 const Config = @import("Config");
 
-const Support = @import("Support");
+const Support = @import("ZigUtils").Misc;
 
 const Log = @import("Log");
 

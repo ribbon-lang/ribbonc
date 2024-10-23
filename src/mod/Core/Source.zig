@@ -2,7 +2,7 @@ const std = @import("std");
 
 const Extern = @import("Extern");
 
-const Support = @import("Support");
+const Support = @import("ZigUtils").Misc;
 const Ordering = Support.Ordering;
 
 const Core = @import("root.zig");

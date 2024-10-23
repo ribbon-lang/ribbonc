@@ -1,6 +1,6 @@
 const std = @import("std");
 
-const Support = @import("Support");
+const Support = @import("ZigUtils").Misc;
 
 pub fn Option(comptime T: type) type {
     return extern struct {

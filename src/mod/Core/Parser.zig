@@ -1,9 +1,9 @@
 const std = @import("std");
 
-const Support = @import("Support");
+const Support = @import("ZigUtils").Misc;
 
-const TypeUtils = @import("ZigTypeUtils");
-const TextUtils = @import("ZigTextUtils");
+const TypeUtils = @import("ZigUtils").Type;
+const TextUtils = @import("ZigUtils").Text;
 const Char = TextUtils.Char;
 
 const Core = @import("root.zig");

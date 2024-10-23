@@ -1,7 +1,7 @@
 const std = @import("std");
 
 const Extern = @import("Extern");
-const Support = @import("Support");
+const Support = @import("ZigUtils").Misc;
 const BuiltinSource = @import("Builtin:Source");
 
 const Core = @import("Core");
@@ -128,7 +128,7 @@ pub fn ExternParser(attr: *const Source.Attr, parser: *Core.Parser) !SExpr {
         }.fun,
         .hashWith = struct {
             fn fun(self: *const Core.Parser, hasher: *Extern.Hasher) callconv(.C) void {
-                Support.hashWith(hasher, self.*);
+                Support.hashWith(hasher, @intFromPtr(self));
             }
         }.fun,
         .finalizer = struct {

@@ -1,11 +1,11 @@
 const std = @import("std");
 
-const Support = @import("Support");
+const Support = @import("ZigUtils").Misc;
 
 const Core = @import("Core");
 const Builtin = @import("Builtin");
 const Extern = @import("Extern");
-const HeaderGenUtils = @import("ZigBuilder:HeaderGenUtils");
+const HeaderGenUtils = @import("ZigUtils").Build.HeaderGenUtils;
 
 const Log = @import("Log");
 
@@ -132,7 +132,7 @@ pub const @"HEADER-GENERATION-DATA" = HeaderGenUtils.MakeData(struct {
         .BB_FileHandle = CustomType{ .platform = .{ .linux = "int", .windows = "void*" } },
         .BB_Finalizer = CustomType{ .function = .{ .retTy = "void", .params = "void* object, void* userdata" } },
     };
-    
+
     pub const ignoredDecls = .{};
 
     pub const head =
@@ -162,10 +162,10 @@ pub const @"HEADER-GENERATION-DATA" = HeaderGenUtils.MakeData(struct {
             .{ [*]const u8, "bytes" },
             .{ usize, "bytes_len" },
         },
-        .BB_VCompareProc = "ignore",
-        .BB_VFormatProc = "ignore",
-        .BB_VHasherProc = "ignore",
-        .BB_VFinalizerProc = "ignore",
+        .BB_VCompareProc = @as([]const u8, "ignore"),
+        .BB_VFormatProc = @as([]const u8, "ignore"),
+        .BB_VHasherProc = @as([]const u8, "ignore"),
+        .BB_VFinalizerProc = @as([]const u8, "ignore"),
     };
 });
 

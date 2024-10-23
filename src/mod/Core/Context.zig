@@ -1,8 +1,8 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
-const TextUtils = @import("ZigTextUtils");
-const Support = @import("Support");
+const TextUtils = @import("ZigUtils").Text;
+const Support = @import("ZigUtils").Misc;
 
 const Core = @import("root.zig");
 const Source = Core.Source;
