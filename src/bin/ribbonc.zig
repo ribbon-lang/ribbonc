@@ -3,7 +3,7 @@ const std = @import("std");
 const zig_builtin = @import("builtin");
 
 const Config = @import("Config");
-const Support = @import("ZigUtils").Misc;
+const MiscUtils = @import("ZigUtils").Misc;
 const REPL = @import("REPL").Builder(Compilation);
 const CLIMetaData = @import("CLIMetaData");
 const TextUtils = @import("ZigUtils").Text;
@@ -16,9 +16,13 @@ const SExpr = Core.SExpr;
 const Context = Core.Context;
 const Parser = Core.Parser;
 const Eval = Core.Eval;
-const log = Core.log;
 
-pub const std_options = @import("Log").std_options;
+const log = std.log.scoped(.ribbonc);
+
+pub const std_options = std.Options {
+    .log_level = .warn,
+    .logFn = MiscUtils.FilteredLogger(Config.LOG_SCOPES),
+};
 
 const Error = REPL.Error || Compilation.Error || CLIMetaData.CLIError;
 

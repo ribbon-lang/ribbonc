@@ -1,6 +1,6 @@
 const std = @import("std");
 
-const Support = @import("ZigUtils").Misc;
+const MiscUtils = @import("ZigUtils").Misc;
 
 const Core = @import("Core");
 const Source = Core.Source;

@@ -1,9 +1,9 @@
 const std = @import("std");
 
-const Extern = @import("Extern");
+const Extern = @import("ZigUtils").Extern;
 
-const Support = @import("ZigUtils").Misc;
-const Ordering = Support.Ordering;
+const MiscUtils = @import("ZigUtils").Misc;
+const Ordering = MiscUtils.Ordering;
 
 const Core = @import("root.zig");
 const Context = Core.Context;
@@ -33,10 +33,10 @@ pub const Range = struct {
     }
 
     pub fn compare(self: Self, other: Self) Ordering {
-        var res = Support.compare(self.start, other.start);
+        var res = MiscUtils.compare(self.start, other.start);
 
         if (res == Ordering.Equal) {
-            res = Support.compare(self.end, other.end);
+            res = MiscUtils.compare(self.end, other.end);
         }
 
         return res;
@@ -62,8 +62,8 @@ pub const Range = struct {
     }
 
     pub fn hashWith(self: Self, hasher: anytype) void {
-        Support.hashWith(hasher, self.start);
-        Support.hashWith(hasher, self.end);
+        MiscUtils.hashWith(hasher, self.start);
+        MiscUtils.hashWith(hasher, self.end);
     }
 
     pub fn default() Self {
@@ -107,13 +107,13 @@ pub const Pos = extern struct {
     }
 
     pub fn compare(self: Self, other: Self) Ordering {
-        var res = Support.compare(self.line, other.line);
+        var res = MiscUtils.compare(self.line, other.line);
 
         if (res == Ordering.Equal) {
-            res = Support.compare(self.column, other.column);
+            res = MiscUtils.compare(self.column, other.column);
 
             if (res == Ordering.Equal) {
-                res = Support.compare(self.offset, other.offset);
+                res = MiscUtils.compare(self.offset, other.offset);
             }
         }
 
@@ -129,9 +129,9 @@ pub const Pos = extern struct {
     }
 
     pub fn hashWith(self: Self, hasher: anytype) void {
-        Support.hashWith(hasher, self.line);
-        Support.hashWith(hasher, self.column);
-        Support.hashWith(hasher, self.offset);
+        MiscUtils.hashWith(hasher, self.line);
+        MiscUtils.hashWith(hasher, self.column);
+        MiscUtils.hashWith(hasher, self.offset);
     }
 
     pub fn default() Self {
@@ -147,14 +147,14 @@ pub const Attr = struct {
     const Self = @This();
 
     pub fn compare(self: Self, other: Self) Ordering {
-        var res = Support.compare(self.context, other.context);
+        var res = MiscUtils.compare(self.context, other.context);
 
         if (res == Ordering.Equal) {
-            res = Support.compare(self.filename, other.filename);
+            res = MiscUtils.compare(self.filename, other.filename);
         }
 
         if (res == Ordering.Equal) {
-            res = Support.compare(self.range, other.range);
+            res = MiscUtils.compare(self.range, other.range);
         }
 
         return res;
@@ -171,7 +171,7 @@ pub const Attr = struct {
     }
 
     pub fn hashWith(self: Self, hasher: anytype) void {
-        Support.hashWith(hasher, self.filename);
-        Support.hashWith(hasher, self.range);
+        MiscUtils.hashWith(hasher, self.filename);
+        MiscUtils.hashWith(hasher, self.range);
     }
 };

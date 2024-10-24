@@ -2,7 +2,7 @@ const std = @import("std");
 
 const Binding = @import("Builtin:Binding");
 
-const Support = @import("ZigUtils").Misc;
+const MiscUtils = @import("ZigUtils").Misc;
 
 const Core = @import("Core");
 const Source = Core.Source;
@@ -89,7 +89,7 @@ pub const Env = .{
                     const terminationData = eval.terminationData orelse {
                         return Eval.Error.MissingTerminationData;
                     };
-                    if (Support.equal(terminationData.ctxId, contextId)) {
+                    if (MiscUtils.equal(terminationData.ctxId, contextId)) {
                         const out = terminationData.value;
                         eval.terminationData = null;
                         return out;

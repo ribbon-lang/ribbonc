@@ -1,6 +1,6 @@
 const std = @import("std");
 
-const Support = @import("ZigUtils").Misc;
+const MiscUtils = @import("ZigUtils").Misc;
 
 const Core = @import("Core");
 const Source = Core.Source;
@@ -22,7 +22,7 @@ fn eql(eval: *Eval, args: SExpr) Eval.Result!bool {
     const a = try rargs.atLeast();
 
     while (try rargs.next()) |b| {
-        if (!Support.equal(a, b)) {
+        if (!MiscUtils.equal(a, b)) {
             return false;
         }
     }
@@ -36,7 +36,7 @@ fn eqlAddress(eval: *Eval, args: SExpr) Eval.Result!bool {
     const a = try rargs.atLeast();
 
     while (try rargs.next()) |b| {
-        if (!Support.equalAddress(a, b)) {
+        if (!MiscUtils.equalAddress(a, b)) {
             return false;
         }
     }
@@ -60,7 +60,7 @@ pub const Env = .{
             var rargs = try eval.argIterator(true, args);
             var a = try rargs.atLeast();
             while (try rargs.next()) |b| {
-                if (!Support.less(a, b)) {
+                if (!MiscUtils.less(a, b)) {
                     return try SExpr.Bool(at, false);
                 }
                 a = b;
@@ -73,7 +73,7 @@ pub const Env = .{
             var rargs = try eval.argIterator(true, args);
             var a = try rargs.atLeast();
             while (try rargs.next()) |b| {
-                if (!Support.greater(a, b)) {
+                if (!MiscUtils.greater(a, b)) {
                     return try SExpr.Bool(at, false);
                 }
                 a = b;
@@ -86,7 +86,7 @@ pub const Env = .{
             var rargs = try eval.argIterator(true, args);
             var a = try rargs.atLeast();
             while (try rargs.next()) |b| {
-                if (!Support.lessOrEqual(a, b)) {
+                if (!MiscUtils.lessOrEqual(a, b)) {
                     return try SExpr.Bool(at, false);
                 }
                 a = b;
@@ -99,7 +99,7 @@ pub const Env = .{
             var rargs = try eval.argIterator(true, args);
             var a = try rargs.atLeast();
             while (try rargs.next()) |b| {
-                if (!Support.greaterOrEqual(a, b)) {
+                if (!MiscUtils.greaterOrEqual(a, b)) {
                     return try SExpr.Bool(at, false);
                 }
                 a = b;
@@ -123,7 +123,7 @@ pub const Env = .{
             var rargs = try eval.argIterator(true, args);
             var a = try rargs.atLeast();
             while (try rargs.next()) |b| {
-                if (!Support.lessAddress(a, b)) {
+                if (!MiscUtils.lessAddress(a, b)) {
                     return try SExpr.Bool(at, false);
                 }
                 a = b;
@@ -136,7 +136,7 @@ pub const Env = .{
             var rargs = try eval.argIterator(true, args);
             var a = try rargs.atLeast();
             while (try rargs.next()) |b| {
-                if (!Support.greaterAddress(a, b)) {
+                if (!MiscUtils.greaterAddress(a, b)) {
                     return try SExpr.Bool(at, false);
                 }
                 a = b;
@@ -149,7 +149,7 @@ pub const Env = .{
             var rargs = try eval.argIterator(true, args);
             var a = try rargs.atLeast();
             while (try rargs.next()) |b| {
-                if (!Support.lessOrEqualAddress(a, b)) {
+                if (!MiscUtils.lessOrEqualAddress(a, b)) {
                     return try SExpr.Bool(at, false);
                 }
                 a = b;
@@ -162,7 +162,7 @@ pub const Env = .{
             var rargs = try eval.argIterator(true, args);
             var a = try rargs.atLeast();
             while (try rargs.next()) |b| {
-                if (!Support.greaterOrEqualAddress(a, b)) {
+                if (!MiscUtils.greaterOrEqualAddress(a, b)) {
                     return try SExpr.Bool(at, false);
                 }
                 a = b;

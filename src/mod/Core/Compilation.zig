@@ -1,7 +1,7 @@
 const std = @import("std");
 const ANSI = @import("ZigUtils").Ansi;
 const Config = @import("Config");
-const Support = @import("ZigUtils").Misc;
+const MiscUtils = @import("ZigUtils").Misc;
 const TypeUtils = @import("ZigUtils").Type;
 const Core = @import("root.zig");
 const SExpr = Core.SExpr;
@@ -38,7 +38,7 @@ ctx: *Context,
 parser: *Parser,
 eval: *Eval,
 
-pub const Error = Parser.SyntaxError || Eval.Result || Support.IOError;
+pub const Error = Parser.SyntaxError || Eval.Result || MiscUtils.IOError;
 
 pub fn init(gpa: std.mem.Allocator, out: std.io.AnyWriter, args: []const []const u8) Error!*Compilation {
     log.info("initializing context ...", .{});

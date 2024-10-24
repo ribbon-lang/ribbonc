@@ -1,7 +1,7 @@
 const std = @import("std");
 
-const Extern = @import("Extern");
-const Support = @import("ZigUtils").Misc;
+const Extern = @import("ZigUtils").Extern;
+const MiscUtils = @import("ZigUtils").Misc;
 
 const Core = @import("Core");
 const Source = Core.Source;
@@ -30,7 +30,7 @@ pub const Env = .{
             const mode: std.fs.File.OpenMode = mode: {
                 if (rargsLen == 2) {
                     const m = try eval.castSymbolSlice(at, rargs[1]);
-                    if (Support.find([]const u8, &[_][]const u8{ "r", "w", "rw" }, &m)) |i| {
+                    if (MiscUtils.find([]const u8, &[_][]const u8{ "r", "w", "rw" }, &m)) |i| {
                         break :mode @enumFromInt(i);
                     } else {
                         return eval.abort(Eval.Error.TypeError, at, "expected a file mode symbol of the set `r`, `w`, or `rw` for open-file, got {s}", .{m});
@@ -253,20 +253,20 @@ pub fn ExternFile(attr: *const Source.Attr, file: *std.fs.File) !SExpr {
 
     const FileVTable = SExpr.Types.ExternData.VTable(std.fs.File){
         .compare = struct {
-            fn fun(self: *const std.fs.File, other: *const std.fs.File) callconv(.C) Support.Ordering {
+            fn fun(self: *const std.fs.File, other: *const std.fs.File) callconv(.C) MiscUtils.Ordering {
                 if (comptime ZigBuiltin.os.tag == .windows) {
-                    return Support.compare(@intFromPtr(self.handle), @intFromPtr(other.handle));
+                    return MiscUtils.compare(@intFromPtr(self.handle), @intFromPtr(other.handle));
                 } else {
-                    return Support.compare(self.handle, other.handle);
+                    return MiscUtils.compare(self.handle, other.handle);
                 }
             }
         }.fun,
         .hashWith = struct {
             fn fun(self: *const std.fs.File, hasher: *Extern.Hasher) callconv(.C) void {
                 if (comptime ZigBuiltin.os.tag == .windows) {
-                    Support.hashWith(hasher, @intFromPtr(self.handle));
+                    MiscUtils.hashWith(hasher, @intFromPtr(self.handle));
                 } else {
-                    Support.hashWith(hasher, self.handle);
+                    MiscUtils.hashWith(hasher, self.handle);
                 }
             }
         }.fun,

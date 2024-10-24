@@ -1,19 +1,22 @@
 const std = @import("std");
 
-const Support = @import("ZigUtils").Misc;
+const MiscUtils = @import("ZigUtils").Misc;
+
+const Config = @import("Config");
 
 const Core = @import("Core");
 const Builtin = @import("Builtin");
-const Extern = @import("Extern");
+const Extern = @import("ZigUtils").Extern;
 const HeaderGenUtils = @import("ZigUtils").Build.HeaderGenUtils;
-
-const Log = @import("Log");
 
 const gc = @import("bdwgc");
 
-pub const std_options = Log.std_options;
+const log = std.log.scoped(.libribbonc);
 
-const log = Log.scoped(.libribbon);
+pub const std_options = std.Options {
+    .log_level = .warn,
+    .logFn = MiscUtils.FilteredLogger(Config.LOG_SCOPES),
+};
 
 inline fn tryCall(err_out: ?*BB_Error, func: anytype, args: anytype) ?@typeInfo(@typeInfo(@TypeOf(func)).@"fn".return_type.?).error_union.payload {
     if (@call(.always_inline, func, args)) |res| {
@@ -162,10 +165,10 @@ pub const @"HEADER-GENERATION-DATA" = HeaderGenUtils.MakeData(struct {
             .{ [*]const u8, "bytes" },
             .{ usize, "bytes_len" },
         },
-        .BB_VCompareProc = @as([]const u8, "ignore"),
-        .BB_VFormatProc = @as([]const u8, "ignore"),
-        .BB_VHasherProc = @as([]const u8, "ignore"),
-        .BB_VFinalizerProc = @as([]const u8, "ignore"),
+        .BB_VCompareProc = .ignore,
+        .BB_VFormatProc = .ignore,
+        .BB_VHasherProc = .ignore,
+        .BB_VFinalizerProc = .ignore,
     };
 });
 
@@ -173,7 +176,7 @@ pub const BB_Error: customtype = Extern.Error;
 pub const BB_EnvName: type = Builtin.EnvName;
 pub const BB_FunctionKind: type = Core.SExpr.Types.Function.Kind;
 pub const BB_Message: type = Core.Eval.ExternMessage;
-pub const BB_Ordering: type = Support.Ordering;
+pub const BB_Ordering: type = MiscUtils.Ordering;
 pub const BB_Tag: type = Core.SExpr.Tag;
 pub const BB_Attr: opaquetype = Core.Source.Attr;
 pub const BB_Arena: opaquetype = std.heap.ArenaAllocator;
@@ -183,7 +186,7 @@ pub const BB_Parser: opaquetype = Core.Parser;
 
 pub const BB_CStr: type = [*:0]const c_char;
 pub const BB_UStr: type = Extern.UStr;
-pub const BB_Unit: type = Support.Unit;
+pub const BB_Unit: type = MiscUtils.Unit;
 pub const BB_SExprData: type = Core.SExpr.Data;
 pub const BB_SExpr: type = Core.SExpr;
 pub const BB_Obj_Symbol: type = Core.SExpr.Types.Symbol;
@@ -242,7 +245,7 @@ pub const BB_CAttr: type = extern struct {
         return .{
             .context = attr.context,
             .filename = BB_UStr.fromNative(attr.filename),
-            .range = BB_Opt_Range.fromNativeRecursive(attr.range),
+            .range = if (attr.range) |x| BB_Opt_Range.Some(BB_Range.fromNative(x)) else BB_Opt_Range.None,
         };
     }
 
@@ -250,7 +253,7 @@ pub const BB_CAttr: type = extern struct {
         return Core.Source.Attr{
             .context = self.context,
             .filename = self.filename.toNative(),
-            .range = self.range.toNativeRecursive(),
+            .range = if (self.range.toNative()) |x| x.toNative() else null,
         };
     }
 };

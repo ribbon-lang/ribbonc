@@ -1,6 +1,6 @@
 const std = @import("std");
 
-const Support = @import("ZigUtils").Misc;
+const MiscUtils = @import("ZigUtils").Misc;
 
 const Core = @import("Core");
 const Source = Core.Source;
@@ -207,7 +207,7 @@ pub const Env = .{
             const eargs = try eval.expectAtLeast2(args);
             const a = try eval.resolve(eargs.head[0]);
             const b = try eval.resolve(eargs.head[1]);
-            if (Support.equal(a, b)) {
+            if (MiscUtils.equal(a, b)) {
                 return try SExpr.Nil(at);
             } else {
                 var it = try eval.argIterator(true, eargs.tail);
@@ -233,7 +233,7 @@ pub const Env = .{
             const eargs = try eval.expectAtLeast2(args);
             const a = try eval.resolve(eargs.head[0]);
             const b = try eval.resolve(eargs.head[1]);
-            if (Support.equalAddress(a, b)) {
+            if (MiscUtils.equalAddress(a, b)) {
                 return try SExpr.Nil(at);
             } else {
                 var it = try eval.argIterator(true, eargs.tail);
@@ -287,7 +287,7 @@ pub const Env = .{
             const eEqInputs = try eval.expectAtLeast2(rargs0.tail);
             const rEqInputs = [2]SExpr{ try eval.resolve(eEqInputs.head[0]), try eval.resolve(eEqInputs.head[1]) };
             const tail = eEqInputs.tail;
-            if (Support.equal(rEqInputs[0], rEqInputs[1])) {
+            if (MiscUtils.equal(rEqInputs[0], rEqInputs[1])) {
                 return try SExpr.Nil(at);
             } else {
                 var it = try eval.argIterator(true, tail);
@@ -313,7 +313,7 @@ pub const Env = .{
             const eEqInputs = try eval.expectAtLeast2(rargs0.tail);
             const rEqInputs = [2]SExpr{ try eval.resolve(eEqInputs.head[0]), try eval.resolve(eEqInputs.head[1]) };
             const tail = eEqInputs.tail;
-            if (Support.equalAddress(rEqInputs[0], rEqInputs[1])) {
+            if (MiscUtils.equalAddress(rEqInputs[0], rEqInputs[1])) {
                 return try SExpr.Nil(at);
             } else {
                 var it = try eval.argIterator(true, tail);
@@ -354,7 +354,7 @@ pub const Env = .{
             const b = buf[1];
             const msg =
                 if (len == 3) buf[2] else try SExpr.Symbol(at, "AssertionFailed");
-            if (Support.equal(a, b)) {
+            if (MiscUtils.equal(a, b)) {
                 return try SExpr.Nil(at);
             } else {
                 return eval.nativePrompt(at, "exception", &[1]SExpr{msg});
@@ -369,7 +369,7 @@ pub const Env = .{
             const b = buf[1];
             const msg =
                 if (len == 3) buf[2] else try SExpr.Symbol(at, "AssertionFailed");
-            if (Support.equalAddress(a, b)) {
+            if (MiscUtils.equalAddress(a, b)) {
                 return try SExpr.Nil(at);
             } else {
                 return eval.nativePrompt(at, "exception", &[1]SExpr{msg});
@@ -391,7 +391,7 @@ pub const Env = .{
             const buf = try eval.resolve2(args);
             const a = buf[0];
             const b = buf[1];
-            if (Support.equal(a, b)) {
+            if (MiscUtils.equal(a, b)) {
                 return try SExpr.Nil(at);
             } else {
                 return eval.nativePrompt(at, "fail", &[0]SExpr{});
@@ -403,7 +403,7 @@ pub const Env = .{
             const buf = try eval.resolve2(args);
             const a = buf[0];
             const b = buf[1];
-            if (Support.equalAddress(a, b)) {
+            if (MiscUtils.equalAddress(a, b)) {
                 return try SExpr.Nil(at);
             } else {
                 return eval.nativePrompt(at, "fail", &[0]SExpr{});

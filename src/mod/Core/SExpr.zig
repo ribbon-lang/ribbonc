@@ -1,12 +1,12 @@
 const std = @import("std");
 
-const Extern = @import("Extern");
+const Extern = @import("ZigUtils").Extern;
 
 const TextUtils = @import("ZigUtils").Text;
 
-const Support = @import("ZigUtils").Misc;
-const Unit = Support.Unit;
-const Ordering = Support.Ordering;
+const MiscUtils = @import("ZigUtils").Misc;
+const Unit = MiscUtils.Unit;
+const Ordering = MiscUtils.Ordering;
 
 const Core = @import("root.zig");
 const Context = Core.Context;
@@ -29,12 +29,12 @@ pub const SExpr = extern struct {
     pub const HashContext = struct {
         pub fn hash(_: @This(), key: SExpr) u32 {
             var hasher = Extern.Hasher.initFnv1a32();
-            Support.hashWith(&hasher, key);
+            MiscUtils.hashWith(&hasher, key);
             return hasher.final();
         }
 
         pub fn eql(_: @This(), a: SExpr, b: SExpr, _: usize) bool {
-            return Support.equal(a, b);
+            return MiscUtils.equal(a, b);
         }
     };
 
@@ -79,7 +79,7 @@ pub const SExpr = extern struct {
         }
 
         pub fn hashWith(self: Self, hasher: anytype) void {
-            return Support.hashWith(hasher, @intFromEnum(self));
+            return MiscUtils.hashWith(hasher, @intFromEnum(self));
         }
 
         pub fn toSlice(self: Self) []const u8 {
@@ -178,7 +178,7 @@ pub const SExpr = extern struct {
             const Self = @This();
 
             pub fn compare(self: Self, other: Self) Ordering {
-                return Support.compare(@intFromPtr(self.buffer.ptr), @intFromPtr(other.buffer.ptr));
+                return MiscUtils.compare(@intFromPtr(self.buffer.ptr), @intFromPtr(other.buffer.ptr));
             }
 
             pub fn format(self: *const Self, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
@@ -190,7 +190,7 @@ pub const SExpr = extern struct {
             }
 
             pub fn hashWith(self: Self, hasher: anytype) void {
-                return Support.hashWith(hasher, @intFromPtr(self.buffer.ptr));
+                return MiscUtils.hashWith(hasher, @intFromPtr(self.buffer.ptr));
             }
         };
 
@@ -201,7 +201,7 @@ pub const SExpr = extern struct {
             const Self = @This();
 
             pub fn compare(self: Self, other: Self) Ordering {
-                return Support.compare(self.toSlice(), other.toSlice());
+                return MiscUtils.compare(self.toSlice(), other.toSlice());
             }
 
             pub fn format(self: *const Self, comptime fmt: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
@@ -217,7 +217,7 @@ pub const SExpr = extern struct {
             }
 
             pub fn hashWith(self: Self, hasher: anytype) void {
-                return Support.hashWith(hasher, self.toSlice());
+                return MiscUtils.hashWith(hasher, self.toSlice());
             }
         };
 
@@ -229,9 +229,9 @@ pub const SExpr = extern struct {
             const Self = @This();
 
             pub fn compare(self: Self, other: Self) Ordering {
-                var res = Support.compare(self.car, other.car);
+                var res = MiscUtils.compare(self.car, other.car);
                 if (res == Ordering.Equal) {
-                    res = Support.compare(self.cdr, other.cdr);
+                    res = MiscUtils.compare(self.cdr, other.cdr);
                 }
                 return res;
             }
@@ -289,8 +289,8 @@ pub const SExpr = extern struct {
             }
 
             pub fn hashWith(self: Self, hasher: anytype) void {
-                Support.hashWith(hasher, self.car);
-                Support.hashWith(hasher, self.cdr);
+                MiscUtils.hashWith(hasher, self.car);
+                MiscUtils.hashWith(hasher, self.cdr);
             }
         };
 
@@ -324,7 +324,7 @@ pub const SExpr = extern struct {
             };
 
             pub fn compare(self: Self, other: Self) Ordering {
-                return Support.compare(self.id, other.id);
+                return MiscUtils.compare(self.id, other.id);
             }
 
             pub fn format(self: *const Self, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
@@ -334,7 +334,7 @@ pub const SExpr = extern struct {
             }
 
             pub fn hashWith(self: Self, hasher: anytype) void {
-                Support.hashWith(hasher, self.id);
+                MiscUtils.hashWith(hasher, self.id);
             }
         };
 
@@ -352,7 +352,7 @@ pub const SExpr = extern struct {
             }
 
             pub fn compare(self: Self, other: Self) Ordering {
-                return Support.compare(self.proc, other.proc);
+                return MiscUtils.compare(self.proc, other.proc);
             }
 
             pub fn format(self: *const Self, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
@@ -364,7 +364,7 @@ pub const SExpr = extern struct {
             }
 
             pub fn hashWith(self: Self, hasher: anytype) void {
-                Support.hashWith(hasher, self.proc);
+                MiscUtils.hashWith(hasher, self.proc);
             }
         };
 
@@ -391,10 +391,10 @@ pub const SExpr = extern struct {
             }
 
             pub fn compare(self: Self, other: Self) Ordering {
-                var res = Support.compare(@intFromPtr(self.ptr), @intFromPtr(other.ptr));
+                var res = MiscUtils.compare(@intFromPtr(self.ptr), @intFromPtr(other.ptr));
 
                 if (res != Ordering.Equal) {
-                    res = Support.compare(@intFromPtr(self.vtable), @intFromPtr(other.vtable));
+                    res = MiscUtils.compare(@intFromPtr(self.vtable), @intFromPtr(other.vtable));
 
                     if (res == Ordering.Equal) {
                         if (self.vtable.compare) |callback| {
@@ -415,12 +415,12 @@ pub const SExpr = extern struct {
             }
 
             pub fn hashWith(self: Self, hasher: *Extern.Hasher) void {
-                Support.hashWith(hasher, @intFromPtr(self.vtable));
+                MiscUtils.hashWith(hasher, @intFromPtr(self.vtable));
 
                 if (self.vtable.hashWith) |callback| {
                     callback(self.ptr, hasher);
                 } else {
-                    Support.hashWith(hasher, @intFromPtr(self.ptr));
+                    MiscUtils.hashWith(hasher, @intFromPtr(self.ptr));
                 }
             }
 
@@ -453,7 +453,7 @@ pub const SExpr = extern struct {
             pub const Proc = *const fn (*Eval, *const Source.Attr, *Eval.ExternMessage, *SExpr, SExpr) callconv(.C) bool;
 
             pub fn compare(self: Self, other: Self) Ordering {
-                return Support.compare(@intFromPtr(self.proc), @intFromPtr(other.proc));
+                return MiscUtils.compare(@intFromPtr(self.proc), @intFromPtr(other.proc));
             }
 
             pub fn format(self: *const Self, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
@@ -461,7 +461,7 @@ pub const SExpr = extern struct {
             }
 
             pub fn hashWith(self: Self, hasher: anytype) void {
-                Support.hashWith(hasher, @intFromPtr(self.proc));
+                MiscUtils.hashWith(hasher, @intFromPtr(self.proc));
             }
 
             pub fn nameSlice(self: Self) []const u8 {
@@ -475,7 +475,7 @@ pub const SExpr = extern struct {
             const Self = @This();
 
             pub fn compare(self: Self, other: Self) Ordering {
-                return Support.compare(self.attr, other.attr);
+                return MiscUtils.compare(self.attr, other.attr);
             }
 
             pub fn format(self: *const Self, comptime fmt: []const u8, opt: std.fmt.FormatOptions, writer: anytype) !void {
@@ -483,7 +483,7 @@ pub const SExpr = extern struct {
             }
 
             pub fn hashWith(self: Self, hasher: anytype) void {
-                Support.hashWith(hasher, self.attr);
+                MiscUtils.hashWith(hasher, self.attr);
             }
         };
     };
@@ -709,46 +709,46 @@ pub const SExpr = extern struct {
     }
 
     pub fn compare(self: SExpr, other: SExpr) Ordering {
-        const tagOrd = Support.compare(@intFromEnum(self.getTag()), @intFromEnum(other.getTag()));
+        const tagOrd = MiscUtils.compare(@intFromEnum(self.getTag()), @intFromEnum(other.getTag()));
         if (tagOrd != Ordering.Equal) {
             return tagOrd;
         }
 
         switch (self.getTag()) {
             Tag.Nil => return Ordering.Equal,
-            Tag.Bool => return Support.compare(self.data.boolean, other.data.boolean),
-            Tag.Int => return Support.compare(self.data.integral, other.data.integral),
-            Tag.Float => return Support.compare(self.data.floating, other.data.floating),
-            Tag.Char => return Support.compare(self.data.character, other.data.character),
-            Tag.Symbol => return Support.compare(self.forcePtr(Types.Symbol), other.forcePtr(Types.Symbol)),
-            Tag.String => return Support.compare(self.forcePtr(Types.String), other.forcePtr(Types.String)),
-            Tag.Cons => return Support.compare(self.forcePtr(Types.Cons), other.forcePtr(Types.Cons)),
-            Tag.Function => return Support.compare(self.forcePtr(Types.Function), other.forcePtr(Types.Function)),
-            Tag.Builtin => return Support.compare(self.forcePtr(Types.Builtin), other.forcePtr(Types.Builtin)),
-            Tag.ExternData => return Support.compare(self.forcePtr(Types.ExternData), other.forcePtr(Types.ExternData)),
-            Tag.ExternFunction => return Support.compare(self.forcePtr(Types.ExternFunction), other.forcePtr(Types.ExternFunction)),
+            Tag.Bool => return MiscUtils.compare(self.data.boolean, other.data.boolean),
+            Tag.Int => return MiscUtils.compare(self.data.integral, other.data.integral),
+            Tag.Float => return MiscUtils.compare(self.data.floating, other.data.floating),
+            Tag.Char => return MiscUtils.compare(self.data.character, other.data.character),
+            Tag.Symbol => return MiscUtils.compare(self.forcePtr(Types.Symbol), other.forcePtr(Types.Symbol)),
+            Tag.String => return MiscUtils.compare(self.forcePtr(Types.String), other.forcePtr(Types.String)),
+            Tag.Cons => return MiscUtils.compare(self.forcePtr(Types.Cons), other.forcePtr(Types.Cons)),
+            Tag.Function => return MiscUtils.compare(self.forcePtr(Types.Function), other.forcePtr(Types.Function)),
+            Tag.Builtin => return MiscUtils.compare(self.forcePtr(Types.Builtin), other.forcePtr(Types.Builtin)),
+            Tag.ExternData => return MiscUtils.compare(self.forcePtr(Types.ExternData), other.forcePtr(Types.ExternData)),
+            Tag.ExternFunction => return MiscUtils.compare(self.forcePtr(Types.ExternFunction), other.forcePtr(Types.ExternFunction)),
         }
     }
 
     pub fn compareAddress(self: SExpr, other: SExpr) Ordering {
-        const tagOrd = Support.compare(@intFromEnum(self.getTag()), @intFromEnum(other.getTag()));
+        const tagOrd = MiscUtils.compare(@intFromEnum(self.getTag()), @intFromEnum(other.getTag()));
         if (tagOrd != Ordering.Equal) {
             return tagOrd;
         }
 
         switch (self.getTag()) {
             Tag.Nil => return Ordering.Equal,
-            Tag.Bool => return Support.compare(self.data.boolean, other.data.boolean),
-            Tag.Int => return Support.compare(self.data.integral, other.data.integral),
-            Tag.Float => return Support.compare(self.data.floating, other.data.floating),
-            Tag.Char => return Support.compare(self.data.character, other.data.character),
-            Tag.Symbol => return Support.compareAddress(self.forcePtr(Types.Symbol), other.forcePtr(Types.Symbol)),
-            Tag.String => return Support.compareAddress(self.forcePtr(Types.String), other.forcePtr(Types.String)),
-            Tag.Cons => return Support.compareAddress(self.forcePtr(Types.Cons), other.forcePtr(Types.Cons)),
-            Tag.Function => return Support.compareAddress(self.forcePtr(Types.Function), other.forcePtr(Types.Function)),
-            Tag.Builtin => return Support.compareAddress(self.forcePtr(Types.Builtin), other.forcePtr(Types.Builtin)),
-            Tag.ExternData => return Support.compareAddress(self.forcePtr(Types.ExternData), other.forcePtr(Types.ExternData)),
-            Tag.ExternFunction => return Support.compareAddress(self.forcePtr(Types.ExternFunction), other.forcePtr(Types.ExternFunction)),
+            Tag.Bool => return MiscUtils.compare(self.data.boolean, other.data.boolean),
+            Tag.Int => return MiscUtils.compare(self.data.integral, other.data.integral),
+            Tag.Float => return MiscUtils.compare(self.data.floating, other.data.floating),
+            Tag.Char => return MiscUtils.compare(self.data.character, other.data.character),
+            Tag.Symbol => return MiscUtils.compareAddress(self.forcePtr(Types.Symbol), other.forcePtr(Types.Symbol)),
+            Tag.String => return MiscUtils.compareAddress(self.forcePtr(Types.String), other.forcePtr(Types.String)),
+            Tag.Cons => return MiscUtils.compareAddress(self.forcePtr(Types.Cons), other.forcePtr(Types.Cons)),
+            Tag.Function => return MiscUtils.compareAddress(self.forcePtr(Types.Function), other.forcePtr(Types.Function)),
+            Tag.Builtin => return MiscUtils.compareAddress(self.forcePtr(Types.Builtin), other.forcePtr(Types.Builtin)),
+            Tag.ExternData => return MiscUtils.compareAddress(self.forcePtr(Types.ExternData), other.forcePtr(Types.ExternData)),
+            Tag.ExternFunction => return MiscUtils.compareAddress(self.forcePtr(Types.ExternFunction), other.forcePtr(Types.ExternFunction)),
         }
     }
 
@@ -811,7 +811,7 @@ pub const SExpr = extern struct {
     }
 
     pub fn isExactSymbol(self: SExpr, value: []const u8) bool {
-        return if (self.isSymbol()) Support.equal(value, self.forcePtr(Types.Symbol).toSlice()) else false;
+        return if (self.isSymbol()) MiscUtils.equal(value, self.forcePtr(Types.Symbol).toSlice()) else false;
     }
 
     pub fn isString(self: SExpr) bool {
@@ -819,7 +819,7 @@ pub const SExpr = extern struct {
     }
 
     pub fn isExactString(self: SExpr, value: []const u8) bool {
-        return if (self.isString()) Support.equal(value, self.forcePtr(Types.String).toSlice()) else false;
+        return if (self.isString()) MiscUtils.equal(value, self.forcePtr(Types.String).toSlice()) else false;
     }
 
     pub fn isCons(self: SExpr) bool {
@@ -1215,21 +1215,21 @@ pub const SExpr = extern struct {
     }
 
     pub fn hashWith(self: SExpr, hasher: anytype) void {
-        Support.hashWith(hasher, self.getTag());
+        MiscUtils.hashWith(hasher, self.getTag());
 
         switch (self.getTag()) {
-            Tag.Nil => return Support.hashWith(hasher, @as(usize, 0)),
-            Tag.Bool => return Support.hashWith(hasher, self.data.boolean),
-            Tag.Int => return Support.hashWith(hasher, self.data.integral),
-            Tag.Float => return Support.hashWith(hasher, self.data.floating),
-            Tag.Char => return Support.hashWith(hasher, self.data.character),
-            Tag.Symbol => return Support.hashWith(hasher, self.forcePtr(Types.Symbol)),
-            Tag.String => return Support.hashWith(hasher, self.forcePtr(Types.String)),
-            Tag.Cons => return Support.hashWith(hasher, self.forcePtr(Types.Cons)),
-            Tag.Function => return Support.hashWith(hasher, self.forcePtr(Types.Function)),
-            Tag.Builtin => return Support.hashWith(hasher, self.forcePtr(Types.Builtin)),
-            Tag.ExternData => return Support.hashWith(hasher, self.forcePtr(Types.ExternData)),
-            Tag.ExternFunction => return Support.hashWith(hasher, self.forcePtr(Types.ExternFunction)),
+            Tag.Nil => return MiscUtils.hashWith(hasher, @as(usize, 0)),
+            Tag.Bool => return MiscUtils.hashWith(hasher, self.data.boolean),
+            Tag.Int => return MiscUtils.hashWith(hasher, self.data.integral),
+            Tag.Float => return MiscUtils.hashWith(hasher, self.data.floating),
+            Tag.Char => return MiscUtils.hashWith(hasher, self.data.character),
+            Tag.Symbol => return MiscUtils.hashWith(hasher, self.forcePtr(Types.Symbol)),
+            Tag.String => return MiscUtils.hashWith(hasher, self.forcePtr(Types.String)),
+            Tag.Cons => return MiscUtils.hashWith(hasher, self.forcePtr(Types.Cons)),
+            Tag.Function => return MiscUtils.hashWith(hasher, self.forcePtr(Types.Function)),
+            Tag.Builtin => return MiscUtils.hashWith(hasher, self.forcePtr(Types.Builtin)),
+            Tag.ExternData => return MiscUtils.hashWith(hasher, self.forcePtr(Types.ExternData)),
+            Tag.ExternFunction => return MiscUtils.hashWith(hasher, self.forcePtr(Types.ExternFunction)),
         }
     }
 };

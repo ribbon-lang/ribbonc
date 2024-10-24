@@ -12,13 +12,9 @@ const ANSI = @import("ZigUtils").Ansi;
 
 const Config = @import("Config");
 
-const Support = @import("ZigUtils").Misc;
+const MiscUtils = @import("ZigUtils").Misc;
 
-const Log = @import("Log");
-
-pub const std_options = Log.std_options;
-
-const log = Log.scoped(.repl);
+const log = std.log.scoped(.repl);
 
 pub fn Builder(comptime Ctx: type) type {
     return struct {
@@ -58,7 +54,7 @@ pub fn Builder(comptime Ctx: type) type {
 
         pub const OperationalError = std.mem.Allocator.Error || TextUtils.Error;
 
-        pub const Error = OperationalError || TerminalError || Support.IOError || Signal;
+        pub const Error = OperationalError || TerminalError || MiscUtils.IOError || Signal;
 
         pub const CompletionsCallback = *const fn (*Ctx, Allocator, usize, []const u8) Ctx.Error![]const []const u8;
         pub const HintsCallback = *const fn (*Ctx, Allocator, usize, []const u8) Ctx.Error!?[]const u8;
@@ -231,7 +227,7 @@ pub fn Builder(comptime Ctx: type) type {
                 if (self.cursor) |c| c: {
                     const c2 = c + len;
 
-                    switch (Support.compare(c2, self.inputLen)) {
+                    switch (MiscUtils.compare(c2, self.inputLen)) {
                         .Less => {
                             self.cursor = c2;
                         },
@@ -254,7 +250,7 @@ pub fn Builder(comptime Ctx: type) type {
             fn advanceCursor(self: *Self, n: usize) !void {
                 if (self.cursor) |c| {
                     const c2 = c + n;
-                    switch (Support.compare(c2, self.inputLen)) {
+                    switch (MiscUtils.compare(c2, self.inputLen)) {
                         .Less => {
                             self.cursor = c2;
                             return;

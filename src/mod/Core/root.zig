@@ -11,11 +11,7 @@ pub const SExpr = @import("SExpr.zig").SExpr;
 pub const Source = @import("Source.zig");
 pub const Compilation = @import("Compilation.zig");
 
-const Log = @import("Log");
-
-pub const std_options = Log.std_options;
-
-pub const log = Log.scoped(.ribbonc);
+pub const log = std.log.scoped(.ribbonc);
 
 test {
     std.testing.refAllDecls(@This());

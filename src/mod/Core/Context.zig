@@ -2,7 +2,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 
 const TextUtils = @import("ZigUtils").Text;
-const Support = @import("ZigUtils").Misc;
+const MiscUtils = @import("ZigUtils").Misc;
 
 const Core = @import("root.zig");
 const Source = Core.Source;
@@ -23,8 +23,8 @@ const Context = @This();
 pub const Id = enum(u64) {
     _,
 
-    pub fn compare(a: Id, b: Id) Support.Ordering {
-        return Support.compare(@intFromEnum(a), @intFromEnum(b));
+    pub fn compare(a: Id, b: Id) MiscUtils.Ordering {
+        return MiscUtils.compare(@intFromEnum(a), @intFromEnum(b));
     }
 };
 
@@ -37,7 +37,7 @@ pub const SymbolInternerContext = struct {
     }
 
     pub fn eql(_: @This(), a: SymbolStorage, b: SymbolStorage) bool {
-        return Support.equal(a, b);
+        return MiscUtils.equal(a, b);
     }
 };
 pub const SymbolInterner = std.HashMap(SymbolStorage, []const u8, SymbolInternerContext, 75);
@@ -172,8 +172,8 @@ pub fn bindAttrExistingFile(self: *Context, filename: []const u8, range: ?Source
     });
 }
 
-pub fn compare(a: Context, b: Context) Support.Ordering {
-    return Support.compare(a.id, b.id);
+pub fn compare(a: Context, b: Context) MiscUtils.Ordering {
+    return MiscUtils.compare(a.id, b.id);
 }
 
 test {
@@ -194,7 +194,7 @@ test {
 
         const B2 = try SExpr.Symbol(stdinAttr, "bingus");
 
-        try expect(Support.equal(B1.forceSymbol(), B2.forceSymbol()));
+        try expect(MiscUtils.equal(B1.forceSymbol(), B2.forceSymbol()));
 
         const I1 = try SExpr.Int(stdinAttr, 1);
 

@@ -1,7 +1,7 @@
 const std = @import("std");
 
-const Extern = @import("Extern");
-const Support = @import("ZigUtils").Misc;
+const Extern = @import("ZigUtils").Extern;
+const MiscUtils = @import("ZigUtils").Misc;
 const BuiltinSource = @import("Builtin:Source");
 
 const Core = @import("Core");
@@ -122,13 +122,13 @@ pub const Env = .{
 pub fn ExternParser(attr: *const Source.Attr, parser: *Core.Parser) !SExpr {
     const ParserVTable = SExpr.Types.ExternData.VTable(Core.Parser){
         .compare = struct {
-            fn fun(self: *const Core.Parser, other: *const Core.Parser) callconv(.C) Support.Ordering {
-                return Support.compare(self.*, other.*);
+            fn fun(self: *const Core.Parser, other: *const Core.Parser) callconv(.C) MiscUtils.Ordering {
+                return MiscUtils.compare(self.*, other.*);
             }
         }.fun,
         .hashWith = struct {
             fn fun(self: *const Core.Parser, hasher: *Extern.Hasher) callconv(.C) void {
-                Support.hashWith(hasher, @intFromPtr(self));
+                MiscUtils.hashWith(hasher, @intFromPtr(self));
             }
         }.fun,
         .finalizer = struct {

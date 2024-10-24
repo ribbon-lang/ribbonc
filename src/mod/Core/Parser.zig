@@ -1,6 +1,6 @@
 const std = @import("std");
 
-const Support = @import("ZigUtils").Misc;
+const MiscUtils = @import("ZigUtils").Misc;
 
 const TypeUtils = @import("ZigUtils").Type;
 const TextUtils = @import("ZigUtils").Text;
@@ -65,19 +65,19 @@ pub fn init(context: *Context) Context.Error!*Parser {
     return ptr;
 }
 
-pub fn compare(self: Parser, other: Parser) Support.Ordering {
-    var res = Support.compare(self.fileName, other.fileName);
+pub fn compare(self: Parser, other: Parser) MiscUtils.Ordering {
+    var res = MiscUtils.compare(self.fileName, other.fileName);
 
-    if (res == Support.Ordering.Equal) {
-        res = Support.compare(self.pos, other.pos);
+    if (res == MiscUtils.Ordering.Equal) {
+        res = MiscUtils.compare(self.pos, other.pos);
     }
 
     return res;
 }
 
 pub fn hashWith(self: Parser, hasher: anytype) void {
-    Support.hashWith(hasher, self.fileName);
-    Support.hashWith(hasher, self.pos);
+    MiscUtils.hashWith(hasher, self.fileName);
+    MiscUtils.hashWith(hasher, self.pos);
 }
 
 pub fn deinit(self: *Parser) void {

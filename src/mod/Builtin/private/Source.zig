@@ -1,7 +1,7 @@
 const std = @import("std");
 
-const Extern = @import("Extern");
-const Support = @import("ZigUtils").Misc;
+const Extern = @import("ZigUtils").Extern;
+const MiscUtils = @import("ZigUtils").Misc;
 const Core = @import("Core");
 const Source = Core.Source;
 const SExpr = Core.SExpr;
@@ -149,8 +149,8 @@ pub fn convertSExprToPos(eval: *Eval, at: *const Source.Attr, value: SExpr) !?So
 pub fn ExternAttr(at: *const Source.Attr, value: *const Source.Attr) !SExpr {
     const ParserVTable = SExpr.Types.ExternData.VTable(Source.Attr){
         .compare = struct {
-            fn fun(self: *const Source.Attr, other: *const Source.Attr) callconv(.C) Support.Ordering {
-                return Support.compare(self.*, other.*);
+            fn fun(self: *const Source.Attr, other: *const Source.Attr) callconv(.C) MiscUtils.Ordering {
+                return MiscUtils.compare(self.*, other.*);
             }
         }.fun,
         .format = struct {
@@ -160,7 +160,7 @@ pub fn ExternAttr(at: *const Source.Attr, value: *const Source.Attr) !SExpr {
         }.fun,
         .hashWith = struct {
             fn fun(self: *const Source.Attr, hasher: *Extern.Hasher) callconv(.C) void {
-                Support.hashWith(hasher, self.*);
+                MiscUtils.hashWith(hasher, self.*);
             }
         }.fun,
     };

@@ -1,6 +1,6 @@
 const std = @import("std");
 
-const Support = @import("ZigUtils").Misc;
+const MiscUtils = @import("ZigUtils").Misc;
 
 const Core = @import("Core");
 const Source = Core.Source;
@@ -115,7 +115,7 @@ pub const Env = .{
             try eval.validateListOrNil(at, list);
             var iter = try eval.argIterator(false, list);
             while (try iter.next()) |arg| {
-                if (Support.equal(arg, value)) {
+                if (MiscUtils.equal(arg, value)) {
                     return SExpr.Bool(at, true);
                 }
             }

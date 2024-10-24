@@ -1,6 +1,6 @@
 const std = @import("std");
 
-const Support = @import("ZigUtils").Misc;
+const MiscUtils = @import("ZigUtils").Misc;
 const TextUtils = @import("ZigUtils").Text;
 const TypeUtils = @import("ZigUtils").Type;
 const Config = @import("Config");
@@ -322,7 +322,7 @@ pub fn frameLookup(symbol: SExpr, frame: SExpr) Error!?SExpr {
             return EvaluationError.TypeError;
         };
 
-        if (Support.equal(bindingXp.car, symbol)) {
+        if (MiscUtils.equal(bindingXp.car, symbol)) {
             return binding;
         }
 
@@ -504,7 +504,7 @@ pub fn nativeWith(
             const terminationData = eval.terminationData orelse {
                 return EvaluationError.MissingTerminationData;
             };
-            if (Support.equal(terminationData.ctxId, contextId)) {
+            if (MiscUtils.equal(terminationData.ctxId, contextId)) {
                 out.* = .{ .Terminated = terminationData.value };
                 eval.terminationData = null;
                 return;
@@ -740,7 +740,7 @@ fn LambdaList(comptime E: type, comptime mkError: fn (*Eval, EvaluationError, *c
                 .Char,
                 .Float,
                 .String,
-                => if (Support.equal(given, expected)) {
+                => if (MiscUtils.equal(given, expected)) {
                     return null;
                 } else {
                     return lambdaListError(eval, EvaluationError.TypeError, at,
@@ -768,7 +768,7 @@ fn LambdaList(comptime E: type, comptime mkError: fn (*Eval, EvaluationError, *c
 
                         const q = xp.car;
                         if (q.isSymbol()) {
-                            if (Support.equal(q, given)) {
+                            if (MiscUtils.equal(q, given)) {
                                 return null;
                             } else {
                                 return lambdaListError(eval, EvaluationError.TypeError, at,
@@ -938,7 +938,7 @@ fn LambdaList(comptime E: type, comptime mkError: fn (*Eval, EvaluationError, *c
                     var currentExpected = expected;
                     var currentGiven = given;
                     while (!currentExpected.isNil()) {
-                        const xpExpected = currentExpected.castCons() orelse { // Support pairs of the form `(a . a)`
+                        const xpExpected = currentExpected.castCons() orelse { // MiscUtils pairs of the form `(a . a)`
                             return runImpl(eval, at, bindings, currentExpected, currentGiven);
                         };
 
@@ -1029,7 +1029,7 @@ fn LambdaList(comptime E: type, comptime mkError: fn (*Eval, EvaluationError, *c
             if (bindings.get(symbol)) |existing| {
                 if (existing) |e| {
                     if (given) |g| {
-                        if (!Support.equal(e, g)) {
+                        if (!MiscUtils.equal(e, g)) {
                             return lambdaListError(eval, EvaluationError.TypeError, at, "expected {}, got {}", .{ e, g });
                         }
                     }
@@ -1210,7 +1210,7 @@ fn LambdaList(comptime E: type, comptime mkError: fn (*Eval, EvaluationError, *c
 
                     var currentExpected = expected;
                     while (!currentExpected.isNil()) {
-                        const xpExpected = currentExpected.castCons() orelse { // Support pairs of the form `(a . a)`
+                        const xpExpected = currentExpected.castCons() orelse { // MiscUtils pairs of the form `(a . a)`
                             return bindersImpl(eval, at, currentExpected, out);
                         };
 
@@ -1522,7 +1522,7 @@ pub fn validateCallable(eval: *Eval, at: *const Source.Attr, sexpr: SExpr) Resul
     }
 }
 
-pub fn castNil(eval: *Eval, at: *const Source.Attr, sexpr: SExpr) Result!Support.Unit {
+pub fn castNil(eval: *Eval, at: *const Source.Attr, sexpr: SExpr) Result!MiscUtils.Unit {
     if (sexpr.castNil()) |x| {
         return x;
     } else {
