@@ -88,7 +88,7 @@ typedef BB_OPAQUE BB_Arena;
 
 typedef BB_OPAQUE BB_Context;
 
-typedef BB_OPAQUE BB_Eval;
+typedef BB_OPAQUE BB_Interpreter;
 
 typedef BB_OPAQUE BB_Parser;
 
@@ -172,7 +172,7 @@ typedef struct BB_Obj_ExternData {
     BB_UStr typeName;
 } BB_Obj_ExternData;
 
-typedef bool (*BB_Proc) (BB_Eval *eval, BB_Attr *attr, BB_Message *msg, BB_SExpr *out_result, BB_SExpr args);
+typedef bool (*BB_Proc) (BB_Interpreter *interpreter, BB_Attr *attr, BB_Message *msg, BB_SExpr *out_result, BB_SExpr args);
 
 typedef struct BB_Obj_ExternFunction {
     BB_Attr *attr;
@@ -216,7 +216,7 @@ typedef struct BB_CAttr {
 
 BB_CAttr BB_Attr_read (BB_Attr *attr);
 
-void BB_Attr_write (BB_Attr *attr, BB_CAttr cattr);
+void BB_Attr_write (BB_Attr *attr, BB_CAttr cAttr);
 
 BB_Arena *BB_Arena_init (BB_Error *err_out);
 
@@ -262,17 +262,17 @@ BB_Attr *BB_Context_bindAttrExistingFileU (BB_Context *ctx, BB_UStr fileName, BB
 
 BB_Attr *BB_Context_bindAttrExistingFileC (BB_Context *ctx, BB_CStr fileName, BB_Range *range, BB_Error *err_out);
 
-BB_Eval *BB_Eval_init (BB_Context *ctx, BB_Error *err_out);
+BB_Interpreter *BB_Interpreter_init (BB_Context *ctx, BB_Error *err_out);
 
-void BB_Eval_deinit (BB_Eval *eval);
+void BB_Interpreter_deinit (BB_Interpreter *interpreter);
 
-BB_SExpr BB_Eval_resolve (BB_Eval *eval, BB_SExpr sexpr, BB_Error *err_out);
+BB_SExpr BB_Interpreter_eval (BB_Interpreter *interpreter, BB_SExpr sexpr, BB_Error *err_out);
 
-BB_SExpr BB_Eval_getEnv (BB_Eval *eval);
+BB_SExpr BB_Interpreter_getEnv (BB_Interpreter *interpreter);
 
-void BB_Eval_setEnv (BB_Eval *eval, BB_SExpr env, BB_Error *err_out);
+void BB_Interpreter_setEnv (BB_Interpreter *interpreter, BB_SExpr env, BB_Error *err_out);
 
-void BB_Eval_bindBuiltinEnv (BB_Eval *eval, BB_SExpr output_env, BB_EnvName builtin_env, BB_Error *err_out);
+void BB_Interpreter_bindBuiltinEnv (BB_Interpreter *interpreter, BB_SExpr output_env, BB_EnvName builtin_env, BB_Error *err_out);
 
 BB_Parser *BB_Parser_init (BB_Context *ctx, BB_Error *err_out);
 

@@ -137,7 +137,7 @@ rli --version
 |`--disable-raw-mode`| (REPL) Disable raw line editing mode |
 |`--use-emoji <bool>`| Use emoji in the output [Default: true] |
 |`--use-ansi-styles <bool>`| Use ANSI styles in the output [Default: true] |
-|`--max-comptime-depth <uint>`| Maximum call stack depth for the compile time evaluator [Default: 1024; Note: going higher may cause segfaults due to native stack overflow; Minimum: 8] |
+|`--max-comptime-depth <uint>`| Maximum call stack depth for the compile time interpreter [Default: 1024; Note: going higher may cause segfaults due to native stack overflow; Minimum: 8] |
 |`<path>...`| Root files to include in the compilation |
 
 
@@ -424,7 +424,7 @@ the `with` they are bound to, and return a value in its place.
 > ##### Example
 > ```lisp
 > (with ((fun abort (x) (terminate x))
->        (macro error (x) (prompt abort (eval x)))
+>        (macro error (x) (prompt abort (interpreter x)))
 >        (var abort2 terminate))
 >   (action1)
 >   (action2))
@@ -648,9 +648,9 @@ This module provides access to Ribbon's parser from within the language.
 > (assert-eq
 >     (cdr (attr-range (attr-of res1)))
 >     (cons (cons 2 (+ 1 line-len)) line-len))
-> (eval res1)
-> (eval (parse-sexpr! p))
-> (assert-eq (eval (parse-sexpr! p)) 3)
+> (interpreter res1)
+> (interpreter (parse-sexpr! p))
+> (assert-eq (interpreter (parse-sexpr! p)) 3)
 > (assert (parser-eof? p))
 > ```
 | Symbol | Description |

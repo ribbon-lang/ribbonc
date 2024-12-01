@@ -7,7 +7,7 @@ const MiscUtils = @import("Utils").Misc;
 const Core = @import("Core");
 const Source = Core.Source;
 const SExpr = Core.SExpr;
-const Eval = Core.Eval;
+const Interpreter = Core.Interpreter;
 
 pub const Doc =
     \\This module provides an api to trigger and handle
@@ -42,7 +42,7 @@ pub const Doc =
     \\> ##### Example
     \\> ```lisp
     \\> (with ((fun abort (x) (terminate x))
-    \\>        (macro error (x) (prompt abort (eval x)))
+    \\>        (macro error (x) (prompt abort (interpreter x)))
     \\>        (var abort2 terminate))
     \\>   (action1)
     \\>   (action2))
@@ -60,93 +60,93 @@ pub const Doc =
 
 pub const Env = .{
     .{ "with-global", "provide one or more named *top-level* effect handlers to serve as a last resort; note that the `terminate` which is provided to handlers bound this way will terminate compilation", struct {
-        pub fn fun(eval: *Eval, at: *const Source.Attr, args: SExpr) Eval.Result!SExpr {
-            _ = try bindDefs(eval, at, args, "global-terminator", terminator, bindGlobal);
+        pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
+            _ = try bindDefs(interpreter, at, args, "global-terminator", terminator, bindGlobal);
             return SExpr.Nil(at);
         }
-        fn bindGlobal(eval: *Eval, name: SExpr, eff: SExpr) Eval.Result!void {
-            try Eval.extendFrame(name.getAttr(), name, eff, &eval.globalEvidence);
+        fn bindGlobal(interpreter: *Interpreter, name: SExpr, eff: SExpr) Interpreter.Result!void {
+            try Interpreter.extendFrame(name.getAttr(), name, eff, &interpreter.globalEvidence);
         }
-        fn terminator(eval: *Eval, _: *const Source.Attr, args: SExpr) Eval.Result!SExpr {
-            const buf = try eval.expect3(args);
+        fn terminator(interpreter: *Interpreter, _: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
+            const buf = try interpreter.expect3(args);
             const ctxId = buf[0];
             const promptName = buf[1];
-            const value = try eval.resolve(buf[2]);
-            return eval.abort(Eval.Error.Panic, ctxId.getAttr(), "global prompt `{}` terminated with:\n\t\t{}: {display}", .{ promptName, value.getAttr(), value });
+            const value = try interpreter.eval(buf[2]);
+            return interpreter.abort(Interpreter.Error.Panic, ctxId.getAttr(), "global prompt `{}` terminated with:\n\t\t{}: {display}", .{ promptName, value.getAttr(), value });
         }
     } },
     .{ "with", "provide one or more named effect handlers, and an expression to execute under them", struct {
-        pub fn fun(eval: *Eval, at: *const Source.Attr, args: SExpr) Eval.Result!SExpr {
-            const xp = try eval.castList(at, args);
+        pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
+            const xp = try interpreter.castList(at, args);
             const defs = xp.car;
             const body = xp.cdr;
-            const baseEv = eval.evidence;
-            try Eval.pushNewFrame(at, &eval.evidence);
-            defer eval.evidence = baseEv;
-            const contextId = try bindDefs(eval, at, defs, "local-terminator", Eval.valueTerminator, bindLocal);
-            return eval.runProgram(body) catch |res| {
-                if (res == Eval.Signal.Terminate) {
-                    const terminationData = eval.terminationData orelse {
-                        return Eval.Error.MissingTerminationData;
+            const baseEv = interpreter.evidence;
+            try Interpreter.pushNewFrame(at, &interpreter.evidence);
+            defer interpreter.evidence = baseEv;
+            const contextId = try bindDefs(interpreter, at, defs, "local-terminator", Interpreter.valueTerminator, bindLocal);
+            return interpreter.runProgram(body) catch |res| {
+                if (res == Interpreter.Signal.Terminate) {
+                    const terminationData = interpreter.terminationData orelse {
+                        return Interpreter.Error.MissingTerminationData;
                     };
                     if (MiscUtils.equal(terminationData.ctxId, contextId)) {
                         const out = terminationData.value;
-                        eval.terminationData = null;
+                        interpreter.terminationData = null;
                         return out;
                     }
                 }
                 return res;
             };
         }
-        fn bindLocal(eval: *Eval, name: SExpr, eff: SExpr) Eval.Result!void {
-            try Eval.extendEnvFrame(name.getAttr(), name, eff, eval.evidence);
+        fn bindLocal(interpreter: *Interpreter, name: SExpr, eff: SExpr) Interpreter.Result!void {
+            try Interpreter.extendEnvFrame(name.getAttr(), name, eff, interpreter.evidence);
         }
     } },
     .{ "fetch", "get a dynamically bound variable or effect handler from its binding symbol", struct {
-        pub fn fun(eval: *Eval, at: *const Source.Attr, args: SExpr) Eval.Result!SExpr {
-            const sym = try eval.expect1(args);
-            try eval.validateSymbol(at, sym);
-            return eval.liftFetch(at, sym);
+        pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
+            const sym = try interpreter.expect1(args);
+            try interpreter.validateSymbol(at, sym);
+            return interpreter.liftFetch(at, sym);
         }
     } },
     .{ "prompt", "defer execution to a named effect handler; `(prompt sym args...)` is equivalent to `((fetch sym) args...)`", struct {
-        pub fn fun(eval: *Eval, at: *const Source.Attr, args: SExpr) Eval.Result!SExpr {
-            const res = try eval.expectAtLeast1(args);
+        pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
+            const res = try interpreter.expectAtLeast1(args);
             const promptVal = res.head;
-            try eval.validateSymbol(at, promptVal);
-            return try eval.liftPrompt(at, promptVal, res.tail);
+            try interpreter.validateSymbol(at, promptVal);
+            return try interpreter.liftPrompt(at, promptVal, res.tail);
         }
     } },
 };
 
-fn bindDefs(eval: *Eval, at: *const Source.Attr, defs: SExpr, comptime terminatorName: []const u8, comptime terminator: fn (*Eval, *const Source.Attr, SExpr) Eval.Result!SExpr, comptime bind: fn (*Eval, SExpr, SExpr) Eval.Result!void) Eval.Result!SExpr {
-    const contextId = try SExpr.Int(at, @intCast(eval.context.genId()));
+fn bindDefs(interpreter: *Interpreter, at: *const Source.Attr, defs: SExpr, comptime terminatorName: []const u8, comptime terminator: fn (*Interpreter, *const Source.Attr, SExpr) Interpreter.Result!SExpr, comptime bind: fn (*Interpreter, SExpr, SExpr) Interpreter.Result!void) Interpreter.Result!SExpr {
+    const contextId = try SExpr.Int(at, @intCast(interpreter.context.genId()));
 
-    var iter = try eval.argIterator(false, defs);
+    var iter = try interpreter.argIterator(false, defs);
 
     while (try iter.next()) |info| {
-        const res = try eval.expectAtLeast2(info);
+        const res = try interpreter.expectAtLeast2(info);
 
-        const kind = try Binding.DefKind.matchSymbol(eval, res.head[0]);
+        const kind = try Binding.DefKind.matchSymbol(interpreter, res.head[0]);
 
         const nameSymbol = res.head[1];
-        try eval.validateSymbol(nameSymbol.getAttr(), nameSymbol);
+        try interpreter.validateSymbol(nameSymbol.getAttr(), nameSymbol);
 
-        const originalEnv = eval.env;
+        const originalEnv = interpreter.env;
         var contextEnv = originalEnv;
 
-        try Eval.pushNewFrame(at, &contextEnv);
+        try Interpreter.pushNewFrame(at, &contextEnv);
 
         const terminateSym = try SExpr.Symbol(at, "terminate");
-        const terminate = try Eval.wrapTerminator(eval, at, contextId, nameSymbol, terminatorName, terminator);
-        try Eval.extendEnvFrame(at, terminateSym, terminate, contextEnv);
+        const terminate = try Interpreter.wrapTerminator(interpreter, at, contextId, nameSymbol, terminatorName, terminator);
+        try Interpreter.extendEnvFrame(at, terminateSym, terminate, contextEnv);
 
-        eval.env = contextEnv;
-        defer eval.env = originalEnv;
+        interpreter.env = contextEnv;
+        defer interpreter.env = originalEnv;
 
-        const obj = try kind.constructObject(eval, nameSymbol.getAttr(), res.tail);
+        const obj = try kind.constructObject(interpreter, nameSymbol.getAttr(), res.tail);
 
-        try bind(eval, nameSymbol, obj);
+        try bind(interpreter, nameSymbol, obj);
     }
 
     return contextId;

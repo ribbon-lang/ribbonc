@@ -3,44 +3,30 @@ const ANSI = @import("Utils").Ansi;
 const Config = @import("Config");
 const MiscUtils = @import("Utils").Misc;
 const TypeUtils = @import("Utils").Type;
-const Core = @import("root.zig");
+const Core = @import("Core");
 const SExpr = Core.SExpr;
 const Context = Core.Context;
 const Parser = Core.Parser;
-const Eval = Core.Eval;
+const Interpreter = Core.Interpreter;
 
 const Builtin = @import("Builtin");
 
 const log = Core.log;
 
-const Compilation = @This();
+const Rli = @This();
 
-const EmojiTableT = struct {
-    Ribbon: []const u8,
-    Heart: []const u8,
-};
-
-const Emoji = EmojiTableT{
-    .Ribbon = "🎀",
-    .Heart = "💝",
-};
-
-const NoEmoji = EmojiTableT{
-    .Ribbon = "",
-    .Heart = "",
-};
 
 gpa: std.mem.Allocator,
 out: std.io.AnyWriter,
-style: ANSI.StyleT,
-emoji: EmojiTableT,
 ctx: *Context,
 parser: *Parser,
-eval: *Eval,
+interpreter: *Interpreter,
+readFileCallback: ?*const fn (rli: *Rli, []const u8) Error![]const u8 = null,
+userdata: *anyopaque = undefined,
 
-pub const Error = Parser.SyntaxError || Eval.Result || MiscUtils.IOError;
+pub const Error = Parser.SyntaxError || Interpreter.Result || MiscUtils.IOError;
 
-pub fn init(gpa: std.mem.Allocator, out: std.io.AnyWriter, args: []const []const u8) Error!*Compilation {
+pub fn init(gpa: std.mem.Allocator, out: std.io.AnyWriter, builtinEnvs: []const Builtin.EnvName, args: []const []const u8) Error!*Rli {
     log.info("initializing context ...", .{});
     var ctx = ctx: {
         if (Context.initGc()) |ptr| {
@@ -65,45 +51,48 @@ pub fn init(gpa: std.mem.Allocator, out: std.io.AnyWriter, args: []const []const
     };
     errdefer parser.deinit();
 
-    log.info("intializing evaluator ...", .{});
-    var eval = eval: {
-        if (Eval.init(ctx)) |ptr| {
-            log.info("... evaluator ready", .{});
-            break :eval ptr;
+    log.info("initializing interpreter ...", .{});
+    var interpreter = interpreter: {
+        if (Interpreter.init(ctx)) |ptr| {
+            log.info("... interpreter ready", .{});
+            break :interpreter ptr;
         } else |err| {
-            log.err("... failed to initialize evaluator", .{});
+            log.err("... failed to initialize interpreter", .{});
             return err;
         }
     };
-    errdefer eval.deinit();
+    errdefer interpreter.deinit();
 
-    const self = try gpa.create(Compilation);
+    const self = try gpa.create(Rli);
 
-    self.* = .{ .gpa = gpa, .out = out, .emoji = if (Config.USE_EMOJI) Emoji else NoEmoji, .style = if (Config.USE_ANSI_STYLES) ANSI.Style else ANSI.NoStyle, .ctx = ctx, .parser = parser, .eval = eval };
+    self.* = .{ .gpa = gpa, .out = out, .ctx = ctx, .parser = parser, .interpreter = interpreter };
 
     log.info("loading boot code ...", .{});
     {
         log.info("initializing primary process environment ...", .{});
-        const sargs = makeArgs(self.ctx, args) catch |err| {
+        const sArgs = makeArgs(self.ctx, args) catch |err| {
             log.err("... failed to load command line arguments", .{});
             return err;
         };
         log.info("... command line arguments loaded", .{});
 
-        self.eval.bindCustomEnv(self.eval.env, .{
-            .{ "process-args", "a list of command line arguments to the compiler", sargs },
+        self.interpreter.bindCustomEnv(self.interpreter.env, .{
+            .{ "process-args", "a list of command line arguments to the compiler", sArgs },
         }) catch |err| {
             log.err("... failed to initialize primary process environment", .{});
             return err;
         };
         log.info("... primary process environment loaded", .{});
 
-        log.info("initializing builtin environment ...", .{});
-        self.eval.bindBuiltinEnv(self.eval.env, .Full) catch |err| {
-            log.err("... failed to initialize builtin environment", .{});
-            return err;
-        };
-        log.info("... builtin environment loaded", .{});
+        log.info("initializing builtin environments ...", .{});
+        for (builtinEnvs) |env| {
+            self.interpreter.bindBuiltinEnv(self.interpreter.env, env) catch |err| {
+                log.err("... failed to initialize builtin environment {s}", .{@tagName(env)});
+                return err;
+            };
+            log.debug("... builtin environment {s} loaded", .{@tagName(env)});
+        }
+        log.info("... builtin environments loaded", .{});
 
         inline for (comptime std.meta.fieldNames(@TypeOf(Builtin.Scripts))) |scriptName| {
             const script = @field(Builtin.Scripts, scriptName);
@@ -122,14 +111,14 @@ pub fn init(gpa: std.mem.Allocator, out: std.io.AnyWriter, args: []const []const
     return self;
 }
 
-pub fn deinit(self: *Compilation) void {
-    self.eval.deinit();
+pub fn deinit(self: *Rli) void {
+    self.interpreter.deinit();
     self.parser.deinit();
     self.ctx.deinit();
     self.gpa.destroy(self);
 }
 
-pub fn expectedOutput(self: *Compilation, comptime fmt: []const u8, args: anytype) Error!void {
+pub fn expectedOutput(self: *Rli, comptime fmt: []const u8, args: anytype) Error!void {
     log.info(fmt, args);
     self.out.print(fmt ++ "\n", args) catch |err| {
         if (TypeUtils.narrowErrorSet(Error, err)) |e| {
@@ -142,63 +131,56 @@ pub fn expectedOutput(self: *Compilation, comptime fmt: []const u8, args: anytyp
 }
 
 fn makeArgs(ctx: *Context, args: []const []const u8) Error!SExpr {
-    var sargs = std.ArrayList(SExpr).init(ctx.allocator);
-    defer sargs.deinit();
+    var sArgs = std.ArrayList(SExpr).init(ctx.allocator);
+    defer sArgs.deinit();
 
     for (args) |arg| {
-        const sarg = try SExpr.String(ctx.attr, arg);
+        const sArg = try SExpr.String(ctx.attr, arg);
 
-        try sargs.append(sarg);
+        try sArgs.append(sArg);
     }
 
-    return try SExpr.List(ctx.attr, sargs.items);
+    return try SExpr.List(ctx.attr, sArgs.items);
 }
 
-pub fn readFiles(self: *Compilation, files: []const []const u8) Error!void {
-    if (files.len > 0) {
+pub fn readFile(self: *Rli, fileName: []const u8) Error!SExpr {
+    log.info("reading [{s}] ...", .{fileName});
+    const src =
+        if (self.readFileCallback) |cb| try cb(self, fileName)
+        else return error.AccessDenied;
+    defer self.gpa.free(src);
+
+    log.info("running [{s}] ...", .{fileName});
+
+    const result = try self.runFile(fileName, src);
+    log.info("... finished [{s}], result: {}", .{ fileName, result });
+    return result;
+}
+
+pub fn readFiles(self: *Rli, fileNames: []const []const u8) Error!void {
+    if (fileNames.len > 0) {
         log.info("running root files ...", .{});
-        for (files) |file| {
-            log.info("running [{s}] ...", .{file});
-            const result = try self.readFile(file);
-            log.info("... finished [{s}], result: {}", .{ file, result });
-        }
+        for (fileNames) |fileName| _ = try self.readFile(fileName);
         log.info("... finished running root files", .{});
     } else {
         log.info("... no root files provided", .{});
     }
 }
 
-pub fn readFile(self: *Compilation, fileName: []const u8) Error!SExpr {
-    const text = text: {
-        const file = std.fs.cwd().openFile(fileName, .{ .mode = .read_only }) catch |err| {
-            log.err("could not open file [{s}]: {}", .{ fileName, err });
-            return err;
-        };
-        defer file.close();
-
-        const reader = file.reader();
-
-        break :text try reader.readAllAlloc(self.gpa, std.math.maxInt(usize));
-    };
-    defer self.gpa.free(text);
-
-    return self.runFile(fileName, text);
-}
-
-pub fn runFile(self: *Compilation, fileName: []const u8, text: []const u8) Error!SExpr {
+pub fn runFile(self: *Rli, fileName: []const u8, text: []const u8) Error!SExpr {
     try self.parser.setFileName(fileName);
     self.parser.setInput(text, null);
 
     var result = try SExpr.Nil(try self.parser.mkAttr(null, null));
 
     while (self.parser.notEof()) {
-        if (self.parser.scanSExprP()) |msexpr| {
-            if (msexpr) |sexpr| {
-                if (self.eval.resolve(sexpr)) |esexpr| {
-                    result = esexpr;
+        if (self.parser.scanSExprP()) |sexprM| {
+            if (sexprM) |sexpr| {
+                if (self.interpreter.eval(sexpr)) |sexprE| {
+                    result = sexprE;
                 } else |res| {
-                    if (Eval.asEvaluationError(res)) |err| {
-                        try self.expectedOutput("! {}", .{self.eval.errFmt(err)});
+                    if (Interpreter.asEvaluationError(res)) |err| {
+                        try self.expectedOutput("! {}", .{self.interpreter.errFmt(err)});
                         return err;
                     } else {
                         log.err("unexpected result in file [{s}]: {}", .{ fileName, res });

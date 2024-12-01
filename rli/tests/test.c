@@ -28,13 +28,13 @@ int main (int argc, char** argv) {
         goto end0;
     }
 
-    BB_Eval* eval = BB_Eval_init(ctx, &err);
+    BB_Interpreter* interpreter = BB_Interpreter_init(ctx, &err);
     if (err != BB_OKAY) {
-        fprintf(stderr, "Failed to initialize evaluator: %s\n", BB_Error_name(err));
+        fprintf(stderr, "Failed to initialize interpreter: %s\n", BB_Error_name(err));
         goto end1;
     }
 
-    BB_Eval_bindBuiltinEnv(eval, BB_Eval_getEnv(eval), BB_FULL_ENV, &err);
+    BB_Interpreter_bindBuiltinEnv(interpreter, BB_Interpreter_getEnv(interpreter), BB_FULL_ENV, &err);
     if (err != BB_OKAY) {
         fprintf(stderr, "Failed to bind built-in environment: %s\n", BB_Error_name(err));
         goto end2;
@@ -68,21 +68,21 @@ int main (int argc, char** argv) {
 
     putchar('\n');
 
-    BB_SExpr resolved = BB_Eval_resolve(eval, result, &err);
+    BB_SExpr evald = BB_Interpreter_eval(interpreter, result, &err);
     if (err != BB_OKAY) {
-        fprintf(stderr, "Failed to resolve S-expression: %s\n", BB_Error_name(err));
+        fprintf(stderr, "Failed to eval S-expression: %s\n", BB_Error_name(err));
         goto end3;
     }
 
-    if (resolved.data.integral != 6) {
-        fprintf(stderr, "Unexpected result: %"PRId64"\n", resolved.data.integral);
+    if (evald.data.integral != 6) {
+        fprintf(stderr, "Unexpected result: %"PRId64"\n", evald.data.integral);
         goto end3;
     }
 
-    printf("Result: %"PRId64"\n", resolved.data.integral);
+    printf("Result: %"PRId64"\n", evald.data.integral);
 
     end3: BB_Parser_deinit(parser);
-    end2: BB_Eval_deinit(eval);
+    end2: BB_Interpreter_deinit(interpreter);
     end1: BB_Context_deinit(ctx);
     end0: return err;
 }

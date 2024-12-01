@@ -4,27 +4,67 @@ const zig_builtin = @import("builtin");
 
 const Config = @import("Config");
 const MiscUtils = @import("Utils").Misc;
-const REPL = @import("REPL").Builder(Compilation);
+const REPL = @import("REPL").Builder(Driver);
 const CLIMetaData = @import("CLIMetaData");
 const TextUtils = @import("Utils").Text;
 const ANSI = @import("Utils").Ansi;
 const Builtin = @import("Builtin");
 
 const Core = @import("Core");
-const Compilation = Core.Compilation;
 const SExpr = Core.SExpr;
 const Context = Core.Context;
 const Parser = Core.Parser;
-const Eval = Core.Eval;
+const Interpreter = Core.Interpreter;
+const Rli = @import("Rli");
 
-const log = std.log.scoped(.rli);
+const log = Core.log;
+
+const Driver = @This();
+
+
+const EmojiTable = struct {
+    Ribbon: []const u8,
+    Heart: []const u8,
+};
+
+const Emoji = EmojiTable{
+    .Ribbon = "🎀",
+    .Heart = "💝",
+};
+
+const NoEmoji = EmojiTable{
+    .Ribbon = "",
+    .Heart = "",
+};
+
+style: ANSI.StyleT,
+emoji: EmojiTable,
+rli: *Rli,
+
+fn init(gpa: std.mem.Allocator, out: std.io.AnyWriter, args: []const []const u8) !*Driver {
+    const driver = try gpa.create(Driver);
+    errdefer gpa.destroy(driver);
+
+    driver.emoji = if (Config.USE_EMOJI) Emoji else NoEmoji;
+    driver.style = if (Config.USE_ANSI_STYLES) ANSI.Style else ANSI.NoStyle;
+    driver.rli = try Rli.init(gpa, out, &.{.Full}, args);
+    driver.rli.readFileCallback = readFile;
+
+    return driver;
+}
+
+fn deinit(driver: *Driver) void {
+    const gpa = driver.rli.gpa;
+    driver.rli.deinit();
+    gpa.destroy(driver);
+}
 
 pub const std_options = std.Options {
     .log_level = .warn,
     .logFn = MiscUtils.FilteredLogger(Config.LOG_SCOPES),
 };
 
-const Error = REPL.Error || Compilation.Error || CLIMetaData.CLIError;
+pub const Error = REPL.Error || Rli.Error || CLIMetaData.CLIError;
 
 pub const main = main: {
     if (zig_builtin.mode == .Debug) {
@@ -85,13 +125,13 @@ fn entry() Error!void {
     switch (argsResult) {
         .exit => return,
         .execute => |x| {
-            var comp = try Compilation.init(gpa, stderr.any(), scriptArgs);
-            defer comp.deinit();
+            var driver = try Driver.init(gpa, stderr.any(), scriptArgs);
+            defer driver.deinit();
 
             if (x.interactive) {
-                try runRepl(comp, x.rootFiles);
+                try driver.runRepl(x.rootFiles);
             } else {
-                try comp.readFiles(x.rootFiles);
+                try driver.rli.readFiles(x.rootFiles);
             }
         },
     }
@@ -99,7 +139,7 @@ fn entry() Error!void {
 
 const CommandTable = std.StringHashMap(CommandFn);
 
-const CommandFn = *const fn (comp: *Compilation, repl: *REPL) Compilation.Error!CommandDirective;
+const CommandFn = *const fn (driver: *Driver, repl: *REPL) Rli.Error!CommandDirective;
 
 const CommandControl = enum {
     Break,
@@ -112,16 +152,16 @@ const CommandDirective = struct {
 };
 
 const COMMANDS = struct {
-    fn quit(_: *Compilation, _: *REPL) !CommandDirective {
+    fn quit(_: *Driver, _: *REPL) !CommandDirective {
         return .{ .control = .Break };
     }
 
-    fn @"clear-screen"(_: *Compilation, repl: *REPL) !CommandDirective {
+    fn @"clear-screen"(_: *Driver, repl: *REPL) !CommandDirective {
         try repl.clearScreen();
         return .{};
     }
 
-    fn @"clear-history"(_: *Compilation, repl: *REPL) !CommandDirective {
+    fn @"clear-history"(_: *Driver, repl: *REPL) !CommandDirective {
         repl.history.clear();
         repl.history.save(Config.REPL_HISTORY_PATH) catch |err| {
             log.err("failed to erase history on disk, {}", .{err});
@@ -134,7 +174,7 @@ fn buildCommandTable(allocator: std.mem.Allocator) !CommandTable {
     var commandTable = CommandTable.init(allocator);
 
     commandTable.put("help", struct {
-        fn fun(_: *Compilation, repl: *REPL) !CommandDirective {
+        fn fun(_: *Driver, repl: *REPL) !CommandDirective {
             try CLIMetaData.printCommands(repl.output.writer());
             return .{};
         }
@@ -190,7 +230,7 @@ fn getToken(pos: usize, buf: []const u8) TextUtils.Error!?[]const u8 {
     return lastToken;
 }
 
-fn completion(comp: *Compilation, allocator: std.mem.Allocator, pos: usize, buf: []const u8) Compilation.Error![]const []const u8 {
+fn completion(driver: *Driver, allocator: std.mem.Allocator, pos: usize, buf: []const u8) Driver.Error![]const []const u8 {
     if (buf.len > 0 and buf[0] == ':') {
         const token = buf[1..];
 
@@ -199,13 +239,13 @@ fn completion(comp: *Compilation, allocator: std.mem.Allocator, pos: usize, buf:
 
     const lastToken = try getToken(pos, buf) orelse return &[0][]const u8{};
 
-    const envKeys = try Eval.envKeyStrs(comp.eval.env, allocator);
+    const envKeys = try Interpreter.envKeyStrs(driver.rli.interpreter.env, allocator);
     defer allocator.free(envKeys);
 
     return findCompletions(allocator, envKeys, lastToken);
 }
 
-fn findCompletions(allocator: std.mem.Allocator, envKeys: []const []const u8, token: []const u8) Compilation.Error![]const []const u8 {
+fn findCompletions(allocator: std.mem.Allocator, envKeys: []const []const u8, token: []const u8) Driver.Error![]const []const u8 {
     var out = std.ArrayList([]const u8).init(allocator);
     defer out.deinit();
 
@@ -218,7 +258,7 @@ fn findCompletions(allocator: std.mem.Allocator, envKeys: []const []const u8, to
     return out.toOwnedSlice();
 }
 
-fn hints(comp: *Compilation, allocator: std.mem.Allocator, pos: usize, buf: []const u8) Compilation.Error!?[]const u8 {
+fn hints(driver: *Driver, allocator: std.mem.Allocator, pos: usize, buf: []const u8) Driver.Error!?[]const u8 {
     if (buf.len > 0 and buf[0] == ':') {
         const token = buf[1..];
 
@@ -227,13 +267,13 @@ fn hints(comp: *Compilation, allocator: std.mem.Allocator, pos: usize, buf: []co
 
     const lastToken = try getToken(pos, buf) orelse return null;
 
-    const envKeys = try Eval.envKeyStrs(comp.eval.env, allocator);
+    const envKeys = try Interpreter.envKeyStrs(driver.rli.interpreter.env, allocator);
     defer allocator.free(envKeys);
 
     return findHint(allocator, envKeys, lastToken);
 }
 
-fn findHint(allocator: std.mem.Allocator, envKeys: []const []const u8, token: []const u8) Compilation.Error!?[]const u8 {
+fn findHint(allocator: std.mem.Allocator, envKeys: []const []const u8, token: []const u8) Driver.Error!?[]const u8 {
     var out: ?[]const u8 = null;
 
     for (envKeys) |keyStr| {
@@ -259,25 +299,38 @@ fn findHint(allocator: std.mem.Allocator, envKeys: []const []const u8, token: []
     return out;
 }
 
-fn runRepl(comp: *Compilation, files: []const []const u8) Error!void {
+
+fn readFile(rli: *Rli, fileName: []const u8) Rli.Error![]const u8 {
+    const file = std.fs.cwd().openFile(fileName, .{ .mode = .read_only }) catch |err| {
+        log.err("could not open file [{s}]: {}", .{ fileName, err });
+        return err;
+    };
+    defer file.close();
+
+    const reader = file.reader();
+
+    return reader.readAllAlloc(rli.gpa, std.math.maxInt(usize));
+}
+
+fn runRepl(driver: *Driver, files: []const []const u8) Error!void {
     const stdout = std.io.getStdOut().writer();
 
-    try stdout.print("\n{s} {s}rli{s} {s}v{}{s} {s} {s}(REPL mode){s}\n", .{
-        comp.emoji.Ribbon,
-        comp.style.Color.Foreground.Magenta,
-        comp.style.Color.Foreground.Default,
-        comp.style.Color.Foreground.Green,
+    try stdout.print("\n{s} {s}Rli{s} {s}v{}{s} {s} {s}(REPL mode){s}\n", .{
+        driver.emoji.Ribbon,
+        driver.style.Color.Foreground.Magenta,
+        driver.style.Color.Foreground.Default,
+        driver.style.Color.Foreground.Green,
         Config.VERSION,
-        comp.style.Color.Foreground.Default,
-        comp.emoji.Ribbon,
-        comp.style.Decoration.StartDim,
-        comp.style.Decoration.EndBoldDim,
+        driver.style.Color.Foreground.Default,
+        driver.emoji.Ribbon,
+        driver.style.Decoration.StartDim,
+        driver.style.Decoration.EndBoldDim,
     });
 
     log.info("initializing line accumulator ...", .{});
 
     var lineAccumulator = acc: {
-        if (std.ArrayList(u8).initCapacity(comp.gpa, 1024)) |acc| {
+        if (std.ArrayList(u8).initCapacity(driver.rli.gpa, 1024)) |acc| {
             log.info("... line accumulator ready", .{});
             break :acc acc;
         } else |err| {
@@ -288,7 +341,7 @@ fn runRepl(comp: *Compilation, files: []const []const u8) Error!void {
     defer lineAccumulator.deinit();
 
     log.info("initializing REPL ...", .{});
-    var repl = REPL.init(comp, comp.gpa);
+    var repl = REPL.init(driver, driver.rli.gpa);
     defer repl.deinit();
 
     repl.hints_callback = hints;
@@ -297,7 +350,7 @@ fn runRepl(comp: *Compilation, files: []const []const u8) Error!void {
     log.info("... REPL ready", .{});
 
     log.info("initializing command table ...", .{});
-    var commandTable = try buildCommandTable(comp.gpa);
+    var commandTable = try buildCommandTable(driver.rli.gpa);
     defer commandTable.deinit();
 
     log.info("... command table ready", .{});
@@ -324,22 +377,22 @@ fn runRepl(comp: *Compilation, files: []const []const u8) Error!void {
             repl.history.write(stdout) catch unreachable;
         }
 
-        stdout.print("\n{s} goodbye!", .{comp.emoji.Heart}) catch {};
+        stdout.print("\n{s} goodbye!", .{driver.emoji.Heart}) catch {};
     }
 
-    try comp.readFiles(files);
+    try driver.rli.readFiles(files);
 
     log.info("beginning repl loop ...", .{});
 
-    try comp.parser.setFileName("stdin");
+    try driver.rli.parser.setFileName("stdin");
 
     try stdout.print("\r\n", .{});
 
-    const startPrompt = try std.fmt.allocPrint(comp.gpa, "{s}{s}>{s}{s} ", .{ comp.style.Decoration.StartBold, comp.style.Color.Foreground.Magenta, comp.style.Color.Foreground.Default, comp.style.Decoration.EndBoldDim });
-    defer comp.gpa.free(startPrompt);
+    const startPrompt = try std.fmt.allocPrint(driver.rli.gpa, "{s}{s}>{s}{s} ", .{ driver.style.Decoration.StartBold, driver.style.Color.Foreground.Magenta, driver.style.Color.Foreground.Default, driver.style.Decoration.EndBoldDim });
+    defer driver.rli.gpa.free(startPrompt);
 
-    const subsqPrompt = try std.fmt.allocPrint(comp.gpa, "{s}{s}|{s}{s} ", .{ comp.style.Decoration.StartBold, comp.style.Color.Foreground.Cyan, comp.style.Color.Foreground.Default, comp.style.Decoration.EndBoldDim });
-    defer comp.gpa.free(subsqPrompt);
+    const subsqPrompt = try std.fmt.allocPrint(driver.rli.gpa, "{s}{s}|{s}{s} ", .{ driver.style.Decoration.StartBold, driver.style.Color.Foreground.Cyan, driver.style.Color.Foreground.Default, driver.style.Decoration.EndBoldDim });
+    defer driver.rli.gpa.free(subsqPrompt);
 
     while (true) {
         const prompt = prompt: {
@@ -356,7 +409,7 @@ fn runRepl(comp: *Compilation, files: []const []const u8) Error!void {
                     const commandName = input[1..];
 
                     if (commandTable.get(commandName)) |command| {
-                        const directive = try command(comp, &repl);
+                        const directive = try command(driver, &repl);
 
                         if (directive.saveHistory) {
                             try repl.history.add(input);
@@ -372,7 +425,7 @@ fn runRepl(comp: *Compilation, files: []const []const u8) Error!void {
                 try repl.history.add(input);
 
                 try lineAccumulator.appendSlice(input);
-                comp.gpa.free(input);
+                driver.rli.gpa.free(input);
 
                 if (Config.REPL_DUMP_STDIN) {
                     const file = try std.fs.cwd().createFile("stdin", .{});
@@ -386,9 +439,9 @@ fn runRepl(comp: *Compilation, files: []const []const u8) Error!void {
                         continue;
                     }
 
-                    comp.parser.setInput(lineAccumulator.items, null);
+                    driver.rli.parser.setInput(lineAccumulator.items, null);
 
-                    if (comp.parser.totalP(SExpr, Parser.sexprP, .{})) |x| {
+                    if (driver.rli.parser.totalP(SExpr, Parser.sexprP, .{})) |x| {
                         break :sexpr x;
                     } else |err| {
                         switch (err) {
@@ -397,7 +450,7 @@ fn runRepl(comp: *Compilation, files: []const []const u8) Error!void {
                                 continue;
                             },
                             error.UnexpectedInput => {
-                                try comp.expectedOutput("{s}!{s} Syntax error at [stdin:{}]", .{ comp.style.Color.Foreground.Red, comp.style.Color.Foreground.Default, comp.parser.pos });
+                                try driver.rli.expectedOutput("{s}!{s} Syntax error at [stdin:{}]", .{ driver.style.Color.Foreground.Red, driver.style.Color.Foreground.Default, driver.rli.parser.pos });
                                 lineAccumulator.clearRetainingCapacity();
                                 continue;
                             },
@@ -411,14 +464,14 @@ fn runRepl(comp: *Compilation, files: []const []const u8) Error!void {
                 log.debug("# {attr}", .{sexpr});
                 log.debug(". {.}", .{sexpr});
 
-                const envs = try comp.eval.save();
-                if (comp.eval.resolve(sexpr)) |result| {
-                    try comp.expectedOutput("{s}${s} {}", .{ comp.style.Color.Foreground.Green, comp.style.Color.Foreground.Default, result });
+                const envs = try driver.rli.interpreter.save();
+                if (driver.rli.interpreter.eval(sexpr)) |result| {
+                    try driver.rli.expectedOutput("{s}${s} {}", .{ driver.style.Color.Foreground.Green, driver.style.Color.Foreground.Default, result });
                     log.debug(". {.}", .{result});
                 } else |res| {
-                    if (Eval.asEvaluationError(res)) |err| {
-                        try comp.expectedOutput("{s}!{s} {}", .{ comp.style.Color.Foreground.Red, comp.style.Color.Foreground.Default, comp.eval.errFmt(err) });
-                        comp.eval.restore(envs);
+                    if (Interpreter.asEvaluationError(res)) |err| {
+                        try driver.rli.expectedOutput("{s}!{s} {}", .{ driver.style.Color.Foreground.Red, driver.style.Color.Foreground.Default, driver.rli.interpreter.errFmt(err) });
+                        driver.rli.interpreter.restore(envs);
                     } else {
                         log.err("unexpected result: {}", .{res});
                         return res;

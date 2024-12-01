@@ -98,16 +98,16 @@ pub const @"HEADER-GENERATION-DATA" = HeaderGenUtils.MakeData(struct {
                     if (t.variants.len > 1) {
                         try writer.writeAll("\n");
                         for (t.variants) |x| {
-                            if (t.suffix) |suff| {
-                                try writer.print("    {s}{s}_{s},\n", .{ prefix, x, suff });
+                            if (t.suffix) |sfx| {
+                                try writer.print("    {s}{s}_{s},\n", .{ prefix, x, sfx });
                             } else {
                                 try writer.print("    {s}{s},\n", .{ prefix, x });
                             }
                         }
                     } else {
                         for (t.variants) |x| {
-                            if (t.suffix) |suff| {
-                                try writer.print(" {s}{s}_{s} ", .{ prefix, x, suff });
+                            if (t.suffix) |sfx| {
+                                try writer.print(" {s}{s}_{s} ", .{ prefix, x, sfx });
                             } else {
                                 try writer.print(" {s}{s} ", .{ prefix, x });
                             }
@@ -154,9 +154,9 @@ pub const @"HEADER-GENERATION-DATA" = HeaderGenUtils.MakeData(struct {
 
     pub const procArgs = .{
         .BB_Proc = .{
-            .{ *Core.Eval, "eval" },
+            .{ *Core.Interpreter, "interpreter" },
             .{ *const Core.Source.Attr, "attr" },
-            .{ *Core.Eval.ExternMessage, "msg" },
+            .{ *Core.Interpreter.ExternMessage, "msg" },
             .{ *Core.SExpr, "out_result" },
             .{ Core.SExpr, "args" },
         },
@@ -175,13 +175,13 @@ pub const @"HEADER-GENERATION-DATA" = HeaderGenUtils.MakeData(struct {
 pub const BB_Error: customtype = Extern.Error;
 pub const BB_EnvName: type = Builtin.EnvName;
 pub const BB_FunctionKind: type = Core.SExpr.Types.Function.Kind;
-pub const BB_Message: type = Core.Eval.ExternMessage;
+pub const BB_Message: type = Core.Interpreter.ExternMessage;
 pub const BB_Ordering: type = MiscUtils.Ordering;
 pub const BB_Tag: type = Core.SExpr.Tag;
 pub const BB_Attr: opaquetype = Core.Source.Attr;
 pub const BB_Arena: opaquetype = std.heap.ArenaAllocator;
 pub const BB_Context: opaquetype = Core.Context;
-pub const BB_Eval: opaquetype = Core.Eval;
+pub const BB_Interpreter: opaquetype = Core.Interpreter;
 pub const BB_Parser: opaquetype = Core.Parser;
 
 pub const BB_CStr: type = [*:0]const c_char;
@@ -262,8 +262,8 @@ pub export fn BB_Attr_read(attr: *BB_Attr) BB_CAttr {
     return BB_CAttr.fromNative(attr.*);
 }
 
-pub export fn BB_Attr_write(attr: *BB_Attr, cattr: BB_CAttr) void {
-    attr.* = cattr.toNative();
+pub export fn BB_Attr_write(attr: *BB_Attr, cAttr: BB_CAttr) void {
+    attr.* = cAttr.toNative();
 }
 
 pub export fn BB_Arena_init(err_out: ?*BB_Error) ?*BB_Arena {
@@ -394,34 +394,34 @@ pub export fn BB_Context_bindAttrExistingFileC(ctx: *BB_Context, fileName: BB_CS
     return tryCall(err_out, BB_Context.bindAttrExistingFile, .{ ctx, sliceFromCStr(fileName), if (range) |r| r.toNative() else null });
 }
 
-pub export fn BB_Eval_init(ctx: *BB_Context, err_out: ?*BB_Error) ?*BB_Eval {
-    return tryCall(err_out, BB_Eval.init, .{ctx});
+pub export fn BB_Interpreter_init(ctx: *BB_Context, err_out: ?*BB_Error) ?*BB_Interpreter {
+    return tryCall(err_out, BB_Interpreter.init, .{ctx});
 }
 
-pub export fn BB_Eval_deinit(eval: *BB_Eval) void {
-    eval.deinit();
+pub export fn BB_Interpreter_deinit(interpreter: *BB_Interpreter) void {
+    interpreter.deinit();
 }
 
-pub export fn BB_Eval_resolve(eval: *BB_Eval, sexpr: BB_SExpr, err_out: ?*BB_Error) BB_SExpr {
-    if (tryCall(err_out, BB_Eval.resolve, .{ eval, sexpr })) |esexpr| {
-        return esexpr;
+pub export fn BB_Interpreter_eval(interpreter: *BB_Interpreter, sexpr: BB_SExpr, err_out: ?*BB_Error) BB_SExpr {
+    if (tryCall(err_out, BB_Interpreter.eval, .{ interpreter, sexpr })) |sexprR| {
+        return sexprR;
     }
 
-    return eval.context.nil;
+    return interpreter.context.nil;
 }
 
-pub export fn BB_Eval_getEnv(eval: *BB_Eval) BB_SExpr {
-    return eval.env;
+pub export fn BB_Interpreter_getEnv(interpreter: *BB_Interpreter) BB_SExpr {
+    return interpreter.env;
 }
 
-pub export fn BB_Eval_setEnv(eval: *BB_Eval, env: BB_SExpr, err_out: ?*BB_Error) void {
-    if (tryCall(err_out, BB_Eval.validateEnv, .{env})) |_| {
-        eval.env = env;
+pub export fn BB_Interpreter_setEnv(interpreter: *BB_Interpreter, env: BB_SExpr, err_out: ?*BB_Error) void {
+    if (tryCall(err_out, BB_Interpreter.validateEnv, .{env})) |_| {
+        interpreter.env = env;
     }
 }
 
-pub export fn BB_Eval_bindBuiltinEnv(eval: *BB_Eval, output_env: BB_SExpr, builtin_env: BB_EnvName, err_out: ?*BB_Error) void {
-    _ = tryCall(err_out, BB_Eval.bindBuiltinEnv, .{ eval, output_env, builtin_env });
+pub export fn BB_Interpreter_bindBuiltinEnv(interpreter: *BB_Interpreter, output_env: BB_SExpr, builtin_env: BB_EnvName, err_out: ?*BB_Error) void {
+    _ = tryCall(err_out, BB_Interpreter.bindBuiltinEnv, .{ interpreter, output_env, builtin_env });
 }
 
 pub export fn BB_Parser_init(ctx: *BB_Context, err_out: ?*BB_Error) ?*BB_Parser {
@@ -457,8 +457,8 @@ pub export fn BB_Parser_isEof(parser: *BB_Parser) bool {
 }
 
 pub export fn BB_Parser_sexprP(parser: *BB_Parser, err_out: ?*BB_Error) BB_SExpr {
-    if (tryCall(err_out, BB_Parser.scanSExprP, .{parser})) |msexpr| {
-        if (msexpr) |sexpr| {
+    if (tryCall(err_out, BB_Parser.scanSExprP, .{parser})) |sexprM| {
+        if (sexprM) |sexpr| {
             return sexpr;
         }
     }

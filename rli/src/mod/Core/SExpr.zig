@@ -11,7 +11,7 @@ const Ordering = MiscUtils.Ordering;
 const Core = @import("root.zig");
 const Context = Core.Context;
 const Source = Core.Source;
-const Eval = Core.Eval;
+const Interpreter = Core.Interpreter;
 
 pub const SExpr = extern struct {
     head: *Head.Unknown,
@@ -345,7 +345,7 @@ pub const SExpr = extern struct {
 
             const Self = @This();
 
-            pub const Proc = *const fn (*Eval, *const Source.Attr, SExpr) Eval.Result!SExpr;
+            pub const Proc = *const fn (*Interpreter, *const Source.Attr, SExpr) Interpreter.Result!SExpr;
 
             pub fn getProc(self: Self) Proc {
                 return @ptrFromInt(self.proc);
@@ -450,7 +450,7 @@ pub const SExpr = extern struct {
 
             const Self = @This();
 
-            pub const Proc = *const fn (*Eval, *const Source.Attr, *Eval.ExternMessage, *SExpr, SExpr) callconv(.C) bool;
+            pub const Proc = *const fn (*Interpreter, *const Source.Attr, *Interpreter.ExternMessage, *SExpr, SExpr) callconv(.C) bool;
 
             pub fn compare(self: Self, other: Self) Ordering {
                 return MiscUtils.compare(@intFromPtr(self.proc), @intFromPtr(other.proc));

@@ -3,7 +3,7 @@ const std = @import("std");
 const Core = @import("Core");
 const Source = Core.Source;
 const SExpr = Core.SExpr;
-const Eval = Core.Eval;
+const Interpreter = Core.Interpreter;
 
 pub const Doc =
     \\##### Supported lambda list syntax
@@ -83,9 +83,9 @@ pub const Doc =
 
 pub const Env = .{
     .{ "validate-lambda-list", "given a lambda list, returns a boolean indicating whether it is valid", struct {
-        pub fn fun(eval: *Eval, at: *const Source.Attr, args: SExpr) Eval.Result!SExpr {
-            const llist = try eval.resolve1(args);
-            if (Eval.LambdaListRich.validate(eval, llist)) |_| {
+        pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
+            const llist = try interpreter.eval1(args);
+            if (Interpreter.LambdaListRich.validate(interpreter, llist)) |_| {
                 return try SExpr.Bool(at, true);
             } else |_| {
                 return try SExpr.Bool(at, false);
@@ -93,49 +93,49 @@ pub const Env = .{
         }
     } },
     .{ "lambda-list-binders", "given a lambda list, returns a list of the symbols that will be bound if it is successfully run on an input", struct {
-        pub fn fun(eval: *Eval, at: *const Source.Attr, args: SExpr) Eval.Result!SExpr {
-            const llist = try eval.resolve1(args);
-            const binders = try Eval.LambdaListLite.binders(eval, at, llist);
-            defer eval.context.allocator.free(binders);
+        pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
+            const llist = try interpreter.eval1(args);
+            const binders = try Interpreter.LambdaListLite.binders(interpreter, at, llist);
+            defer interpreter.context.allocator.free(binders);
             return SExpr.List(at, binders);
         }
     } },
     .{ "f-lambda-list", "given a lambda list and an input, returns an env frame binding the symbols of the list to the values of the input, or prompts fail", struct {
-        pub fn fun(eval: *Eval, at: *const Source.Attr, args: SExpr) Eval.Result!SExpr {
-            const buf = try eval.expect2(args);
+        pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
+            const buf = try interpreter.expect2(args);
             const llist = buf[0];
-            const largs = try eval.resolve(buf[1]);
-            const result = try Eval.LambdaListLite.run(eval, at, llist, largs);
+            const largs = try interpreter.eval(buf[1]);
+            const result = try Interpreter.LambdaListLite.run(interpreter, at, llist, largs);
             switch (result) {
                 .Okay => |env| return env,
-                .Error => return eval.nativePrompt(at, "fail", &[0]SExpr{}),
+                .Error => return interpreter.nativePrompt(at, "fail", &[0]SExpr{}),
             }
         }
     } },
     .{ "e-lambda-list", "given a lambda list and an input, returns an env frame binding the symbols of the list to the values of the input, or prompts an exception on failure", struct {
-        pub fn fun(eval: *Eval, at: *const Source.Attr, args: SExpr) Eval.Result!SExpr {
-            const buf = try eval.expect2(args);
+        pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
+            const buf = try interpreter.expect2(args);
             const llist = buf[0];
-            const largs = try eval.resolve(buf[1]);
-            const result = try Eval.LambdaListRich.run(eval, at, llist, largs);
+            const largs = try interpreter.eval(buf[1]);
+            const result = try Interpreter.LambdaListRich.run(interpreter, at, llist, largs);
             switch (result) {
                 .Okay => |env| return env,
                 .Error => |err| {
-                    const msg = try std.fmt.allocPrint(eval.context.allocator, "{}", .{err});
-                    return eval.nativePrompt(at, "exception", &[1]SExpr{try SExpr.StringPreallocated(at, msg)});
+                    const msg = try std.fmt.allocPrint(interpreter.context.allocator, "{}", .{err});
+                    return interpreter.nativePrompt(at, "exception", &[1]SExpr{try SExpr.StringPreallocated(at, msg)});
                 },
             }
         }
     } },
     .{ "run-lambda-list", "given a lambda list and an input, returns an env frame binding the symbols of the list to the values of the input, or causes a compile time error on failure", struct {
-        pub fn fun(eval: *Eval, at: *const Source.Attr, args: SExpr) Eval.Result!SExpr {
-            const buf = try eval.expect2(args);
+        pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
+            const buf = try interpreter.expect2(args);
             const llist = buf[0];
-            const largs = try eval.resolve(buf[1]);
-            const result = try Eval.LambdaListRich.run(eval, at, llist, largs);
+            const largs = try interpreter.eval(buf[1]);
+            const result = try Interpreter.LambdaListRich.run(interpreter, at, llist, largs);
             switch (result) {
                 .Okay => |env| return env,
-                .Error => |err| return eval.abort(err.err, err.attr orelse at, "lambda list failed: {s}", .{err.msg orelse "no message provided"}),
+                .Error => |err| return interpreter.abort(err.err, err.attr orelse at, "lambda list failed: {s}", .{err.msg orelse "no message provided"}),
             }
         }
     } },

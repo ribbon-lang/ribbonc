@@ -5,7 +5,7 @@ const MiscUtils = @import("Utils").Misc;
 const Core = @import("Core");
 const Source = Core.Source;
 const SExpr = Core.SExpr;
-const Eval = Core.Eval;
+const Interpreter = Core.Interpreter;
 
 pub const Doc =
     \\This module provides functions for the creation, access and transformation
@@ -15,32 +15,32 @@ pub const Doc =
 
 pub const Env = .{
     .{ "attr-here", "create a source attribution referencing the call location", struct {
-        pub fn fun(eval: *Eval, at: *const Source.Attr, args: SExpr) Eval.Result!SExpr {
-            try eval.expect0(args);
+        pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
+            try interpreter.expect0(args);
             return ExternAttr(at, at);
         }
     } },
     .{ "attr-filename", "get the filename stored in an Attr", struct {
-        pub fn fun(eval: *Eval, at: *const Source.Attr, args: SExpr) Eval.Result!SExpr {
-            const arg = try eval.resolve1(args);
-            const attr: *const Source.Attr = try eval.castExternDataPtr(Source.Attr, at, arg);
+        pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
+            const arg = try interpreter.eval1(args);
+            const attr: *const Source.Attr = try interpreter.castExternDataPtr(Source.Attr, at, arg);
             return try SExpr.StringPreallocated(at, attr.filename);
         }
     } },
     .{ "attr-range", "get the range stored in an Attr", struct {
-        pub fn fun(eval: *Eval, at: *const Source.Attr, args: SExpr) Eval.Result!SExpr {
-            const arg = try eval.resolve1(args);
-            const attr: *const Source.Attr = try eval.castExternDataPtr(Source.Attr, at, arg);
+        pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
+            const arg = try interpreter.eval1(args);
+            const attr: *const Source.Attr = try interpreter.castExternDataPtr(Source.Attr, at, arg);
             return try convertRangeToSExpr(at, attr.range);
         }
     } },
     .{ "attr-new", "create a new Attr from a filename string and a range object", struct {
-        pub fn fun(eval: *Eval, at: *const Source.Attr, args: SExpr) Eval.Result!SExpr {
-            const rargs = try eval.resolve2(args);
-            const filename = try eval.castStringSlice(at, rargs[0]);
-            const range = try convertSExprToRange(eval, at, rargs[1]);
-            const attr = try eval.context.new(Source.Attr{
-                .context = eval.context,
+        pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
+            const rargs = try interpreter.eval2(args);
+            const filename = try interpreter.castStringSlice(at, rargs[0]);
+            const range = try convertSExprToRange(interpreter, at, rargs[1]);
+            const attr = try interpreter.context.new(Source.Attr{
+                .context = interpreter.context,
                 .filename = filename,
                 .range = range,
             });
@@ -48,15 +48,15 @@ pub const Env = .{
         }
     } },
     .{ "attr-of", "extract the Attr from a value", struct {
-        pub fn fun(eval: *Eval, at: *const Source.Attr, args: SExpr) Eval.Result!SExpr {
-            const arg = try eval.resolve1(args);
+        pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
+            const arg = try interpreter.eval1(args);
             return try ExternAttr(at, arg.getAttr());
         }
     } },
     .{ "attr-set!", "set the Attr of a value; returns the old Attr", struct {
-        pub fn fun(eval: *Eval, at: *const Source.Attr, args: SExpr) Eval.Result!SExpr {
-            const rargs = try eval.resolve2(args);
-            const attr: *const Source.Attr = try eval.castExternDataPtr(Source.Attr, at, rargs[1]);
+        pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
+            const rargs = try interpreter.eval2(args);
+            const attr: *const Source.Attr = try interpreter.castExternDataPtr(Source.Attr, at, rargs[1]);
             const oldAttr = rargs[0].getAttr();
             rargs[0].setAttr(attr);
             return try ExternAttr(at, oldAttr);
@@ -90,17 +90,17 @@ pub fn convertPosToSExpr(at: *const Source.Attr, value: ?Source.Pos) !SExpr {
     }
 }
 
-pub fn convertSExprToRange(eval: *Eval, at: *const Source.Attr, value: SExpr) !?Source.Range {
+pub fn convertSExprToRange(interpreter: *Interpreter, at: *const Source.Attr, value: SExpr) !?Source.Range {
     const xp1 = value.castCons() orelse {
         if (value.isNil()) {
             return null;
         } else {
-            return eval.abort(Eval.Error.TypeError, at, "expected a source range of the form `(start . end)`, got {}", .{value.getTag()});
+            return interpreter.abort(Interpreter.Error.TypeError, at, "expected a source range of the form `(start . end)`, got {}", .{value.getTag()});
         }
     };
 
-    const start = try convertSExprToPos(eval, at, xp1.car);
-    const end = try convertSExprToPos(eval, at, xp1.cdr);
+    const start = try convertSExprToPos(interpreter, at, xp1.car);
+    const end = try convertSExprToPos(interpreter, at, xp1.cdr);
 
     return Source.Range{
         .start = start,
@@ -108,35 +108,35 @@ pub fn convertSExprToRange(eval: *Eval, at: *const Source.Attr, value: SExpr) !?
     };
 }
 
-pub fn convertSExprToPos(eval: *Eval, at: *const Source.Attr, value: SExpr) !?Source.Pos {
+pub fn convertSExprToPos(interpreter: *Interpreter, at: *const Source.Attr, value: SExpr) !?Source.Pos {
     const xp1 = value.castCons() orelse {
         if (value.isNil()) {
             return null;
         } else {
-            return eval.abort(Eval.Error.TypeError, at, "expected a source position of the form `((line . column) . offset)`, got {}", .{value.getTag()});
+            return interpreter.abort(Interpreter.Error.TypeError, at, "expected a source position of the form `((line . column) . offset)`, got {}", .{value.getTag()});
         }
     };
 
     const xp2 = xp1.car.castCons() orelse {
-        return eval.abort(Eval.Error.TypeError, at, "expected a source position line and column pair of the form `(line . column)`, got {}: `{}`", .{ xp1.car.getTag(), xp1.car });
+        return interpreter.abort(Interpreter.Error.TypeError, at, "expected a source position line and column pair of the form `(line . column)`, got {}: `{}`", .{ xp1.car.getTag(), xp1.car });
     };
 
-    const line = try eval.castInt(at, xp2.car);
+    const line = try interpreter.castInt(at, xp2.car);
 
-    const column = try eval.castInt(at, xp2.cdr);
+    const column = try interpreter.castInt(at, xp2.cdr);
 
-    const offset = try eval.castInt(at, xp1.cdr);
+    const offset = try interpreter.castInt(at, xp1.cdr);
 
     if (line < 0) {
-        return eval.abort(Eval.Error.RangeError, at, "line must be non-negative, got {}", .{line});
+        return interpreter.abort(Interpreter.Error.RangeError, at, "line must be non-negative, got {}", .{line});
     }
 
     if (column < 0) {
-        return eval.abort(Eval.Error.RangeError, at, "column must be non-negative, got {}", .{column});
+        return interpreter.abort(Interpreter.Error.RangeError, at, "column must be non-negative, got {}", .{column});
     }
 
     if (offset < 0) {
-        return eval.abort(Eval.Error.RangeError, at, "offset must be non-negative, got {}", .{offset});
+        return interpreter.abort(Interpreter.Error.RangeError, at, "offset must be non-negative, got {}", .{offset});
     }
 
     return Source.Pos{

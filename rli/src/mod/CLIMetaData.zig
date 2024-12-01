@@ -108,7 +108,7 @@ pub const options =
     \\--disable-raw-mode           (REPL) Disable raw line editing mode
     \\--use-emoji <bool>           Use emoji in the output [Default: {}]
     \\--use-ansi-styles <bool>     Use ANSI styles in the output [Default: {}]
-    \\--max-comptime-depth <uint>  Maximum call stack depth for the compile time evaluator [Default: {}; Note: going higher may cause segfaults due to native stack overflow; Minimum: {}]
+    \\--max-comptime-depth <uint>  Maximum call stack depth for the compile time interpreter [Default: {}; Note: going higher may cause segfaults due to native stack overflow; Minimum: {}]
     \\<path>...                    Root files to include in the compilation
 , .{
     Config.REPL_DUMP_STDIN_DEFAULT,
@@ -199,7 +199,7 @@ pub fn processArgs(allocator: std.mem.Allocator, args: []const []const u8) (Misc
         }
 
         try switch (err) {
-            error.DoesntTakeValue => stderr.print(
+            error.DoesntTakinterpreterue => stderr.print(
                 "The argument '{s}{s}' does not take a value\n\n",
                 .{ longest.kind.prefix(), longest.name },
             ),

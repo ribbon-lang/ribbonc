@@ -26,7 +26,7 @@ const TerminationData = struct {
     value: SExpr,
 };
 
-const Eval = @This();
+const Interpreter = @This();
 
 pub const Result = Signal || Error;
 pub const Signal = error{Terminate};
@@ -111,8 +111,8 @@ pub const RichError = struct {
 
     const Self = @This();
 
-    pub fn initFromEval(eval: *const Eval, err: Error) Self {
-        return Self{ .err = err, .msg = eval.errorCause, .attr = eval.attr };
+    pub fn initFromInterpreter(interpreter: *const Interpreter, err: Error) Self {
+        return Self{ .err = err, .msg = interpreter.errorCause, .attr = interpreter.attr };
     }
 
     pub fn format(self: *const Self, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
@@ -153,12 +153,12 @@ pub const RichError = struct {
     }
 };
 
-pub fn init(context: *Context) Error!*Eval {
+pub fn init(context: *Context) Error!*Interpreter {
     const nil = try SExpr.Nil(context.attr);
 
-    const ptr = try context.allocator.create(Eval);
+    const ptr = try context.allocator.create(Interpreter);
 
-    ptr.* = Eval{
+    ptr.* = Interpreter{
         .context = context,
         .errorCause = null,
         .attr = null,
@@ -171,51 +171,51 @@ pub fn init(context: *Context) Error!*Eval {
     return ptr;
 }
 
-pub fn deinit(eval: *Eval) void {
-    if (eval.errorCause) |cause| {
-        eval.context.allocator.free(cause);
+pub fn deinit(interpreter: *Interpreter) void {
+    if (interpreter.errorCause) |cause| {
+        interpreter.context.allocator.free(cause);
     }
-    eval.context.allocator.destroy(eval);
+    interpreter.context.allocator.destroy(interpreter);
 }
 
 pub const SavedEvaluationEnvs = struct { SExpr, SExpr };
 
-pub fn save(eval: *const Eval) !SavedEvaluationEnvs {
-    return .{ try copyEnv(eval.context.attr, eval.env), try copyEnv(eval.context.attr, eval.callerEnv) };
+pub fn save(interpreter: *const Interpreter) !SavedEvaluationEnvs {
+    return .{ try copyEnv(interpreter.context.attr, interpreter.env), try copyEnv(interpreter.context.attr, interpreter.callerEnv) };
 }
 
-pub fn restore(eval: *Eval, envs: SavedEvaluationEnvs) void {
-    eval.env = envs[0];
-    eval.callerEnv = envs[1];
+pub fn restore(interpreter: *Interpreter, envs: SavedEvaluationEnvs) void {
+    interpreter.env = envs[0];
+    interpreter.callerEnv = envs[1];
 
-    if (eval.errorCause) |cause| {
-        eval.context.allocator.free(cause);
-        eval.errorCause = null;
+    if (interpreter.errorCause) |cause| {
+        interpreter.context.allocator.free(cause);
+        interpreter.errorCause = null;
     }
 
-    eval.attr = null;
+    interpreter.attr = null;
 
-    eval.callDepth = 0;
+    interpreter.callDepth = 0;
 }
 
-pub fn exit(eval: *Eval, err: Error, attr: *const Source.Attr) Result {
-    eval.attr = attr;
-    eval.errorCause = null;
+pub fn exit(interpreter: *Interpreter, err: Error, attr: *const Source.Attr) Result {
+    interpreter.attr = attr;
+    interpreter.errorCause = null;
     return err;
 }
 
-pub fn abort(eval: *Eval, err: Error, attr: *const Source.Attr, comptime fmt: []const u8, args: anytype) Result {
-    eval.attr = attr;
-    eval.errorCause = try std.fmt.allocPrint(eval.context.allocator, fmt, args);
+pub fn abort(interpreter: *Interpreter, err: Error, attr: *const Source.Attr, comptime fmt: []const u8, args: anytype) Result {
+    interpreter.attr = attr;
+    interpreter.errorCause = try std.fmt.allocPrint(interpreter.context.allocator, fmt, args);
     return err;
 }
 
-pub fn errDiagnosticFilled(eval: *const Eval) bool {
-    return eval.errorCause != null;
+pub fn errDiagnosticFilled(interpreter: *const Interpreter) bool {
+    return interpreter.errorCause != null;
 }
 
-pub fn errFmt(eval: *const Eval, err: Error) RichError {
-    return RichError.initFromEval(eval, err);
+pub fn errFmt(interpreter: *const Interpreter, err: Error) RichError {
+    return RichError.initFromInterpreter(interpreter, err);
 }
 
 pub fn envLookupPair(symbol: SExpr, env: SExpr) Error!?SExpr {
@@ -456,57 +456,57 @@ pub fn extendFrame(at: *const Source.Attr, symbol: SExpr, value: SExpr, frame: *
     frame.* = try SExpr.Cons(at, pair, frame.*);
 }
 
-pub fn nativeFetch(eval: *Eval, at: *const Source.Attr, prompt: []const u8) Result!SExpr {
+pub fn nativeFetch(interpreter: *Interpreter, at: *const Source.Attr, prompt: []const u8) Result!SExpr {
     const symbol = try SExpr.Symbol(at, prompt);
-    return liftFetch(eval, at, symbol);
+    return liftFetch(interpreter, at, symbol);
 }
 
-pub fn nativePrompt(eval: *Eval, at: *const Source.Attr, prompt: []const u8, args: anytype) Result!SExpr {
+pub fn nativePrompt(interpreter: *Interpreter, at: *const Source.Attr, prompt: []const u8, args: anytype) Result!SExpr {
     const symbol = try SExpr.Symbol(at, prompt);
     const argsList = SExpr.MappedList(at, args, SExpr.Quote) catch |err| {
-        return eval.abort(err, at,
+        return interpreter.abort(err, at,
             "failed to map argument list:" ++ switch (@TypeOf(args)) {SExpr => "`{}`", else => "`{any}`"},
             .{args});
     };
-    return liftPrompt(eval, at, symbol, argsList);
+    return liftPrompt(interpreter, at, symbol, argsList);
 }
 
-pub fn nativeInvoke(eval: *Eval, at: *const Source.Attr, callback: SExpr, args: anytype) Result!SExpr {
+pub fn nativeInvoke(interpreter: *Interpreter, at: *const Source.Attr, callback: SExpr, args: anytype) Result!SExpr {
     const argsList = SExpr.MappedList(at, args, SExpr.Quote) catch |err| {
-        return eval.abort(err, at,
+        return interpreter.abort(err, at,
             "failed to map argument list:" ++ switch (@TypeOf(args)) {SExpr => "`{}`", else => "`{any}`"},
             .{args});
     };
-    return invoke(eval, at, callback, argsList);
+    return invoke(interpreter, at, callback, argsList);
 }
 
 pub const NativeWithOut = union(enum) { Evaluated: SExpr, Terminated: SExpr };
 
 pub fn nativeWith(
-    eval: *Eval, at: *const Source.Attr,
+    interpreter: *Interpreter, at: *const Source.Attr,
     prompt: []const u8,
     handler: SExpr.Types.Builtin.Proc,
     body: SExpr,
     out: *NativeWithOut,
 ) Result!void {
-    const baseEv = eval.evidence;
-    try pushNewFrame(at, &eval.evidence);
-    defer eval.evidence = baseEv;
+    const baseEv = interpreter.evidence;
+    try pushNewFrame(at, &interpreter.evidence);
+    defer interpreter.evidence = baseEv;
 
     const promptSym = try SExpr.Symbol(at, prompt);
-    const contextId = try SExpr.Int(at, @intCast(eval.context.genId()));
-    const wrappedHandler = try wrapNativeHandler(eval, at, contextId, promptSym, handler);
+    const contextId = try SExpr.Int(at, @intCast(interpreter.context.genId()));
+    const wrappedHandler = try wrapNativeHandler(interpreter, at, contextId, promptSym, handler);
 
-    try extendEnvFrame(at, promptSym, wrappedHandler, eval.evidence);
+    try extendEnvFrame(at, promptSym, wrappedHandler, interpreter.evidence);
 
-    const value = eval.resolve(body) catch |res| {
+    const value = interpreter.eval(body) catch |res| {
         if (res == Signal.Terminate) {
-            const terminationData = eval.terminationData orelse {
+            const terminationData = interpreter.terminationData orelse {
                 return EvaluationError.MissingTerminationData;
             };
             if (MiscUtils.equal(terminationData.ctxId, contextId)) {
                 out.* = .{ .Terminated = terminationData.value };
-                eval.terminationData = null;
+                interpreter.terminationData = null;
                 return;
             }
         }
@@ -516,8 +516,8 @@ pub fn nativeWith(
     out.* = .{ .Evaluated = value };
 }
 
-fn wrapNativeHandler(eval: *Eval, at: *const Source.Attr, ctxId: SExpr, promptSym: SExpr, handler: SExpr.Types.Builtin.Proc) Result!SExpr {
-    var env = eval.env;
+fn wrapNativeHandler(interpreter: *Interpreter, at: *const Source.Attr, ctxId: SExpr, promptSym: SExpr, handler: SExpr.Types.Builtin.Proc) Result!SExpr {
+    var env = interpreter.env;
 
     const handlerSym = try SExpr.Symbol(at, "builtin-handler");
     const terminatorSym = try SExpr.Symbol(at, "terminator");
@@ -525,7 +525,7 @@ fn wrapNativeHandler(eval: *Eval, at: *const Source.Attr, ctxId: SExpr, promptSy
 
     try pushNewFrame(at, &env);
     try extendEnvFrame(at, handlerSym, try SExpr.Builtin(at, "native-handler", handler), env);
-    try extendEnvFrame(at, terminatorSym, try wrapTerminator(eval, at, ctxId, promptSym, "native-terminator", valueTerminator), env);
+    try extendEnvFrame(at, terminatorSym, try wrapTerminator(interpreter, at, ctxId, promptSym, "native-terminator", valueTerminator), env);
 
     const llist = try SExpr.List(at, &[_]SExpr{ try SExpr.Symbol(at, "..."), argsSym });
     const apply = try SExpr.List(at, &[_]SExpr{try SExpr.Symbol(at, "apply"), handlerSym, argsSym });
@@ -535,8 +535,8 @@ fn wrapNativeHandler(eval: *Eval, at: *const Source.Attr, ctxId: SExpr, promptSy
 }
 
 
-pub fn wrapTerminator(eval: *Eval, at: *const Source.Attr, ctxId: SExpr, promptName: SExpr, comptime terminatorName: []const u8, comptime terminator: fn (*Eval, *const Source.Attr, SExpr) Result!SExpr) Result!SExpr {
-    var env = eval.env;
+pub fn wrapTerminator(interpreter: *Interpreter, at: *const Source.Attr, ctxId: SExpr, promptName: SExpr, comptime terminatorName: []const u8, comptime terminator: fn (*Interpreter, *const Source.Attr, SExpr) Result!SExpr) Result!SExpr {
+    var env = interpreter.env;
 
     const terminateSym = try SExpr.Symbol(at, "builtin-terminate");
     const valSym = try SExpr.Symbol(at, "val");
@@ -552,33 +552,33 @@ pub fn wrapTerminator(eval: *Eval, at: *const Source.Attr, ctxId: SExpr, promptN
     return try SExpr.Function(at, .Lambda, llist, env, body);
 }
 
-pub fn valueTerminator(eval: *Eval, _: *const Source.Attr, args: SExpr) Result!SExpr {
-    const buf = try eval.expect3(args);
+pub fn valueTerminator(interpreter: *Interpreter, _: *const Source.Attr, args: SExpr) Result!SExpr {
+    const buf = try interpreter.expect3(args);
     const ctxId = buf[0];
-    const value = try eval.resolve(buf[2]);
-    eval.terminationData = .{
+    const value = try interpreter.eval(buf[2]);
+    interpreter.terminationData = .{
         .ctxId = ctxId,
         .value = value,
     };
     return Signal.Terminate;
 }
 
-pub fn liftFetch(eval: *Eval, at: *const Source.Attr, name: SExpr) Result!SExpr {
+pub fn liftFetch(interpreter: *Interpreter, at: *const Source.Attr, name: SExpr) Result!SExpr {
     const binding =
-        if (try envLookupPair(name, eval.evidence) orelse try frameLookup(name, eval.globalEvidence)) |pair| pair.forceCons().cdr else {
-        return eval.abort(EvaluationError.MissingDynamic, at,
+        if (try envLookupPair(name, interpreter.evidence) orelse try frameLookup(name, interpreter.globalEvidence)) |pair| pair.forceCons().cdr else {
+        return interpreter.abort(EvaluationError.MissingDynamic, at,
             "unhandled fetch `{}`", .{name});
     };
     return binding;
 }
 
-pub fn liftPrompt(eval: *Eval, at: *const Source.Attr, name: SExpr, args: SExpr) Result!SExpr {
-    const handler = try liftFetch(eval, at, name);
+pub fn liftPrompt(interpreter: *Interpreter, at: *const Source.Attr, name: SExpr, args: SExpr) Result!SExpr {
+    const handler = try liftFetch(interpreter, at, name);
 
-    return eval.invoke(at, handler, args);
+    return interpreter.invoke(at, handler, args);
 }
 
-pub fn resolve(eval: *Eval, sexpr: SExpr) Result!SExpr {
+pub fn eval(interpreter: *Interpreter, sexpr: SExpr) Result!SExpr {
     switch (sexpr.getTag()) {
         inline .Nil,
         .Bool,
@@ -591,67 +591,67 @@ pub fn resolve(eval: *Eval, sexpr: SExpr) Result!SExpr {
         },
 
         .Symbol => {
-            if (try envLookupPair(sexpr, eval.env)) |pair| {
+            if (try envLookupPair(sexpr, interpreter.env)) |pair| {
                 return pair.forceCons().cdr;
             } else {
                 const sym = sexpr.forceSymbolSlice();
 
                 if (std.mem.eql(u8, sym, "unquote") or std.mem.eql(u8, sym, "unquote-splicing")) {
-                    return eval.abort(EvaluationError.InvalidContext, sexpr.getAttr(), "encountered `{s}` outside of quasiquote", .{sym});
+                    return interpreter.abort(EvaluationError.InvalidContext, sexpr.getAttr(), "encountered `{s}` outside of quasi-quote", .{sym});
                 } else if (std.mem.eql(u8, sym, "terminate")) {
-                    return eval.abort(EvaluationError.UnexpectedTerminate, sexpr.getAttr(), "encountered `terminate` outside of handler", .{});
+                    return interpreter.abort(EvaluationError.UnexpectedTerminate, sexpr.getAttr(), "encountered `terminate` outside of effect handler", .{});
                 } else {
-                    return eval.abort(EvaluationError.UnboundSymbol, sexpr.getAttr(), "unbound symbol `{s}`", .{sym});
+                    return interpreter.abort(EvaluationError.UnboundSymbol, sexpr.getAttr(), "unbound symbol `{s}`", .{sym});
                 }
             }
         },
 
         .Cons => {
             const xp = sexpr.forceCons();
-            const fun = try eval.resolve(xp.car);
-            return @call(.always_inline, invoke, .{ eval, xp.attr, fun, xp.cdr });
+            const fun = try interpreter.eval(xp.car);
+            return @call(.always_inline, invoke, .{ interpreter, xp.attr, fun, xp.cdr });
         },
 
-        else => return eval.abort(EvaluationError.NotEvaluatable, sexpr.getAttr(), "cannot evaluate {}", .{sexpr.getTag()}),
+        else => return interpreter.abort(EvaluationError.NotEvaluatable, sexpr.getAttr(), "cannot evaluate {}", .{sexpr.getTag()}),
     }
 }
 
-pub fn resolveListRecursive(eval: *Eval, slist: SExpr) Result!SExpr {
+pub fn evalListRecursive(interpreter: *Interpreter, slist: SExpr) Result!SExpr {
     const xp =
         if (slist.castCons()) |c| c
         else if (slist.isNil()) return slist
         else {
-            return eval.abort(EvaluationError.TypeError, slist.getAttr(), "expected a list, got {}", .{slist.getTag()});
+            return interpreter.abort(EvaluationError.TypeError, slist.getAttr(), "expected a list, got {}", .{slist.getTag()});
         };
-    const newCar = try eval.resolve(xp.car);
-    const newCdr = try eval.resolveListRecursive(xp.cdr);
+    const newCar = try interpreter.eval(xp.car);
+    const newCdr = try interpreter.evalListRecursive(xp.cdr);
     return try SExpr.Cons(slist.getAttr(), newCar, newCdr);
 }
 
-pub fn resolveList(eval: *Eval, slist: SExpr) Result![]const SExpr {
-    return resolveListInRange(eval, slist, 0, std.math.maxInt(usize));
+pub fn evalList(interpreter: *Interpreter, slist: SExpr) Result![]const SExpr {
+    return evalListInRange(interpreter, slist, 0, std.math.maxInt(usize));
 }
 
-pub fn resolveListInRange(eval: *Eval, slist: SExpr, minLength: usize, maxLength: usize) Result![]const SExpr {
-    return resolveListOfInRange(eval, slist, minLength, maxLength, "", passAll);
+pub fn evalListInRange(interpreter: *Interpreter, slist: SExpr, minLength: usize, maxLength: usize) Result![]const SExpr {
+    return evalListOfInRange(interpreter, slist, minLength, maxLength, "", passAll);
 }
 
-pub fn resolveListOfInRange(eval: *Eval, slist: SExpr, minLength: usize, maxLength: usize, comptime expected: []const u8, predicate: fn (SExpr) bool) Result![]const SExpr {
-    var listBuf = std.ArrayList(SExpr).init(eval.context.allocator);
+pub fn evalListOfInRange(interpreter: *Interpreter, slist: SExpr, minLength: usize, maxLength: usize, comptime expected: []const u8, predicate: fn (SExpr) bool) Result![]const SExpr {
+    var listBuf = std.ArrayList(SExpr).init(interpreter.context.allocator);
 
     var tail = slist;
 
     while (!tail.isNil()) {
         const xp: *SExpr.Types.Cons = (tail.castCons() orelse {
-            return eval.abort(Error.TypeError, tail.getAttr(), "expected a list, got {}", .{tail.getTag()});
+            return interpreter.abort(Error.TypeError, tail.getAttr(), "expected a list, got {}", .{tail.getTag()});
         });
 
         tail = xp.cdr;
 
-        const head = try eval.resolve(xp.car);
+        const head = try interpreter.eval(xp.car);
 
         if (!predicate(head)) {
-            return eval.abort(Error.TypeError, xp.car.getAttr(), "expected {s}, got {}", .{ expected, head.getTag() });
+            return interpreter.abort(Error.TypeError, xp.car.getAttr(), "expected {s}, got {}", .{ expected, head.getTag() });
         }
 
         try listBuf.append(head);
@@ -660,11 +660,11 @@ pub fn resolveListOfInRange(eval: *Eval, slist: SExpr, minLength: usize, maxLeng
     const len = listBuf.items.len;
 
     if (len < minLength) {
-        return eval.abort(Error.NotEnoughArguments, slist.getAttr(), "expected at least {} arguments, got {}", .{ minLength, len });
+        return interpreter.abort(Error.NotEnoughArguments, slist.getAttr(), "expected at least {} arguments, got {}", .{ minLength, len });
     }
 
     if (len > maxLength) {
-        return eval.abort(Error.TooManyArguments, slist.getAttr(), "expected at most {} arguments, got {}", .{ maxLength, len });
+        return interpreter.abort(Error.TooManyArguments, slist.getAttr(), "expected at most {} arguments, got {}", .{ maxLength, len });
     }
 
     listBuf.shrinkAndFree(len);
@@ -672,7 +672,7 @@ pub fn resolveListOfInRange(eval: *Eval, slist: SExpr, minLength: usize, maxLeng
     return listBuf.items;
 }
 
-pub fn invoke(eval: *Eval, at: *const Source.Attr, fun: SExpr, sargs: SExpr) Result!SExpr {
+pub fn invoke(interpreter: *Interpreter, at: *const Source.Attr, fun: SExpr, sargs: SExpr) Result!SExpr {
     switch (fun.getTag()) {
         .Nil,
         .Bool,
@@ -684,36 +684,36 @@ pub fn invoke(eval: *Eval, at: *const Source.Attr, fun: SExpr, sargs: SExpr) Res
         .Cons,
         .ExternData,
         => {
-            return eval.abort(Error.NotCallable, at,
+            return interpreter.abort(Error.NotCallable, at,
                 "expected a function or builtin, got {}: `{}`", .{fun.getTag(), fun});
         },
 
         .Function => {
-            return @call(.always_inline, runFunction, .{ eval, at, fun, sargs });
+            return @call(.always_inline, runFunction, .{ interpreter, at, fun, sargs });
         },
 
-        .Builtin => return @call(.always_inline, runBuiltin, .{ eval, at, fun, sargs }),
+        .Builtin => return @call(.always_inline, runBuiltin, .{ interpreter, at, fun, sargs }),
 
-        .ExternFunction => return @call(.always_inline, runExternFunction, .{ eval, at, fun, sargs }),
+        .ExternFunction => return @call(.always_inline, runExternFunction, .{ interpreter, at, fun, sargs }),
     }
 }
 
-fn mkLambdaListRichError(eval: *Eval, err: EvaluationError, at: *const Source.Attr, comptime fmt: []const u8, args: anytype) Error!RichError {
+fn mkLambdaListRichError(interpreter: *Interpreter, err: EvaluationError, at: *const Source.Attr, comptime fmt: []const u8, args: anytype) Error!RichError {
     return RichError{
         .err = err,
-        .msg = try std.fmt.allocPrint(eval.context.allocator, fmt, args),
+        .msg = try std.fmt.allocPrint(interpreter.context.allocator, fmt, args),
         .attr = at,
     };
 }
 
-fn mkLambdaListLiteError(_: *Eval, _: EvaluationError, _: *const Source.Attr, comptime _: []const u8, _: anytype) Error!void {
+fn mkLambdaListLiteError(_: *Interpreter, _: EvaluationError, _: *const Source.Attr, comptime _: []const u8, _: anytype) Error!void {
     return {};
 }
 
 pub const LambdaListLite = LambdaList(void, mkLambdaListLiteError);
 pub const LambdaListRich = LambdaList(RichError, mkLambdaListRichError);
 
-fn LambdaList(comptime E: type, comptime mkError: fn (*Eval, EvaluationError, *const Source.Attr, comptime []const u8, anytype) Result!E) type {
+fn LambdaList(comptime E: type, comptime mkError: fn (*Interpreter, EvaluationError, *const Source.Attr, comptime []const u8, anytype) Result!E) type {
     return struct {
         pub const Error = E;
         pub const LLResult = union(enum) {
@@ -721,18 +721,18 @@ fn LambdaList(comptime E: type, comptime mkError: fn (*Eval, EvaluationError, *c
             Okay: SExpr,
         };
 
-        pub inline fn run(eval: *Eval, at: *const Source.Attr, list: SExpr, args: SExpr) Result!LLResult {
-            var bindings = SExpr.HashMapOf(?SExpr).init(eval.context.allocator);
+        pub inline fn run(interpreter: *Interpreter, at: *const Source.Attr, list: SExpr, args: SExpr) Result!LLResult {
+            var bindings = SExpr.HashMapOf(?SExpr).init(interpreter.context.allocator);
             defer bindings.deinit();
 
-            if (try runImpl(eval, at, &bindings, list, args)) |err| {
+            if (try runImpl(interpreter, at, &bindings, list, args)) |err| {
                 return LLResult{ .Error = err };
             } else {
                 return LLResult{ .Okay = try frameFromHashMap(at, &bindings) };
             }
         }
 
-        fn runImpl(eval: *Eval, at: *const Source.Attr, bindings: *SExpr.HashMapOf(?SExpr), expected: SExpr, given: SExpr) Result!?E {
+        fn runImpl(interpreter: *Interpreter, at: *const Source.Attr, bindings: *SExpr.HashMapOf(?SExpr), expected: SExpr, given: SExpr) Result!?E {
             switch (expected.getTag()) {
                 .Nil,
                 .Bool,
@@ -743,26 +743,26 @@ fn LambdaList(comptime E: type, comptime mkError: fn (*Eval, EvaluationError, *c
                 => if (MiscUtils.equal(given, expected)) {
                     return null;
                 } else {
-                    return lambdaListError(eval, EvaluationError.TypeError, at,
+                    return lambdaListError(interpreter, EvaluationError.TypeError, at,
                         "expected {}, got {}", .{ expected, given });
                 },
 
                 .Symbol => if (std.mem.eql(u8, expected.forceSymbolSlice(), "_")) {
                     return null;
                 } else {
-                    return bind(eval, at, bindings, expected, given);
+                    return bind(interpreter, at, bindings, expected, given);
                 },
 
                 .Cons => {
                     var xp = expected.forceCons();
                     if (xp.car.isExactSymbol("quote")) {
                         xp = xp.cdr.castCons() orelse {
-                            return eval.abort(EvaluationError.TypeError, xp.attr,
+                            return interpreter.abort(EvaluationError.TypeError, xp.attr,
                                 "lambda list element contains invalid quote, body is {}", .{xp.cdr.getTag()});
                         };
 
                         if (!xp.cdr.isNil()) {
-                            return eval.abort(EvaluationError.TypeError, xp.attr,
+                            return interpreter.abort(EvaluationError.TypeError, xp.attr,
                                 "lambda list element contains invalid quote, tail of body is {}", .{xp.cdr.getTag()});
                         }
 
@@ -771,45 +771,45 @@ fn LambdaList(comptime E: type, comptime mkError: fn (*Eval, EvaluationError, *c
                             if (MiscUtils.equal(q, given)) {
                                 return null;
                             } else {
-                                return lambdaListError(eval, EvaluationError.TypeError, at,
+                                return lambdaListError(interpreter, EvaluationError.TypeError, at,
                                     "expected {}, got {}", .{ q, given });
                             }
                         } else {
-                            return eval.abort(EvaluationError.TypeError, xp.attr,
+                            return interpreter.abort(EvaluationError.TypeError, xp.attr,
                                 "lambda list element contains invalid quote, body is {} (should be Symbol)", .{q.getTag()});
                         }
                     } else if (xp.car.isExactSymbol("unquote")) {
-                        xp = xp.cdr.castCons() orelse return eval.abort(EvaluationError.TypeError, xp.attr,
+                        xp = xp.cdr.castCons() orelse return interpreter.abort(EvaluationError.TypeError, xp.attr,
                             "lambda list element contains invalid unquote, body is {}", .{xp.cdr.getTag()});
 
-                        const uq = try eval.resolve(xp.car);
+                        const uq = try interpreter.eval(xp.car);
 
                         if (!xp.cdr.isNil()) {
-                            return eval.abort(EvaluationError.TypeError, xp.attr,
+                            return interpreter.abort(EvaluationError.TypeError, xp.attr,
                                 "lambda list element contains invalid unquote, tail of body is {}", .{xp.cdr.getTag()});
                         }
 
-                        return runImpl(eval, at, bindings, uq, given);
+                        return runImpl(interpreter, at, bindings, uq, given);
                     } else if (xp.car.isExactSymbol(":")) {
-                        xp = xp.cdr.castCons() orelse return eval.abort(EvaluationError.TypeError, xp.attr,
+                        xp = xp.cdr.castCons() orelse return interpreter.abort(EvaluationError.TypeError, xp.attr,
                             "invalid lambda list, expected a value to follow `->`, got {}", .{xp.cdr.getTag()});
                         const predE = xp.car;
 
                         if (!xp.cdr.isNil()) {
-                            return eval.abort(EvaluationError.TypeError, xp.attr,
+                            return interpreter.abort(EvaluationError.TypeError, xp.attr,
                                 "invalid lambda list, expected only a value to follow `:`, got {}", .{xp.cdr.getTag()});
                         }
 
-                        const res = try eval.nativeInvoke(at, try eval.resolve(predE), &[1]SExpr { given });
+                        const res = try interpreter.nativeInvoke(at, try interpreter.eval(predE), &[1]SExpr { given });
 
                         if (res.coerceNativeBool()) {
                             return null;
                         } else {
-                            return lambdaListError(eval, EvaluationError.RangeError, at,
+                            return lambdaListError(interpreter, EvaluationError.RangeError, at,
                                 "predicate `{}` failed on value `{}`", .{ predE, given });
                         }
                     } else if (xp.car.isExactSymbol("->")) {
-                        xp = xp.cdr.castCons() orelse return eval.abort(EvaluationError.TypeError, xp.attr,
+                        xp = xp.cdr.castCons() orelse return interpreter.abort(EvaluationError.TypeError, xp.attr,
                             "invalid lambda list, expected a value to follow `->`, got {}", .{xp.cdr.getTag()});
                         const predE = xp.car;
 
@@ -817,8 +817,8 @@ fn LambdaList(comptime E: type, comptime mkError: fn (*Eval, EvaluationError, *c
                         const body = try SExpr.List(at, &[_]SExpr { try SExpr.Symbol(at, "apply"), predE, args });
 
                         var out: NativeWithOut = undefined;
-                        try eval.nativeWith(at, "fail", struct {
-                            fn fun(e: *Eval, a: *const Source.Attr, x: SExpr) Result!SExpr {
+                        try interpreter.nativeWith(at, "fail", struct {
+                            fn fun(e: *Interpreter, a: *const Source.Attr, x: SExpr) Result!SExpr {
                                 const terminator = try envLookup(try SExpr.Symbol(a, "terminator"), e.env) orelse {
                                     return e.abort(EvaluationError.InvalidContext, a,
                                         "missing terminator in lambda list fail handler", .{});
@@ -830,66 +830,66 @@ fn LambdaList(comptime E: type, comptime mkError: fn (*Eval, EvaluationError, *c
                         switch (out) {
                             .Evaluated => |x| {
                                 if (!xp.cdr.isNil()) {
-                                    return runImpl(eval, at, bindings, xp.cdr, x);
+                                    return runImpl(interpreter, at, bindings, xp.cdr, x);
                                 } else {
                                     return null;
                                 }
                             },
                             .Terminated => |_| {
-                                return lambdaListError(eval, EvaluationError.RangeError, at,
+                                return lambdaListError(interpreter, EvaluationError.RangeError, at,
                                     "view pattern `{}` failed on value `{}`", .{ predE, given });
                             },
                         }
                     } else if (xp.car.isExactSymbol("?")) {
-                        xp = xp.cdr.castCons() orelse return eval.abort(EvaluationError.TypeError, at,
+                        xp = xp.cdr.castCons() orelse return interpreter.abort(EvaluationError.TypeError, at,
                             "invalid lambda list, expected a var to follow `?`, got {}", .{xp.cdr.getTag()});
                         const vx = xp.car;
 
                         if (!xp.cdr.isNil()) {
-                            return eval.abort(EvaluationError.TypeError, at,
+                            return interpreter.abort(EvaluationError.TypeError, at,
                                 "invalid lambda list, expected only a value to follow `?`, got {}", .{xp.cdr.getTag()});
                         }
 
                         if (given.isNil()) {
-                            const varBinders = try binders(eval, at, vx);
-                            defer eval.context.allocator.free(varBinders);
+                            const varBinders = try binders(interpreter, at, vx);
+                            defer interpreter.context.allocator.free(varBinders);
 
                             for (varBinders) |binder| {
                                 // cannot fail because given is null
-                                _ = try bind(eval, at, bindings, binder, null);
+                                _ = try bind(interpreter, at, bindings, binder, null);
                             }
 
                             return null;
                         } else {
-                            return runImpl(eval, at, bindings, vx, given);
+                            return runImpl(interpreter, at, bindings, vx, given);
                         }
                     } else if (xp.car.isExactSymbol("@")) {
-                        xp = xp.cdr.castCons() orelse return eval.abort(EvaluationError.TypeError, xp.attr,
+                        xp = xp.cdr.castCons() orelse return interpreter.abort(EvaluationError.TypeError, xp.attr,
                             "invalid lambda list, expected a var to follow `@`, got {}", .{xp.cdr.getTag()});
                         const atSym = xp.car;
 
                         if (!atSym.isSymbol()) {
-                            return eval.abort(EvaluationError.TypeError, xp.attr,
+                            return interpreter.abort(EvaluationError.TypeError, xp.attr,
                                 "invalid lambda list, expected a symbol to follow `@`, got {}", .{atSym.getTag()});
                         }
 
-                        xp = xp.cdr.castCons() orelse return eval.abort(EvaluationError.TypeError, xp.attr,
+                        xp = xp.cdr.castCons() orelse return interpreter.abort(EvaluationError.TypeError, xp.attr,
                             "invalid lambda list, expected a value to follow symbol in `@`, got {}", .{xp.cdr.getTag()});
                         const vx = xp.car;
 
                         if (!xp.cdr.isNil()) {
-                            return eval.abort(EvaluationError.TypeError, xp.attr,
+                            return interpreter.abort(EvaluationError.TypeError, xp.attr,
                                 "invalid lambda list, expected only a value to follow `@`, got {}", .{xp.cdr.getTag()});
                         }
 
-                        if (try runImpl(eval, at, bindings, vx, given)) |err| {
+                        if (try runImpl(interpreter, at, bindings, vx, given)) |err| {
                             return err;
                         }
 
-                        return bind(eval, at, bindings, atSym, given);
+                        return bind(interpreter, at, bindings, atSym, given);
                     } else if (xp.car.isExactSymbol("...")) {
                         xp = xp.cdr.castCons() orelse {
-                            return eval.abort(EvaluationError.TypeError, xp.attr,
+                            return interpreter.abort(EvaluationError.TypeError, xp.attr,
                                 "invalid lambda list, expected a symbol to follow `...`, got {}", .{xp.cdr.getTag()});
                         };
                         var restSym = xp.car;
@@ -898,17 +898,17 @@ fn LambdaList(comptime E: type, comptime mkError: fn (*Eval, EvaluationError, *c
                             if (!restSym.isSymbol()) {
                                 if (restSym.castCons()) |rxp| {
                                     if (rxp.car.isExactSymbol("unquote")) {
-                                        const xp2 = rxp.cdr.castCons() orelse return eval.abort(EvaluationError.TypeError, xp.attr,
+                                        const xp2 = rxp.cdr.castCons() orelse return interpreter.abort(EvaluationError.TypeError, xp.attr,
                                             "invalid lambda list, malformed unquote in rest parameter, got {}", .{rxp.cdr.getTag()});
-                                        restSym = try eval.resolve(xp2.car);
+                                        restSym = try interpreter.eval(xp2.car);
 
                                         if (!xp2.cdr.isNil()) {
-                                            return eval.abort(EvaluationError.TypeError, xp.attr,
+                                            return interpreter.abort(EvaluationError.TypeError, xp.attr,
                                                 "invalid lambda list, expected only a value to follow `,` in rest parameter unquote, got {}", .{xp2.cdr.getTag()});
                                         }
 
                                         if (!restSym.isSymbol()) {
-                                            return eval.abort(EvaluationError.TypeError, xp.attr,
+                                            return interpreter.abort(EvaluationError.TypeError, xp.attr,
                                                 "invalid lambda list, expected unquote inside rest parameter to evaluate to a symbol, got {}", .{restSym.getTag()});
                                         }
 
@@ -923,34 +923,34 @@ fn LambdaList(comptime E: type, comptime mkError: fn (*Eval, EvaluationError, *c
                         };
 
                         if (invalid) {
-                            return eval.abort(EvaluationError.TypeError, xp.attr,
+                            return interpreter.abort(EvaluationError.TypeError, xp.attr,
                                 "invalid lambda list, expected a symbol to follow `...`, got {}", .{restSym.getTag()});
                         }
 
                         if (!xp.cdr.isNil()) {
-                            return eval.abort(EvaluationError.TypeError, xp.attr,
+                            return interpreter.abort(EvaluationError.TypeError, xp.attr,
                                 "invalid lambda list, expected only a symbol to follow `...`, got {}", .{xp.cdr.getTag()});
                         }
 
-                        return try bind(eval, at, bindings, restSym, given);
+                        return try bind(interpreter, at, bindings, restSym, given);
                     }
 
                     var currentExpected = expected;
                     var currentGiven = given;
                     while (!currentExpected.isNil()) {
                         const xpExpected = currentExpected.castCons() orelse { // MiscUtils pairs of the form `(a . a)`
-                            return runImpl(eval, at, bindings, currentExpected, currentGiven);
+                            return runImpl(interpreter, at, bindings, currentExpected, currentGiven);
                         };
 
                         const elemExpected = xpExpected.car;
 
                         if (isRest(elemExpected)) {
-                            if (try runImpl(eval, at, bindings, elemExpected, currentGiven)) |err| {
+                            if (try runImpl(interpreter, at, bindings, elemExpected, currentGiven)) |err| {
                                 return err;
                             }
 
                             if (!xpExpected.cdr.isNil()) {
-                                return eval.abort(EvaluationError.TypeError, xpExpected.attr,
+                                return interpreter.abort(EvaluationError.TypeError, xpExpected.attr,
                                     "invalid lambda list, expected rest parameter to end list got {}", .{xpExpected.cdr.getTag()});
                             }
 
@@ -960,17 +960,17 @@ fn LambdaList(comptime E: type, comptime mkError: fn (*Eval, EvaluationError, *c
                         if (currentGiven.castCons()) |xpGiven| {
                             const elemGiven = xpGiven.car;
 
-                            if (try runImpl(eval, at, bindings, elemExpected, elemGiven)) |err| {
+                            if (try runImpl(interpreter, at, bindings, elemExpected, elemGiven)) |err| {
                                 return err;
                             }
 
                             currentGiven = xpGiven.cdr;
                         } else if (currentGiven.isNil() and isOptional(elemExpected)) {
-                            if (try runImpl(eval, at, bindings, elemExpected, currentGiven)) |err| {
+                            if (try runImpl(interpreter, at, bindings, elemExpected, currentGiven)) |err| {
                                 return err;
                             }
                         } else {
-                            return lambdaListError(eval, EvaluationError.NotEnoughArguments, at,
+                            return lambdaListError(interpreter, EvaluationError.NotEnoughArguments, at,
                                 "expected more items in input list; comparing `{}` to `{}`", .{expected, given});
                         }
 
@@ -980,10 +980,10 @@ fn LambdaList(comptime E: type, comptime mkError: fn (*Eval, EvaluationError, *c
                     if (currentGiven.isNil()) {
                         return null;
                     } else if (currentGiven.isCons()) {
-                        return lambdaListError(eval, EvaluationError.TooManyArguments, at,
+                        return lambdaListError(interpreter, EvaluationError.TooManyArguments, at,
                             "expected less items in input list; comparing `{}` to `{}` (leaves `{}`)", .{expected, given, currentGiven});
                     } else {
-                        return lambdaListError(eval, EvaluationError.TypeError, at,
+                        return lambdaListError(interpreter, EvaluationError.TypeError, at,
                             "expected a list, got {}; comparing `{}` to `{}`", .{currentGiven.getTag(), expected, given});
                     }
                 },
@@ -993,7 +993,7 @@ fn LambdaList(comptime E: type, comptime mkError: fn (*Eval, EvaluationError, *c
                 .ExternData,
                 .ExternFunction,
                 => {
-                    return eval.abort(EvaluationError.TypeError, at,
+                    return interpreter.abort(EvaluationError.TypeError, at,
                         "invalid lambda list element ({} is not supported)", .{expected.getTag()});
                 },
             }
@@ -1023,14 +1023,14 @@ fn LambdaList(comptime E: type, comptime mkError: fn (*Eval, EvaluationError, *c
             return false;
         }
 
-        inline fn bind(eval: *Eval, at: *const Source.Attr, bindings: *SExpr.HashMapOf(?SExpr), symbol: SExpr, given: ?SExpr) Result!?E {
+        inline fn bind(interpreter: *Interpreter, at: *const Source.Attr, bindings: *SExpr.HashMapOf(?SExpr), symbol: SExpr, given: ?SExpr) Result!?E {
             std.debug.assert(symbol.isSymbol());
 
             if (bindings.get(symbol)) |existing| {
                 if (existing) |e| {
                     if (given) |g| {
                         if (!MiscUtils.equal(e, g)) {
-                            return lambdaListError(eval, EvaluationError.TypeError, at, "expected {}, got {}", .{ e, g });
+                            return lambdaListError(interpreter, EvaluationError.TypeError, at, "expected {}, got {}", .{ e, g });
                         }
                     }
                 } else {
@@ -1043,23 +1043,23 @@ fn LambdaList(comptime E: type, comptime mkError: fn (*Eval, EvaluationError, *c
             return null;
         }
 
-        pub inline fn binders(eval: *Eval, at: *const Source.Attr, expected: SExpr) Result![]SExpr {
-            var set = SExpr.HashSet.init(eval.context.allocator);
+        pub inline fn binders(interpreter: *Interpreter, at: *const Source.Attr, expected: SExpr) Result![]SExpr {
+            var set = SExpr.HashSet.init(interpreter.context.allocator);
             defer set.deinit();
 
-            try bindersImpl(eval, at, expected, &set);
+            try bindersImpl(interpreter, at, expected, &set);
 
-            return try eval.context.allocator.dupe(SExpr, set.keys());
+            return try interpreter.context.allocator.dupe(SExpr, set.keys());
         }
 
-        pub fn validate(eval: *Eval, expect: SExpr) Result!void {
-            var set = SExpr.HashSet.init(eval.context.allocator);
+        pub fn validate(interpreter: *Interpreter, expect: SExpr) Result!void {
+            var set = SExpr.HashSet.init(interpreter.context.allocator);
             defer set.deinit();
 
-            try bindersImpl(eval, expect.getAttr(), expect, &set);
+            try bindersImpl(interpreter, expect.getAttr(), expect, &set);
         }
 
-        fn bindersImpl(eval: *Eval, at: *const Source.Attr, expected: SExpr, out: *SExpr.HashSet) Result!void {
+        fn bindersImpl(interpreter: *Interpreter, at: *const Source.Attr, expected: SExpr, out: *SExpr.HashSet) Result!void {
             switch (expected.getTag()) {
                 inline .Nil,
                 .Bool,
@@ -1080,12 +1080,12 @@ fn LambdaList(comptime E: type, comptime mkError: fn (*Eval, EvaluationError, *c
                     var xp = expected.forceCons();
                     if (xp.car.isExactSymbol("quote")) {
                         xp = xp.cdr.castCons() orelse {
-                            return eval.abort(EvaluationError.TypeError, xp.attr,
+                            return interpreter.abort(EvaluationError.TypeError, xp.attr,
                                 "lambda list element contains invalid quote, body is {}", .{xp.cdr.getTag()});
                         };
 
                         if (!xp.cdr.isNil()) {
-                            return eval.abort(EvaluationError.TypeError, xp.attr,
+                            return interpreter.abort(EvaluationError.TypeError, xp.attr,
                                 "lambda list element contains invalid quote, tail of body is {}", .{xp.cdr.getTag()});
                         }
 
@@ -1093,63 +1093,63 @@ fn LambdaList(comptime E: type, comptime mkError: fn (*Eval, EvaluationError, *c
                         if (q.isSymbol()) {
                             return;
                         } else {
-                            return eval.abort(EvaluationError.TypeError, xp.attr,
+                            return interpreter.abort(EvaluationError.TypeError, xp.attr,
                                 "lambda list element contains invalid quote, body is {} (should be symbol)", .{q.getTag()});
                         }
                     } else if (xp.car.isExactSymbol("unquote")) {
-                        xp = xp.cdr.castCons() orelse return eval.abort(EvaluationError.TypeError, xp.attr,
+                        xp = xp.cdr.castCons() orelse return interpreter.abort(EvaluationError.TypeError, xp.attr,
                             "lambda list element contains invalid unquote, body is {}", .{xp.cdr.getTag()});
 
-                        const uq = try eval.resolve(xp.car);
+                        const uq = try interpreter.eval(xp.car);
 
                         if (!xp.cdr.isNil()) {
-                            return eval.abort(EvaluationError.TypeError, xp.attr,
+                            return interpreter.abort(EvaluationError.TypeError, xp.attr,
                                 "lambda list element contains invalid unquote, tail of body is {}", .{xp.cdr.getTag()});
                         }
 
-                        return bindersImpl(eval, at, uq, out);
+                        return bindersImpl(interpreter, at, uq, out);
                     } else if (xp.car.isExactSymbol(":")) {
-                        xp = xp.cdr.castCons() orelse return eval.abort(EvaluationError.TypeError, xp.attr,
+                        xp = xp.cdr.castCons() orelse return interpreter.abort(EvaluationError.TypeError, xp.attr,
                             "invalid lambda list, expected a value to follow `:`, got {}", .{xp.cdr.getTag()});
 
                         if (!xp.cdr.isNil()) {
-                            return eval.abort(EvaluationError.TypeError, xp.attr,
+                            return interpreter.abort(EvaluationError.TypeError, xp.attr,
                                 "invalid lambda list, expected only a value to follow `:`, got {}", .{xp.cdr.getTag()});
                         }
 
                         return;
                     } else if (xp.car.isExactSymbol("->")) {
-                        xp = xp.cdr.castCons() orelse return eval.abort(EvaluationError.TypeError, xp.attr,
+                        xp = xp.cdr.castCons() orelse return interpreter.abort(EvaluationError.TypeError, xp.attr,
                             "invalid lambda list, expected a value to follow `->`, got {}", .{xp.cdr.getTag()});
 
-                        return bindersImpl(eval, at, xp.cdr, out);
+                        return bindersImpl(interpreter, at, xp.cdr, out);
                     } else if (xp.car.isExactSymbol("?")) {
-                        xp = xp.cdr.castCons() orelse return eval.abort(EvaluationError.TypeError, xp.attr,
+                        xp = xp.cdr.castCons() orelse return interpreter.abort(EvaluationError.TypeError, xp.attr,
                             "invalid lambda list, expected a var to follow `?`, got {}", .{xp.cdr.getTag()});
                         const vx = xp.car;
 
                         if (!xp.cdr.isNil()) {
-                            return eval.abort(EvaluationError.TypeError, xp.attr,
+                            return interpreter.abort(EvaluationError.TypeError, xp.attr,
                                 "invalid lambda list, expected only a value to follow `?`, got {}", .{xp.cdr.getTag()});
                         }
 
-                        return bindersImpl(eval, at, vx, out);
+                        return bindersImpl(interpreter, at, vx, out);
                     } else if (xp.car.isExactSymbol("@")) {
-                        xp = xp.cdr.castCons() orelse return eval.abort(EvaluationError.TypeError, xp.attr,
+                        xp = xp.cdr.castCons() orelse return interpreter.abort(EvaluationError.TypeError, xp.attr,
                             "invalid lambda list, expected a var to follow `@`, got {}", .{xp.cdr.getTag()});
                         const atSym = xp.car;
 
                         if (!atSym.isSymbol()) {
-                            return eval.abort(EvaluationError.TypeError, xp.attr,
+                            return interpreter.abort(EvaluationError.TypeError, xp.attr,
                                 "invalid lambda list, expected a symbol to follow `@`, got {}", .{atSym.getTag()});
                         }
 
-                        xp = xp.cdr.castCons() orelse return eval.abort(EvaluationError.TypeError, at,
+                        xp = xp.cdr.castCons() orelse return interpreter.abort(EvaluationError.TypeError, at,
                             "invalid lambda list, expected a value to follow symbol in `@`, got {}", .{xp.cdr.getTag()});
                         const vx = xp.car;
 
                         if (!xp.cdr.isNil()) {
-                            return eval.abort(EvaluationError.TypeError, xp.attr,
+                            return interpreter.abort(EvaluationError.TypeError, xp.attr,
                                 "invalid lambda list, expected only a value to follow `@`, got {}", .{xp.cdr.getTag()});
                         }
 
@@ -1157,9 +1157,9 @@ fn LambdaList(comptime E: type, comptime mkError: fn (*Eval, EvaluationError, *c
                             try out.put(atSym, {});
                         }
 
-                        return bindersImpl(eval, at, vx, out);
+                        return bindersImpl(interpreter, at, vx, out);
                     } else if (xp.car.isExactSymbol("...")) {
-                        xp = xp.cdr.castCons() orelse return eval.abort(EvaluationError.TypeError, xp.attr,
+                        xp = xp.cdr.castCons() orelse return interpreter.abort(EvaluationError.TypeError, xp.attr,
                             "invalid lambda list, expected a symbol to follow `...`, got {}", .{xp.cdr.getTag()});
                         var restSym = xp.car;
 
@@ -1167,17 +1167,17 @@ fn LambdaList(comptime E: type, comptime mkError: fn (*Eval, EvaluationError, *c
                             if (!restSym.isSymbol()) {
                                 if (restSym.castCons()) |rxp| {
                                     if (rxp.car.isExactSymbol("unquote")) {
-                                        const xp2 = rxp.cdr.castCons() orelse return eval.abort(EvaluationError.TypeError, xp.attr,
+                                        const xp2 = rxp.cdr.castCons() orelse return interpreter.abort(EvaluationError.TypeError, xp.attr,
                                             "invalid lambda list, malformed unquote in rest parameter, got {}", .{rxp.cdr.getTag()});
-                                        restSym = try eval.resolve(xp2.car);
+                                        restSym = try interpreter.eval(xp2.car);
 
                                         if (!xp2.cdr.isNil()) {
-                                            return eval.abort(EvaluationError.TypeError, xp.attr,
+                                            return interpreter.abort(EvaluationError.TypeError, xp.attr,
                                                 "invalid lambda list, expected only a value to follow `,` in rest parameter unquote, got {}", .{xp2.cdr.getTag()});
                                         }
 
                                         if (!restSym.isSymbol()) {
-                                            return eval.abort(EvaluationError.TypeError, xp.attr,
+                                            return interpreter.abort(EvaluationError.TypeError, xp.attr,
                                                 "invalid lambda list, expected unquote inside rest parameter to evaluate to a symbol, got {}", .{restSym.getTag()});
                                         }
 
@@ -1192,12 +1192,12 @@ fn LambdaList(comptime E: type, comptime mkError: fn (*Eval, EvaluationError, *c
                         };
 
                         if (invalid) {
-                            return eval.abort(EvaluationError.TypeError, xp.attr,
+                            return interpreter.abort(EvaluationError.TypeError, xp.attr,
                                 "invalid lambda list, expected a symbol to follow `...`, got {}", .{restSym.getTag()});
                         }
 
                         if (!xp.cdr.isNil()) {
-                            return eval.abort(EvaluationError.TypeError, xp.attr,
+                            return interpreter.abort(EvaluationError.TypeError, xp.attr,
                                 "invalid lambda list, expected only a symbol to follow `...`, got {}", .{xp.cdr.getTag()});
                         }
 
@@ -1211,12 +1211,12 @@ fn LambdaList(comptime E: type, comptime mkError: fn (*Eval, EvaluationError, *c
                     var currentExpected = expected;
                     while (!currentExpected.isNil()) {
                         const xpExpected = currentExpected.castCons() orelse { // MiscUtils pairs of the form `(a . a)`
-                            return bindersImpl(eval, at, currentExpected, out);
+                            return bindersImpl(interpreter, at, currentExpected, out);
                         };
 
                         const elemExpected = xpExpected.car;
 
-                        try bindersImpl(eval, at, elemExpected, out);
+                        try bindersImpl(interpreter, at, elemExpected, out);
 
                         currentExpected = xpExpected.cdr;
                     }
@@ -1227,20 +1227,20 @@ fn LambdaList(comptime E: type, comptime mkError: fn (*Eval, EvaluationError, *c
                 .ExternData,
                 .ExternFunction,
                 => {
-                    return eval.abort(EvaluationError.TypeError, at,
+                    return interpreter.abort(EvaluationError.TypeError, at,
                         "invalid lambda list element ({} is not supported)", .{expected.getTag()});
                 },
             }
         }
 
-        inline fn lambdaListAbort(eval: *Eval, err: EvaluationError, at: *const Source.Attr, comptime fmt: []const u8, args: anytype) Result!LLResult {
+        inline fn lambdaListAbort(interpreter: *Interpreter, err: EvaluationError, at: *const Source.Attr, comptime fmt: []const u8, args: anytype) Result!LLResult {
             return LLResult{
-                .Error = (try lambdaListError(eval, err, at, fmt, args)).?,
+                .Error = (try lambdaListError(interpreter, err, at, fmt, args)).?,
             };
         }
 
-        inline fn lambdaListError(eval: *Eval, err: EvaluationError, at: *const Source.Attr, comptime fmt: []const u8, args: anytype) Result!?E {
-            return try @call(.always_inline, mkError, .{ eval, err, at, fmt, args });
+        inline fn lambdaListError(interpreter: *Interpreter, err: EvaluationError, at: *const Source.Attr, comptime fmt: []const u8, args: anytype) Result!?E {
+            return try @call(.always_inline, mkError, .{ interpreter, err, at, fmt, args });
         }
     };
 }
@@ -1266,79 +1266,79 @@ pub fn envFromHashMap(at: *const Source.Attr, map: *const SExpr.HashMapOf(?SExpr
     return try SExpr.Cons(at, frame, try SExpr.Nil(at));
 }
 
-pub fn runFunction(eval: *Eval, at: *const Source.Attr, sfun: SExpr, args: SExpr) Result!SExpr {
-    Core.log.debug("call depth {}\n", .{eval.callDepth});
-    if (eval.callDepth > Config.MAX_COMPTIME_DEPTH) {
-        return eval.exit(Error.CallStackOverflow, at);
+pub fn runFunction(interpreter: *Interpreter, at: *const Source.Attr, sfun: SExpr, args: SExpr) Result!SExpr {
+    Core.log.debug("call depth {}\n", .{interpreter.callDepth});
+    if (interpreter.callDepth > Config.MAX_COMPTIME_DEPTH) {
+        return interpreter.exit(Error.CallStackOverflow, at);
     }
 
-    eval.callDepth += 1;
-    defer eval.callDepth -= 1;
+    interpreter.callDepth += 1;
+    defer interpreter.callDepth -= 1;
 
     const fun = sfun.forceFunction();
 
-    const eargs = switch (fun.kind) {
-        .Lambda => try eval.resolveListRecursive(args),
+    const eArgs = switch (fun.kind) {
+        .Lambda => try interpreter.evalListRecursive(args),
         .Macro => args,
     };
 
-    const frame = switch (try LambdaListRich.run(eval, at, fun.args, eargs)) {
+    const frame = switch (try LambdaListRich.run(interpreter, at, fun.args, eArgs)) {
         .Okay => |frame| frame,
-        .Error => |rich| return eval.abort(rich.err, rich.attr orelse at,
+        .Error => |rich| return interpreter.abort(rich.err, rich.attr orelse at,
             "{s}", .{rich.msg orelse "failed to bind lambda list"}),
     };
 
     const result = result: {
-        const callerEnv = eval.env;
-        eval.env = fun.env;
+        const callerEnv = interpreter.env;
+        interpreter.env = fun.env;
 
-        const oldCallerEnv = eval.callerEnv;
-        eval.callerEnv = callerEnv;
+        const oldCallerEnv = interpreter.callerEnv;
+        interpreter.callerEnv = callerEnv;
 
         defer {
-            eval.env = callerEnv;
-            eval.callerEnv = oldCallerEnv;
+            interpreter.env = callerEnv;
+            interpreter.callerEnv = oldCallerEnv;
         }
 
-        try pushFrame(frame, &eval.env);
+        try pushFrame(frame, &interpreter.env);
 
-        break :result try @call(.always_inline, runProgram, .{ eval, fun.body });
+        break :result try @call(.always_inline, runProgram, .{ interpreter, fun.body });
     };
 
     return switch (fun.kind) {
         .Lambda => result,
-        .Macro => try eval.resolve(result),
+        .Macro => try interpreter.eval(result),
     };
 }
 
-pub fn runBuiltin(eval: *Eval, at: *const Source.Attr, sbuiltin: SExpr, sargs: SExpr) Result!SExpr {
+pub fn runBuiltin(interpreter: *Interpreter, at: *const Source.Attr, sbuiltin: SExpr, sargs: SExpr) Result!SExpr {
     const builtin = sbuiltin.forceBuiltin();
-    return try builtin.getProc()(eval, at, sargs);
+    return try builtin.getProc()(interpreter, at, sargs);
 }
 
-pub fn runExternFunction(eval: *Eval, at: *const Source.Attr, sexternfunction: SExpr, sargs: SExpr) Result!SExpr {
-    const externfunction = sexternfunction.forceExternFunction();
+pub fn runExternFunction(interpreter: *Interpreter, at: *const Source.Attr, sexternFunction: SExpr, sargs: SExpr) Result!SExpr {
+    const externFunction = sexternFunction.forceExternFunction();
 
     var msg: ExternMessage = undefined;
     var out: SExpr = undefined;
 
-    if (externfunction.proc(eval, at, &msg, &out, sargs)) {
+    if (externFunction.proc(interpreter, at, &msg, &out, sargs)) {
         return out;
     } else {
         return resultFromExtern(msg);
     }
 }
 
-pub fn runProgram(eval: *Eval, program: SExpr) Result!SExpr {
+pub fn runProgram(interpreter: *Interpreter, program: SExpr) Result!SExpr {
     var tail = program;
-    var result = try SExpr.Nil(eval.context.attr);
+    var result = try SExpr.Nil(interpreter.context.attr);
 
     while (!tail.isNil()) {
         const list: *SExpr.Types.Cons = (tail.castCons() orelse {
-            return eval.abort(EvaluationError.TypeError, tail.getAttr(), "expected an expression list, got {}", .{tail.getTag()});
+            return interpreter.abort(EvaluationError.TypeError, tail.getAttr(), "expected an expression list, got {}", .{tail.getTag()});
         });
 
-        result = try eval.resolve(list.car);
+        result = try interpreter.eval(list.car);
 
         tail = list.cdr;
     }
@@ -1395,357 +1395,357 @@ pub fn externFromResult(res: Result) ExternMessage {
     }
 }
 
-pub fn validateNil(eval: *Eval, at: *const Source.Attr, sexpr: SExpr) Result!void {
+pub fn validateNil(interpreter: *Interpreter, at: *const Source.Attr, sexpr: SExpr) Result!void {
     if (!sexpr.isNil()) {
-        return eval.abort(Eval.Error.TypeError, at,
+        return interpreter.abort(Interpreter.Error.TypeError, at,
             "expected Nil, got {}: `{}`", .{ sexpr.getTag(), sexpr });
     }
 }
 
-pub fn validateInt(eval: *Eval, at: *const Source.Attr, sexpr: SExpr) Result!void {
+pub fn validateInt(interpreter: *Interpreter, at: *const Source.Attr, sexpr: SExpr) Result!void {
     if (!sexpr.isInt()) {
-        return eval.abort(Eval.Error.TypeError, at,
+        return interpreter.abort(Interpreter.Error.TypeError, at,
             "expected an Int, got {}: `{}`", .{ sexpr.getTag(), sexpr });
     }
 }
 
-pub fn validateBool(eval: *Eval, at: *const Source.Attr, sexpr: SExpr) Result!void {
+pub fn validateBool(interpreter: *Interpreter, at: *const Source.Attr, sexpr: SExpr) Result!void {
     if (!sexpr.isBool()) {
-        return eval.abort(Eval.Error.TypeError, at,
+        return interpreter.abort(Interpreter.Error.TypeError, at,
             "expected a Bool, got {}: `{}", .{ sexpr.getTag(), sexpr });
     }
 }
 
-pub fn validateChar(eval: *Eval, at: *const Source.Attr, sexpr: SExpr) Result!void {
+pub fn validateChar(interpreter: *Interpreter, at: *const Source.Attr, sexpr: SExpr) Result!void {
     if (!sexpr.isChar()) {
-        return eval.abort(Eval.Error.TypeError, at,
+        return interpreter.abort(Interpreter.Error.TypeError, at,
             "expected a Char, got {}: `{}`", .{ sexpr.getTag(), sexpr });
     }
 }
 
-pub fn validateFloat(eval: *Eval, at: *const Source.Attr, sexpr: SExpr) Result!void {
+pub fn validateFloat(interpreter: *Interpreter, at: *const Source.Attr, sexpr: SExpr) Result!void {
     if (!sexpr.isFloat()) {
-        return eval.abort(Eval.Error.TypeError, at,
+        return interpreter.abort(Interpreter.Error.TypeError, at,
             "expected a Float, got {}: `{}`", .{ sexpr.getTag(), sexpr });
     }
 }
 
-pub fn validateString(eval: *Eval, at: *const Source.Attr, sexpr: SExpr) Result!void {
+pub fn validateString(interpreter: *Interpreter, at: *const Source.Attr, sexpr: SExpr) Result!void {
     if (!sexpr.isString()) {
-        return eval.abort(Eval.Error.TypeError, at,
+        return interpreter.abort(Interpreter.Error.TypeError, at,
             "expected a String, got {}: `{}`", .{ sexpr.getTag(), sexpr });
     }
 }
 
-pub fn validateStringSlice(eval: *Eval, at: *const Source.Attr, sexpr: SExpr, slice: []const u8) Result!void {
+pub fn validateStringSlice(interpreter: *Interpreter, at: *const Source.Attr, sexpr: SExpr, slice: []const u8) Result!void {
     if (!sexpr.isExactString(slice)) {
-        return eval.abort(Eval.Error.TypeError, at,
+        return interpreter.abort(Interpreter.Error.TypeError, at,
             "expected a String `{}`, got {}: `{}`", .{ slice, sexpr.getTag(), sexpr });
     }
 }
 
-pub fn validateSymbol(eval: *Eval, at: *const Source.Attr, sexpr: SExpr) Result!void {
+pub fn validateSymbol(interpreter: *Interpreter, at: *const Source.Attr, sexpr: SExpr) Result!void {
     if (!sexpr.isSymbol()) {
-        return eval.abort(Eval.Error.TypeError, at,
+        return interpreter.abort(Interpreter.Error.TypeError, at,
             "expected a Symbol, got {}: `{}`", .{ sexpr.getTag(), sexpr });
     }
 }
 
-pub fn validateSymbolSlice(eval: *Eval, at: *const Source.Attr, sexpr: SExpr, slice: []const u8) Result!void {
+pub fn validateSymbolSlice(interpreter: *Interpreter, at: *const Source.Attr, sexpr: SExpr, slice: []const u8) Result!void {
     if (!sexpr.isExactSymbol(slice)) {
-        return eval.abort(Eval.Error.TypeError, at,
+        return interpreter.abort(Interpreter.Error.TypeError, at,
             "expected a Symbol `{s}`, got {}: `{}`", .{ slice, sexpr.getTag(), sexpr });
     }
 }
 
-pub fn validatePair(eval: *Eval, at: *const Source.Attr, sexpr: SExpr) Result!void {
+pub fn validatePair(interpreter: *Interpreter, at: *const Source.Attr, sexpr: SExpr) Result!void {
     if (!sexpr.isCons()) {
-        return eval.abort(Eval.Error.TypeError, at,
+        return interpreter.abort(Interpreter.Error.TypeError, at,
             "expected a pair, got {}: `{}`", .{ sexpr.getTag(), sexpr });
     }
 }
 
-pub fn validateList(eval: *Eval, at: *const Source.Attr, sexpr: SExpr) Result!void {
+pub fn validateList(interpreter: *Interpreter, at: *const Source.Attr, sexpr: SExpr) Result!void {
     if (!sexpr.isCons()) {
-        return eval.abort(Eval.Error.TypeError, at,
+        return interpreter.abort(Interpreter.Error.TypeError, at,
             "expected a list, got {}: `{}`", .{ sexpr.getTag(), sexpr });
     }
 }
-pub fn validateListOrNil(eval: *Eval, at: *const Source.Attr, sexpr: SExpr) Result!void {
+pub fn validateListOrNil(interpreter: *Interpreter, at: *const Source.Attr, sexpr: SExpr) Result!void {
     if (!sexpr.isCons() and !sexpr.isNil()) {
-        return eval.abort(Eval.Error.TypeError, at,
+        return interpreter.abort(Interpreter.Error.TypeError, at,
             "expected a list, got {}: `{}`", .{ sexpr.getTag(), sexpr });
     }
 }
 
-pub fn validateFunction(eval: *Eval, at: *const Source.Attr, sexpr: SExpr) Result!void {
+pub fn validateFunction(interpreter: *Interpreter, at: *const Source.Attr, sexpr: SExpr) Result!void {
     if (!sexpr.isFunction()) {
-        return eval.abort(Eval.Error.TypeError, at,
+        return interpreter.abort(Interpreter.Error.TypeError, at,
             "expected a function, got {}: `{}`", .{ sexpr.getTag(), sexpr });
     }
 }
 
-pub fn validateBuiltin(eval: *Eval, at: *const Source.Attr, sexpr: SExpr) Result!void {
+pub fn validateBuiltin(interpreter: *Interpreter, at: *const Source.Attr, sexpr: SExpr) Result!void {
     if (!sexpr.isBuiltin()) {
-        return eval.abort(Eval.Error.TypeError, at,
+        return interpreter.abort(Interpreter.Error.TypeError, at,
             "expected a Builtin, got {}: `{}`", .{ sexpr.getTag(), sexpr });
     }
 }
 
-pub fn validateExternData(eval: *Eval, at: *const Source.Attr, sexpr: SExpr) Result!void {
+pub fn validateExternData(interpreter: *Interpreter, at: *const Source.Attr, sexpr: SExpr) Result!void {
     if (!sexpr.isExternData()) {
-        return eval.abort(Eval.Error.TypeError, at,
+        return interpreter.abort(Interpreter.Error.TypeError, at,
             "expected an ExternData, got {}: `{}`", .{ sexpr.getTag(), sexpr });
     }
 }
 
-pub fn validateExternDataPtr(eval: *Eval, comptime T: type, at: *const Source.Attr, sexpr: SExpr) Result!void {
-    const externData = try eval.castExternData(at, sexpr);
+pub fn validateExternDataPtr(interpreter: *Interpreter, comptime T: type, at: *const Source.Attr, sexpr: SExpr) Result!void {
+    const externData = try interpreter.castExternData(at, sexpr);
 
     if (externData.castPtr(T) == null) {
-        return eval.abort(Eval.Error.TypeError, at,
+        return interpreter.abort(Interpreter.Error.TypeError, at,
             "expected an ExternData of type {s}, got {s}", .{ @typeName(T), externData.typeNameSlice() });
     }
 }
 
-pub fn validateExternFunction(eval: *Eval, at: *const Source.Attr, sexpr: SExpr) Result!void {
+pub fn validateExternFunction(interpreter: *Interpreter, at: *const Source.Attr, sexpr: SExpr) Result!void {
     if (!sexpr.isExternFunction()) {
-        return eval.abort(Eval.Error.TypeError, at,
+        return interpreter.abort(Interpreter.Error.TypeError, at,
             "expected an ExternFunction, got {}: `{}`", .{ sexpr.getTag(), sexpr });
     }
 }
 
-pub fn validateCallable(eval: *Eval, at: *const Source.Attr, sexpr: SExpr) Result!void {
+pub fn validateCallable(interpreter: *Interpreter, at: *const Source.Attr, sexpr: SExpr) Result!void {
     if (!sexpr.isCallable()) {
-        return eval.abort(Eval.Error.TypeError, at,
+        return interpreter.abort(Interpreter.Error.TypeError, at,
             "expected a callable, got {}: `{}`", .{ sexpr.getTag(), sexpr });
     }
 }
 
-pub fn castNil(eval: *Eval, at: *const Source.Attr, sexpr: SExpr) Result!MiscUtils.Unit {
+pub fn castNil(interpreter: *Interpreter, at: *const Source.Attr, sexpr: SExpr) Result!MiscUtils.Unit {
     if (sexpr.castNil()) |x| {
         return x;
     } else {
-        return eval.abort(Eval.Error.TypeError, at,
+        return interpreter.abort(Interpreter.Error.TypeError, at,
             "expected Nil, got {}: `{}`", .{ sexpr.getTag(), sexpr });
     }
 }
 
-pub fn castInt(eval: *Eval, at: *const Source.Attr, sexpr: SExpr) Result!i64 {
+pub fn castInt(interpreter: *Interpreter, at: *const Source.Attr, sexpr: SExpr) Result!i64 {
     if (sexpr.castInt()) |x| {
         return x;
     } else {
-        return eval.abort(Eval.Error.TypeError, at,
+        return interpreter.abort(Interpreter.Error.TypeError, at,
             "expected an Int, got {}: `{}`", .{ sexpr.getTag(), sexpr });
     }
 }
 
-pub fn castBool(eval: *Eval, at: *const Source.Attr, sexpr: SExpr) Result!bool {
+pub fn castBool(interpreter: *Interpreter, at: *const Source.Attr, sexpr: SExpr) Result!bool {
     if (sexpr.castBool()) |x| {
         return x;
     } else {
-        return eval.abort(Eval.Error.TypeError, at,
+        return interpreter.abort(Interpreter.Error.TypeError, at,
             "expected a Bool, got {}: `{}", .{ sexpr.getTag(), sexpr });
     }
 }
 
-pub fn castChar(eval: *Eval, at: *const Source.Attr, sexpr: SExpr) Result!TextUtils.Char {
+pub fn castChar(interpreter: *Interpreter, at: *const Source.Attr, sexpr: SExpr) Result!TextUtils.Char {
     if (sexpr.castChar()) |x| {
         return x;
     } else {
-        return eval.abort(Eval.Error.TypeError, at,
+        return interpreter.abort(Interpreter.Error.TypeError, at,
             "expected a Char, got {}: `{}`", .{ sexpr.getTag(), sexpr });
     }
 }
 
-pub fn castFloat(eval: *Eval, at: *const Source.Attr, sexpr: SExpr) Result!f64 {
+pub fn castFloat(interpreter: *Interpreter, at: *const Source.Attr, sexpr: SExpr) Result!f64 {
     if (sexpr.castFloat()) |x| {
         return x;
     } else {
-        return eval.abort(Eval.Error.TypeError, at,
+        return interpreter.abort(Interpreter.Error.TypeError, at,
             "expected a Float, got {}: `{}`", .{ sexpr.getTag(), sexpr });
     }
 }
 
-pub fn castString(eval: *Eval, at: *const Source.Attr, sexpr: SExpr) Result!*SExpr.Types.String {
+pub fn castString(interpreter: *Interpreter, at: *const Source.Attr, sexpr: SExpr) Result!*SExpr.Types.String {
     if (sexpr.castString()) |x| {
         return x;
     } else {
-        return eval.abort(Eval.Error.TypeError, at,
+        return interpreter.abort(Interpreter.Error.TypeError, at,
             "expected a String, got {}: `{}`", .{ sexpr.getTag(), sexpr });
     }
 }
 
-pub fn castStringSlice(eval: *Eval, at: *const Source.Attr, sexpr: SExpr) Result![]const u8 {
-    const str = try eval.castString(at, sexpr);
+pub fn castStringSlice(interpreter: *Interpreter, at: *const Source.Attr, sexpr: SExpr) Result![]const u8 {
+    const str = try interpreter.castString(at, sexpr);
 
     return str.toSlice();
 }
 
-pub fn castSymbol(eval: *Eval, at: *const Source.Attr, sexpr: SExpr) Result!*SExpr.Types.Symbol {
+pub fn castSymbol(interpreter: *Interpreter, at: *const Source.Attr, sexpr: SExpr) Result!*SExpr.Types.Symbol {
     if (sexpr.castSymbol()) |x| {
         return x;
     } else {
-        return eval.abort(Eval.Error.TypeError, at,
+        return interpreter.abort(Interpreter.Error.TypeError, at,
             "expected a Symbol, got {}: `{}`", .{ sexpr.getTag(), sexpr });
     }
 }
 
-pub fn castSymbolSlice(eval: *Eval, at: *const Source.Attr, sexpr: SExpr) Result![]const u8 {
-    const sym = try eval.castSymbol(at, sexpr);
+pub fn castSymbolSlice(interpreter: *Interpreter, at: *const Source.Attr, sexpr: SExpr) Result![]const u8 {
+    const sym = try interpreter.castSymbol(at, sexpr);
 
     return sym.toSlice();
 }
 
-pub fn castPair(eval: *Eval, at: *const Source.Attr, sexpr: SExpr) Result!*SExpr.Types.Cons {
+pub fn castPair(interpreter: *Interpreter, at: *const Source.Attr, sexpr: SExpr) Result!*SExpr.Types.Cons {
     if (sexpr.castCons()) |x| {
         return x;
     } else {
-        return eval.abort(Eval.Error.TypeError, at,
+        return interpreter.abort(Interpreter.Error.TypeError, at,
             "expected a pair, got {}: `{}`", .{ sexpr.getTag(), sexpr });
     }
 }
 
-pub fn castPairTuple(eval: *Eval, at: *const Source.Attr, sexpr: SExpr) Result!struct { SExpr, SExpr } {
-    const pair = try eval.castPair(at, sexpr);
+pub fn castPairTuple(interpreter: *Interpreter, at: *const Source.Attr, sexpr: SExpr) Result!struct { SExpr, SExpr } {
+    const pair = try interpreter.castPair(at, sexpr);
 
     return .{ pair.car, pair.cdr };
 }
 
-pub fn castList(eval: *Eval, at: *const Source.Attr, sexpr: SExpr) Result!*SExpr.Types.Cons {
+pub fn castList(interpreter: *Interpreter, at: *const Source.Attr, sexpr: SExpr) Result!*SExpr.Types.Cons {
     if (sexpr.castCons()) |x| {
         return x;
     } else {
-        return eval.abort(Eval.Error.TypeError, at,
+        return interpreter.abort(Interpreter.Error.TypeError, at,
             "expected a list, got {}: `{}`", .{ sexpr.getTag(), sexpr });
     }
 }
 
-pub fn castFunction(eval: *Eval, at: *const Source.Attr, sexpr: SExpr) Result!*SExpr.Types.Function {
+pub fn castFunction(interpreter: *Interpreter, at: *const Source.Attr, sexpr: SExpr) Result!*SExpr.Types.Function {
     if (sexpr.castFunction()) |x| {
         return x;
     } else {
-        return eval.abort(Eval.Error.TypeError, at,
+        return interpreter.abort(Interpreter.Error.TypeError, at,
             "expected a function, got {}: `{}`", .{ sexpr.getTag(), sexpr });
     }
 }
 
-pub fn castBuiltin(eval: *Eval, at: *const Source.Attr, sexpr: SExpr) Result!*SExpr.Types.Builtin {
+pub fn castBuiltin(interpreter: *Interpreter, at: *const Source.Attr, sexpr: SExpr) Result!*SExpr.Types.Builtin {
     if (sexpr.castBuiltin()) |x| {
         return x;
     } else {
-        return eval.abort(Eval.Error.TypeError, at,
+        return interpreter.abort(Interpreter.Error.TypeError, at,
             "expected a Builtin, got {}: `{}`", .{ sexpr.getTag(), sexpr });
     }
 }
 
-pub fn castExternData(eval: *Eval, at: *const Source.Attr, sexpr: SExpr) Result!*SExpr.Types.ExternData {
+pub fn castExternData(interpreter: *Interpreter, at: *const Source.Attr, sexpr: SExpr) Result!*SExpr.Types.ExternData {
     if (sexpr.castExternData()) |x| {
         return x;
     } else {
-        return eval.abort(Eval.Error.TypeError, at,
+        return interpreter.abort(Interpreter.Error.TypeError, at,
             "expected an ExternData, got {}: `{}`", .{ sexpr.getTag(), sexpr });
     }
 }
 
-pub fn castExternDataPtr(eval: *Eval, comptime T: type, at: *const Source.Attr, sexpr: SExpr) Result!*T {
-    const externData = try eval.castExternData(at, sexpr);
+pub fn castExternDataPtr(interpreter: *Interpreter, comptime T: type, at: *const Source.Attr, sexpr: SExpr) Result!*T {
+    const externData = try interpreter.castExternData(at, sexpr);
 
     return externData.castPtr(T) orelse {
-        return eval.abort(Eval.Error.TypeError, at,
+        return interpreter.abort(Interpreter.Error.TypeError, at,
             "expected an ExternData of type {s}, got {s}", .{ @typeName(T), externData.typeNameSlice() });
     };
 }
 
-pub fn castExternFunction(eval: *Eval, at: *const Source.Attr, sexpr: SExpr) Result!*SExpr.Types.ExternFunction {
+pub fn castExternFunction(interpreter: *Interpreter, at: *const Source.Attr, sexpr: SExpr) Result!*SExpr.Types.ExternFunction {
     if (sexpr.castExternFunction()) |x| {
         return x;
     } else {
-        return eval.abort(Eval.Error.TypeError, at,
+        return interpreter.abort(Interpreter.Error.TypeError, at,
             "expected an ExternFunction, got {}: `{}`", .{ sexpr.getTag(), sexpr });
     }
 }
 
-pub fn coerceNativeInt(eval: *Eval, at: *const Source.Attr, sexpr: SExpr) Result!i64 {
+pub fn coerceNativeInt(interpreter: *Interpreter, at: *const Source.Attr, sexpr: SExpr) Result!i64 {
     if (sexpr.coerceNativeInt()) |x| {
         return x;
     } else {
-        return eval.abort(Eval.Error.TypeError, at,
+        return interpreter.abort(Interpreter.Error.TypeError, at,
             "expected a number, got {}: `{}`", .{ sexpr.getTag(), sexpr });
     }
 }
 
-pub fn coerceNativeFloat(eval: *Eval, at: *const Source.Attr, sexpr: SExpr) Result!f64 {
+pub fn coerceNativeFloat(interpreter: *Interpreter, at: *const Source.Attr, sexpr: SExpr) Result!f64 {
     if (sexpr.coerceNativeFloat()) |x| {
         return x;
     } else {
-        return eval.abort(Eval.Error.TypeError, at,
+        return interpreter.abort(Interpreter.Error.TypeError, at,
             "expected a number, got {}: `{}", .{ sexpr.getTag(), sexpr });
     }
 }
 
-pub fn coerceNativeChar(eval: *Eval, at: *const Source.Attr, sexpr: SExpr) Result!TextUtils.Char {
+pub fn coerceNativeChar(interpreter: *Interpreter, at: *const Source.Attr, sexpr: SExpr) Result!TextUtils.Char {
     if (sexpr.coerceNativeChar()) |x| {
         return x;
     } else {
-        return eval.abort(Eval.Error.TypeError, at,
+        return interpreter.abort(Interpreter.Error.TypeError, at,
             "expected a Char, got {}: `{}`", .{ sexpr.getTag(), sexpr });
     }
 }
 
-pub fn errorToException(eval: *Eval, at: *const Source.Attr, err: anyerror) Result!SExpr {
-    return eval.nativePrompt(at,
+pub fn errorToException(interpreter: *Interpreter, at: *const Source.Attr, err: anyerror) Result!SExpr {
+    return interpreter.nativePrompt(at,
         "exception", &[_]SExpr{try SExpr.Symbol(at, @errorName(err))});
 }
 
-pub inline fn argIterator(eval: *Eval, shouldResolve: bool, args: SExpr) Result!ArgIterator {
-    return ArgIterator.init(eval, shouldResolve, args);
+pub inline fn argIterator(interpreter: *Interpreter, shouldInterpreter: bool, args: SExpr) Result!ArgIterator {
+    return ArgIterator.init(interpreter, shouldInterpreter, args);
 }
 
 pub const ArgIterator = struct {
-    eval: *Eval,
+    interpreter: *Interpreter,
     at: *const Source.Attr,
-    shouldResolve: bool,
+    shouldInterpreter: bool,
     tail: SExpr,
     index: usize,
 
-    pub fn init(eval: *Eval, shouldResolve: bool, args: SExpr) Eval.Result!ArgIterator {
+    pub fn init(interpreter: *Interpreter, shouldInterpreter: bool, args: SExpr) Interpreter.Result!ArgIterator {
         const at = args.getAttr();
         if (args.isNil() or args.isCons()) {
             return .{
-                .eval = eval,
+                .interpreter = interpreter,
                 .at = at,
-                .shouldResolve = shouldResolve,
+                .shouldInterpreter = shouldInterpreter,
                 .tail = args,
                 .index = 0,
             };
         } else {
-            return eval.abort(Eval.Error.TypeError, at,
+            return interpreter.abort(Interpreter.Error.TypeError, at,
                 "expected an argument list, got {}: `{}`", .{ args.getTag(), args });
         }
     }
 
-    pub fn next(self: *ArgIterator) Eval.Result!?SExpr {
+    pub fn next(self: *ArgIterator) Interpreter.Result!?SExpr {
         if (self.tail.isNil()) {
             return null;
         }
 
-        const xp = try self.eval.castList(self.at, self.tail);
+        const xp = try self.interpreter.castList(self.at, self.tail);
 
         self.index += 1;
 
         self.tail = xp.cdr;
 
-        return if (self.shouldResolve) try self.eval.resolve(xp.car) else xp.car;
+        return if (self.shouldInterpreter) try self.interpreter.eval(xp.car) else xp.car;
     }
 
-    pub fn atLeast(self: *ArgIterator) Eval.Result!SExpr {
+    pub fn atLeast(self: *ArgIterator) Interpreter.Result!SExpr {
         const arg = try self.next();
 
         if (arg) |a| {
             return a;
         } else {
-            return self.eval.abort(Eval.Error.NotEnoughArguments, self.at,
+            return self.interpreter.abort(Interpreter.Error.NotEnoughArguments, self.at,
                 "expected at least {} argument(s)", .{self.index + 1});
         }
     }
@@ -1757,146 +1757,146 @@ pub const ArgIterator = struct {
     pub fn assertDone(self: *ArgIterator) Result!void {
         if (!self.tail.isNil()) {
             if (self.tail.isCons()) {
-                return self.eval.abort(Eval.Error.TooManyArguments, self.at,
+                return self.interpreter.abort(Interpreter.Error.TooManyArguments, self.at,
                     "expected at most {} arguments, got {}", .{ self.index, self.index + 1 });
             } else {
-                return self.eval.abort(Eval.Error.TypeError, self.at,
+                return self.interpreter.abort(Interpreter.Error.TypeError, self.at,
                     "expected an argument list, got {}: `{}`", .{ self.tail.getTag(), self.tail });
             }
         }
     }
 
-    pub fn nextWithIndex(self: *ArgIterator) Eval.Result!?struct { SExpr, usize } {
+    pub fn nextWithIndex(self: *ArgIterator) Interpreter.Result!?struct { SExpr, usize } {
         const i = self.index;
         return .{ try self.next() orelse return null, i };
     }
 };
 
-pub fn expect0(eval: *Eval, args: SExpr) Result!void {
+pub fn expect0(interpreter: *Interpreter, args: SExpr) Result!void {
     if (!args.isNil()) {
         if (args.isCons()) {
-            return eval.abort(Eval.Error.TooManyArguments, args.getAttr(), "expected no arguments, got: `{}`", .{args});
+            return interpreter.abort(Interpreter.Error.TooManyArguments, args.getAttr(), "expected no arguments, got: `{}`", .{args});
         } else {
-            return eval.abort(Eval.Error.TypeError, args.getAttr(), "expected an empty argument list, got {}: `{}`", .{ args.getTag(), args });
+            return interpreter.abort(Interpreter.Error.TypeError, args.getAttr(), "expected an empty argument list, got {}: `{}`", .{ args.getTag(), args });
         }
     }
 }
 
-pub fn expect1(eval: *Eval, args: SExpr) Result!SExpr {
-    var eargs = [1]SExpr{undefined};
-    _ = try eval.expectSmallList(args, 1, &eargs);
-    return eargs[0];
+pub fn expect1(interpreter: *Interpreter, args: SExpr) Result!SExpr {
+    var eArgs = [1]SExpr{undefined};
+    _ = try interpreter.expectSmallList(args, 1, &eArgs);
+    return eArgs[0];
 }
 
-pub fn expect2(eval: *Eval, args: SExpr) Result![2]SExpr {
-    var eargs = [2]SExpr{ undefined, undefined };
-    _ = try eval.expectSmallList(args, 2, &eargs);
-    return eargs;
+pub fn expect2(interpreter: *Interpreter, args: SExpr) Result![2]SExpr {
+    var eArgs = [2]SExpr{ undefined, undefined };
+    _ = try interpreter.expectSmallList(args, 2, &eArgs);
+    return eArgs;
 }
 
-pub fn expect3(eval: *Eval, args: SExpr) Result![3]SExpr {
-    var eargs = [3]SExpr{ undefined, undefined, undefined };
-    _ = try eval.expectSmallList(args, 3, &eargs);
-    return eargs;
+pub fn expect3(interpreter: *Interpreter, args: SExpr) Result![3]SExpr {
+    var eArgs = [3]SExpr{ undefined, undefined, undefined };
+    _ = try interpreter.expectSmallList(args, 3, &eArgs);
+    return eArgs;
 }
 
-pub fn expect4(eval: *Eval, args: SExpr) Result![4]SExpr {
-    var eargs = [4]SExpr{ undefined, undefined, undefined, undefined };
-    _ = try eval.expectSmallList(args, 4, &eargs);
-    return eargs;
+pub fn expect4(interpreter: *Interpreter, args: SExpr) Result![4]SExpr {
+    var eArgs = [4]SExpr{ undefined, undefined, undefined, undefined };
+    _ = try interpreter.expectSmallList(args, 4, &eArgs);
+    return eArgs;
 }
 
-pub fn expectAtLeast1(eval: *Eval, args: SExpr) Result!struct { head: SExpr, tail: SExpr } {
-    var eargs = [1]SExpr{undefined};
-    const tail = try eval.expectSmallListAtLeast(args, &eargs);
-    return .{ .head = eargs[0], .tail = tail };
+pub fn expectAtLeast1(interpreter: *Interpreter, args: SExpr) Result!struct { head: SExpr, tail: SExpr } {
+    var eArgs = [1]SExpr{undefined};
+    const tail = try interpreter.expectSmallListAtLeast(args, &eArgs);
+    return .{ .head = eArgs[0], .tail = tail };
 }
 
-pub fn expectAtLeast2(eval: *Eval, args: SExpr) Result!struct { head: [2]SExpr, tail: SExpr } {
-    var eargs = [2]SExpr{ undefined, undefined };
-    const tail = try eval.expectSmallListAtLeast(args, &eargs);
-    return .{ .head = eargs, .tail = tail };
+pub fn expectAtLeast2(interpreter: *Interpreter, args: SExpr) Result!struct { head: [2]SExpr, tail: SExpr } {
+    var eArgs = [2]SExpr{ undefined, undefined };
+    const tail = try interpreter.expectSmallListAtLeast(args, &eArgs);
+    return .{ .head = eArgs, .tail = tail };
 }
 
-pub fn expectAtLeast3(eval: *Eval, args: SExpr) Result!struct { head: [3]SExpr, tail: SExpr } {
-    var eargs = [3]SExpr{ undefined, undefined, undefined };
-    const tail = try eval.expectSmallListAtLeast(args, &eargs);
-    return .{ .head = eargs, .tail = tail };
+pub fn expectAtLeast3(interpreter: *Interpreter, args: SExpr) Result!struct { head: [3]SExpr, tail: SExpr } {
+    var eArgs = [3]SExpr{ undefined, undefined, undefined };
+    const tail = try interpreter.expectSmallListAtLeast(args, &eArgs);
+    return .{ .head = eArgs, .tail = tail };
 }
 
-pub fn expectAtLeast4(eval: *Eval, args: SExpr) Result!struct { head: [4]SExpr, tail: SExpr } {
-    var eargs = [4]SExpr{ undefined, undefined, undefined, undefined };
-    const tail = try eval.expectSmallListAtLeast(args, &eargs);
-    return .{ .head = eargs, .tail = tail };
+pub fn expectAtLeast4(interpreter: *Interpreter, args: SExpr) Result!struct { head: [4]SExpr, tail: SExpr } {
+    var eArgs = [4]SExpr{ undefined, undefined, undefined, undefined };
+    const tail = try interpreter.expectSmallListAtLeast(args, &eArgs);
+    return .{ .head = eArgs, .tail = tail };
 }
 
-pub fn expectMaybe1(eval: *Eval, args: SExpr) Result!?SExpr {
-    var eargs = [1]SExpr{undefined};
-    const len = try eval.expectSmallList(args, 0, &eargs);
-    return if (len == 1) return eargs[0] else null;
+pub fn expectMaybe1(interpreter: *Interpreter, args: SExpr) Result!?SExpr {
+    var eArgs = [1]SExpr{undefined};
+    const len = try interpreter.expectSmallList(args, 0, &eArgs);
+    return if (len == 1) return eArgs[0] else null;
 }
 
-pub fn resolve1(eval: *Eval, args: SExpr) Result!SExpr {
-    var eargs = [1]SExpr{undefined};
-    _ = try eval.resolveSmallList(args, 1, &eargs);
-    return eargs[0];
+pub fn eval1(interpreter: *Interpreter, args: SExpr) Result!SExpr {
+    var eArgs = [1]SExpr{undefined};
+    _ = try interpreter.evalSmallList(args, 1, &eArgs);
+    return eArgs[0];
 }
 
-pub fn resolve2(eval: *Eval, args: SExpr) Result![2]SExpr {
-    var eargs = [2]SExpr{ undefined, undefined };
-    _ = try eval.resolveSmallList(args, 2, &eargs);
-    return eargs;
+pub fn eval2(interpreter: *Interpreter, args: SExpr) Result![2]SExpr {
+    var eArgs = [2]SExpr{ undefined, undefined };
+    _ = try interpreter.evalSmallList(args, 2, &eArgs);
+    return eArgs;
 }
 
-pub fn resolve3(eval: *Eval, args: SExpr) Result![3]SExpr {
-    var eargs = [3]SExpr{ undefined, undefined, undefined };
-    _ = try eval.resolveSmallList(args, 3, &eargs);
-    return eargs;
+pub fn eval3(interpreter: *Interpreter, args: SExpr) Result![3]SExpr {
+    var eArgs = [3]SExpr{ undefined, undefined, undefined };
+    _ = try interpreter.evalSmallList(args, 3, &eArgs);
+    return eArgs;
 }
 
-pub fn resolve4(eval: *Eval, args: SExpr) Result![4]SExpr {
-    var eargs = [4]SExpr{ undefined, undefined, undefined, undefined };
-    _ = try eval.resolveSmallList(args, 4, &eargs);
-    return eargs;
+pub fn eval4(interpreter: *Interpreter, args: SExpr) Result![4]SExpr {
+    var eArgs = [4]SExpr{ undefined, undefined, undefined, undefined };
+    _ = try interpreter.evalSmallList(args, 4, &eArgs);
+    return eArgs;
 }
 
-pub fn resolveMaybe1(eval: *Eval, args: SExpr) Result!?SExpr {
-    var eargs = [1]SExpr{undefined};
-    const len = try eval.expectSmallList(args, 0, &eargs);
-    return if (len == 1) return try eval.resolve(eargs[0]) else null;
+pub fn evalMaybe1(interpreter: *Interpreter, args: SExpr) Result!?SExpr {
+    var eArgs = [1]SExpr{undefined};
+    const len = try interpreter.expectSmallList(args, 0, &eArgs);
+    return if (len == 1) return try interpreter.eval(eArgs[0]) else null;
 }
 
-pub fn resolveAtLeast1(eval: *Eval, args: SExpr) Result!struct { head: SExpr, tail: SExpr } {
-    var eargs = [1]SExpr{undefined};
-    const tail = try eval.resolveSmallListAtLeast(args, &eargs);
-    return .{ .head = eargs[0], .tail = tail };
+pub fn evalAtLeast1(interpreter: *Interpreter, args: SExpr) Result!struct { head: SExpr, tail: SExpr } {
+    var eArgs = [1]SExpr{undefined};
+    const tail = try interpreter.evalSmallListAtLeast(args, &eArgs);
+    return .{ .head = eArgs[0], .tail = tail };
 }
 
-pub fn resolveAtLeast2(eval: *Eval, args: SExpr) Result!struct { head: [2]SExpr, tail: SExpr } {
-    var eargs = [2]SExpr{ undefined, undefined };
-    const tail = try eval.resolveSmallListAtLeast(args, &eargs);
-    return .{ .head = eargs, .tail = tail };
+pub fn evalAtLeast2(interpreter: *Interpreter, args: SExpr) Result!struct { head: [2]SExpr, tail: SExpr } {
+    var eArgs = [2]SExpr{ undefined, undefined };
+    const tail = try interpreter.evalSmallListAtLeast(args, &eArgs);
+    return .{ .head = eArgs, .tail = tail };
 }
 
-pub fn resolveAtLeast3(eval: *Eval, args: SExpr) Result!struct { head: [3]SExpr, tail: SExpr } {
-    var eargs = [3]SExpr{ undefined, undefined, undefined };
-    const tail = try eval.resolveSmallListAtLeast(args, &eargs);
-    return .{ .head = eargs, .tail = tail };
+pub fn evalAtLeast3(interpreter: *Interpreter, args: SExpr) Result!struct { head: [3]SExpr, tail: SExpr } {
+    var eArgs = [3]SExpr{ undefined, undefined, undefined };
+    const tail = try interpreter.evalSmallListAtLeast(args, &eArgs);
+    return .{ .head = eArgs, .tail = tail };
 }
 
-pub fn resolveAtLeast4(eval: *Eval, args: SExpr) Result!struct { head: [4]SExpr, tail: SExpr } {
-    var eargs = [4]SExpr{ undefined, undefined, undefined, undefined };
-    const tail = try eval.resolveSmallListAtLeast(args, &eargs);
-    return .{ .head = eargs, .tail = tail };
+pub fn evalAtLeast4(interpreter: *Interpreter, args: SExpr) Result!struct { head: [4]SExpr, tail: SExpr } {
+    var eArgs = [4]SExpr{ undefined, undefined, undefined, undefined };
+    const tail = try interpreter.evalSmallListAtLeast(args, &eArgs);
+    return .{ .head = eArgs, .tail = tail };
 }
 
-pub fn expectSmallListOf(eval: *Eval, sexpr: SExpr, minLength: usize, buf: []SExpr, comptime expected: []const u8, comptime predicate: fn (SExpr) bool) Result!usize {
+pub fn expectSmallListOf(interpreter: *Interpreter, sexpr: SExpr, minLength: usize, buf: []SExpr, comptime expected: []const u8, comptime predicate: fn (SExpr) bool) Result!usize {
     var tail = sexpr;
     var i: usize = 0;
 
     while (!tail.isNil()) {
         const cons = (tail.castCons() orelse {
-            return eval.abort(Error.TypeError, tail.getAttr(), "expected a list, got {}", .{tail.getTag()});
+            return interpreter.abort(Error.TypeError, tail.getAttr(), "expected a list, got {}", .{tail.getTag()});
         });
 
         tail = cons.cdr;
@@ -1904,7 +1904,7 @@ pub fn expectSmallListOf(eval: *Eval, sexpr: SExpr, minLength: usize, buf: []SEx
         const elem = cons.car;
 
         if (!@call(.always_inline, predicate, .{elem})) {
-            return eval.abort(Error.TypeError, tail.getAttr(), "expected {s}, got {}", .{ expected, elem.getTag() });
+            return interpreter.abort(Error.TypeError, tail.getAttr(), "expected {s}, got {}", .{ expected, elem.getTag() });
         }
 
         if (i < buf.len) {
@@ -1916,28 +1916,28 @@ pub fn expectSmallListOf(eval: *Eval, sexpr: SExpr, minLength: usize, buf: []SEx
 
     if (minLength == 0 and i == 0) {
         if (!tail.isNil()) {
-            return eval.abort(Error.TypeError, tail.getAttr(), "expected a list, got {}", .{tail.getTag()});
+            return interpreter.abort(Error.TypeError, tail.getAttr(), "expected a list, got {}", .{tail.getTag()});
         }
     }
 
     if (i > buf.len) {
-        return eval.abort(Error.TooManyArguments, sexpr.getAttr(), "expected at most {} arguments, got {}", .{ buf.len, i });
+        return interpreter.abort(Error.TooManyArguments, sexpr.getAttr(), "expected at most {} arguments, got {}", .{ buf.len, i });
     }
 
     if (i < minLength) {
-        return eval.abort(Error.NotEnoughArguments, sexpr.getAttr(), "expected at least {} arguments, got {}", .{ minLength, i });
+        return interpreter.abort(Error.NotEnoughArguments, sexpr.getAttr(), "expected at least {} arguments, got {}", .{ minLength, i });
     }
 
     return i;
 }
 
-pub fn expectSmallListOfAtLeast(eval: *Eval, sexpr: SExpr, buf: []SExpr, comptime expected: []const u8, comptime predicate: fn (SExpr) bool) Result!SExpr {
+pub fn expectSmallListOfAtLeast(interpreter: *Interpreter, sexpr: SExpr, buf: []SExpr, comptime expected: []const u8, comptime predicate: fn (SExpr) bool) Result!SExpr {
     var tail = sexpr;
     var i: usize = 0;
 
     while (!tail.isNil() and i < buf.len) {
         const cons = (tail.castCons() orelse {
-            return eval.abort(Error.TypeError, tail.getAttr(), "expected a list, got {}", .{tail.getTag()});
+            return interpreter.abort(Error.TypeError, tail.getAttr(), "expected a list, got {}", .{tail.getTag()});
         });
 
         tail = cons.cdr;
@@ -1945,7 +1945,7 @@ pub fn expectSmallListOfAtLeast(eval: *Eval, sexpr: SExpr, buf: []SExpr, comptim
         const elem = cons.car;
 
         if (!@call(.always_inline, predicate, .{elem})) {
-            return eval.abort(Error.TypeError, elem.getAttr(), "expected {s}, got {}", .{ expected, elem.getTag() });
+            return interpreter.abort(Error.TypeError, elem.getAttr(), "expected {s}, got {}", .{ expected, elem.getTag() });
         }
 
         buf[i] = elem;
@@ -1953,31 +1953,31 @@ pub fn expectSmallListOfAtLeast(eval: *Eval, sexpr: SExpr, buf: []SExpr, comptim
     }
 
     if (i < buf.len) {
-        return eval.abort(Error.NotEnoughArguments, sexpr.getAttr(), "expected at least {} arguments, got {}", .{ buf.len, i });
+        return interpreter.abort(Error.NotEnoughArguments, sexpr.getAttr(), "expected at least {} arguments, got {}", .{ buf.len, i });
     }
 
     return tail;
 }
 
-pub fn resolveSmallListAtLeast(eval: *Eval, sexpr: SExpr, buf: []SExpr) Result!SExpr {
-    const tail = try eval.expectSmallListAtLeast(sexpr, buf);
+pub fn evalSmallListAtLeast(interpreter: *Interpreter, sexpr: SExpr, buf: []SExpr) Result!SExpr {
+    const tail = try interpreter.expectSmallListAtLeast(sexpr, buf);
     for (0..buf.len) |i| {
-        buf[i] = try eval.resolve(buf[i]);
+        buf[i] = try interpreter.eval(buf[i]);
     }
     return tail;
 }
 
-pub fn expectSmallListAtLeast(eval: *Eval, sexpr: SExpr, buf: []SExpr) Result!SExpr {
-    return expectSmallListOfAtLeast(eval, sexpr, buf, "", passAll);
+pub fn expectSmallListAtLeast(interpreter: *Interpreter, sexpr: SExpr, buf: []SExpr) Result!SExpr {
+    return expectSmallListOfAtLeast(interpreter, sexpr, buf, "", passAll);
 }
 
-pub fn expectLongListOfAtLeast(eval: *Eval, sexpr: SExpr, minLength: usize, comptime expected: []const u8, comptime predicate: fn (SExpr) bool) Result!SExpr {
+pub fn expectLongListOfAtLeast(interpreter: *Interpreter, sexpr: SExpr, minLength: usize, comptime expected: []const u8, comptime predicate: fn (SExpr) bool) Result!SExpr {
     var tail = sexpr;
     var i: usize = 0;
 
     while (!tail.isNil() and i < minLength) {
         const cons = (tail.castCons() orelse {
-            return eval.abort(Error.TypeError, tail.getAttr(), "expected a list, got {}", .{tail.getTag()});
+            return interpreter.abort(Error.TypeError, tail.getAttr(), "expected a list, got {}", .{tail.getTag()});
         });
 
         tail = cons.cdr;
@@ -1985,30 +1985,30 @@ pub fn expectLongListOfAtLeast(eval: *Eval, sexpr: SExpr, minLength: usize, comp
         const elem = cons.car;
 
         if (!@call(.always_inline, predicate, .{elem})) {
-            return eval.abort(Error.TypeError, elem.getAttr(), "expected {s}, got {}", .{ expected, elem.getTag() });
+            return interpreter.abort(Error.TypeError, elem.getAttr(), "expected {s}, got {}", .{ expected, elem.getTag() });
         }
 
         i += 1;
     }
 
     if (i < minLength) {
-        return eval.abort(Error.NotEnoughArguments, sexpr.getAttr(), "expected at least {} arguments, got {}", .{ minLength, i });
+        return interpreter.abort(Error.NotEnoughArguments, sexpr.getAttr(), "expected at least {} arguments, got {}", .{ minLength, i });
     }
 
     return tail;
 }
 
-pub fn expectLongListAtLeast(eval: *Eval, sexpr: SExpr, minLength: usize) Result!SExpr {
-    return expectLongListOfAtLeast(eval, sexpr, minLength, "", passAll);
+pub fn expectLongListAtLeast(interpreter: *Interpreter, sexpr: SExpr, minLength: usize) Result!SExpr {
+    return expectLongListOfAtLeast(interpreter, sexpr, minLength, "", passAll);
 }
 
-pub fn expectLongListOf(eval: *Eval, sexpr: SExpr, minLength: usize, maxLength: usize, comptime expected: []const u8, comptime predicate: fn (SExpr) bool) Result!usize {
+pub fn expectLongListOf(interpreter: *Interpreter, sexpr: SExpr, minLength: usize, maxLength: usize, comptime expected: []const u8, comptime predicate: fn (SExpr) bool) Result!usize {
     var tail = sexpr;
     var i: usize = 0;
 
     while (!tail.isNil()) {
         const cons = (tail.castCons() orelse {
-            return eval.abort(Error.TypeError, tail.getAttr(), "expected a list, got {}", .{tail.getTag()});
+            return interpreter.abort(Error.TypeError, tail.getAttr(), "expected a list, got {}", .{tail.getTag()});
         });
 
         tail = cons.cdr;
@@ -2016,18 +2016,18 @@ pub fn expectLongListOf(eval: *Eval, sexpr: SExpr, minLength: usize, maxLength: 
         const elem = cons.car;
 
         if (!@call(.always_inline, predicate, .{elem})) {
-            return eval.abort(Error.TypeError, elem.getAttr(), "expected {s}, got {}", .{ expected, elem.getTag() });
+            return interpreter.abort(Error.TypeError, elem.getAttr(), "expected {s}, got {}", .{ expected, elem.getTag() });
         }
 
         i += 1;
     }
 
     if (i > maxLength) {
-        return eval.abort(Error.TooManyArguments, sexpr.getAttr(), "expected at most {} arguments, got {}", .{ maxLength, i });
+        return interpreter.abort(Error.TooManyArguments, sexpr.getAttr(), "expected at most {} arguments, got {}", .{ maxLength, i });
     }
 
     if (i < minLength) {
-        return eval.abort(Error.NotEnoughArguments, sexpr.getAttr(), "expected at least {} arguments, got {}", .{ minLength, i });
+        return interpreter.abort(Error.NotEnoughArguments, sexpr.getAttr(), "expected at least {} arguments, got {}", .{ minLength, i });
     }
 
     return i;
@@ -2037,20 +2037,20 @@ fn passAll(_: SExpr) bool {
     return true;
 }
 
-pub fn resolveSmallList(eval: *Eval, sexpr: SExpr, minLength: usize, buf: []SExpr) Result!usize {
-    const len = try expectSmallList(eval, sexpr, minLength, buf);
+pub fn evalSmallList(interpreter: *Interpreter, sexpr: SExpr, minLength: usize, buf: []SExpr) Result!usize {
+    const len = try expectSmallList(interpreter, sexpr, minLength, buf);
     for (0..len) |i| {
-        buf[i] = try eval.resolve(buf[i]);
+        buf[i] = try interpreter.eval(buf[i]);
     }
     return len;
 }
 
-pub fn expectSmallList(eval: *Eval, sexpr: SExpr, minLength: usize, buf: []SExpr) Result!usize {
-    return expectSmallListOf(eval, sexpr, minLength, buf, "", passAll);
+pub fn expectSmallList(interpreter: *Interpreter, sexpr: SExpr, minLength: usize, buf: []SExpr) Result!usize {
+    return expectSmallListOf(interpreter, sexpr, minLength, buf, "", passAll);
 }
 
-pub fn expectLongList(eval: *Eval, sexpr: SExpr, minLength: usize, maxLength: usize) Result!usize {
-    return expectLongListOf(eval, sexpr, minLength, maxLength, "", passAll);
+pub fn expectLongList(interpreter: *Interpreter, sexpr: SExpr, minLength: usize, maxLength: usize) Result!usize {
+    return expectLongListOf(interpreter, sexpr, minLength, maxLength, "", passAll);
 }
 
 fn alistValue(at: *const Source.Attr, symbol: []const u8, itemData: anytype) Result!SExpr {
@@ -2117,16 +2117,16 @@ pub fn alistBuilder(attr: *const Source.Attr, list: anytype) Result!SExpr {
     }.fun);
 }
 
-pub fn bindBuiltinEnv(eval: *Eval, outputEnv: SExpr, builtinEnv: Builtin.EnvName) Result!void {
+pub fn bindBuiltinEnv(interpreter: *Interpreter, outputEnv: SExpr, builtinEnv: Builtin.EnvName) Result!void {
     inline for (comptime std.meta.fieldNames(Builtin.EnvName)) |builtinName| {
         if (@field(Builtin.EnvName, builtinName) == builtinEnv) {
-            return try eval.bindCustomEnv(outputEnv, @field(Builtin.Envs, builtinName));
+            return try interpreter.bindCustomEnv(outputEnv, @field(Builtin.Envs, builtinName));
         }
     }
 }
 
-pub fn bindCustomEnv(eval: *Eval, outputEnv: SExpr, customEnv: anytype) Result!void {
-    try alistHelper(void, eval.context.attr, customEnv, {}, outputEnv, struct {
+pub fn bindCustomEnv(interpreter: *Interpreter, outputEnv: SExpr, customEnv: anytype) Result!void {
+    try alistHelper(void, interpreter.context.attr, customEnv, {}, outputEnv, struct {
         fn fun (env: SExpr, at: *const Source.Attr, symbol: SExpr, value: SExpr, _: void) Result!void {
             return extendEnvFrame(at, symbol, value, env);
         }

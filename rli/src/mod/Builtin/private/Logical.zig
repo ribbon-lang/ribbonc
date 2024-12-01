@@ -5,7 +5,7 @@ const MiscUtils = @import("Utils").Misc;
 const Core = @import("Core");
 const Source = Core.Source;
 const SExpr = Core.SExpr;
-const Eval = Core.Eval;
+const Interpreter = Core.Interpreter;
 
 pub const Doc =
     \\This module contains functions and primitives for logical operations,
@@ -16,8 +16,8 @@ pub const Doc =
     \\
 ;
 
-fn eql(eval: *Eval, args: SExpr) Eval.Result!bool {
-    var rargs = try eval.argIterator(true, args);
+fn eql(interpreter: *Interpreter, args: SExpr) Interpreter.Result!bool {
+    var rargs = try interpreter.argIterator(true, args);
 
     const a = try rargs.atLeast();
 
@@ -30,8 +30,8 @@ fn eql(eval: *Eval, args: SExpr) Eval.Result!bool {
     return true;
 }
 
-fn eqlAddress(eval: *Eval, args: SExpr) Eval.Result!bool {
-    var rargs = try eval.argIterator(true, args);
+fn eqlAddress(interpreter: *Interpreter, args: SExpr) Interpreter.Result!bool {
+    var rargs = try interpreter.argIterator(true, args);
 
     const a = try rargs.atLeast();
 
@@ -46,18 +46,18 @@ fn eqlAddress(eval: *Eval, args: SExpr) Eval.Result!bool {
 
 pub const Env = .{
     .{ .{ "eq?", "==" }, "determine if any number of values are equal; uses structural comparison", struct {
-        pub fn fun(eval: *Eval, at: *const Source.Attr, args: SExpr) Eval.Result!SExpr {
-            return try SExpr.Bool(at, try eql(eval, args));
+        pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
+            return try SExpr.Bool(at, try eql(interpreter, args));
         }
     } },
     .{ .{ "not-eq?", "/=" }, "determine if any number of values are not equal; uses structural comparison", struct {
-        pub fn fun(eval: *Eval, at: *const Source.Attr, args: SExpr) Eval.Result!SExpr {
-            return try SExpr.Bool(at, !try eql(eval, args));
+        pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
+            return try SExpr.Bool(at, !try eql(interpreter, args));
         }
     } },
     .{ .{ "less?", "<" }, "determine if any number of values are in order of least to greatest; uses structural comparison", struct {
-        pub fn fun(eval: *Eval, at: *const Source.Attr, args: SExpr) Eval.Result!SExpr {
-            var rargs = try eval.argIterator(true, args);
+        pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
+            var rargs = try interpreter.argIterator(true, args);
             var a = try rargs.atLeast();
             while (try rargs.next()) |b| {
                 if (!MiscUtils.less(a, b)) {
@@ -69,8 +69,8 @@ pub const Env = .{
         }
     } },
     .{ .{ "greater?", ">" }, "determine if any number of values are in order of greatest to least; uses structural comparison", struct {
-        pub fn fun(eval: *Eval, at: *const Source.Attr, args: SExpr) Eval.Result!SExpr {
-            var rargs = try eval.argIterator(true, args);
+        pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
+            var rargs = try interpreter.argIterator(true, args);
             var a = try rargs.atLeast();
             while (try rargs.next()) |b| {
                 if (!MiscUtils.greater(a, b)) {
@@ -82,8 +82,8 @@ pub const Env = .{
         }
     } },
     .{ .{ "less-or-equal?", "<=" }, "determine if any number of values are in order from least to greatest, allowing adjacent values to be equal; uses structural comparison", struct {
-        pub fn fun(eval: *Eval, at: *const Source.Attr, args: SExpr) Eval.Result!SExpr {
-            var rargs = try eval.argIterator(true, args);
+        pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
+            var rargs = try interpreter.argIterator(true, args);
             var a = try rargs.atLeast();
             while (try rargs.next()) |b| {
                 if (!MiscUtils.lessOrEqual(a, b)) {
@@ -95,8 +95,8 @@ pub const Env = .{
         }
     } },
     .{ .{ "greater-or-equal?", ">=" }, "determine if any number of values are in order from greatest to least, allowing adjacent values to be equal; uses structural comparison", struct {
-        pub fn fun(eval: *Eval, at: *const Source.Attr, args: SExpr) Eval.Result!SExpr {
-            var rargs = try eval.argIterator(true, args);
+        pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
+            var rargs = try interpreter.argIterator(true, args);
             var a = try rargs.atLeast();
             while (try rargs.next()) |b| {
                 if (!MiscUtils.greaterOrEqual(a, b)) {
@@ -109,18 +109,18 @@ pub const Env = .{
     } },
 
     .{ .{ "eq-addr?", "==*" }, "determine if any number of values are equal; uses address comparisons for object types", struct {
-        pub fn fun(eval: *Eval, at: *const Source.Attr, args: SExpr) Eval.Result!SExpr {
-            return try SExpr.Bool(at, try eqlAddress(eval, args));
+        pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
+            return try SExpr.Bool(at, try eqlAddress(interpreter, args));
         }
     } },
     .{ .{ "not-eq-addr?", "/=*" }, "determine if any number of values are not equal; uses address comparisons for object types", struct {
-        pub fn fun(eval: *Eval, at: *const Source.Attr, args: SExpr) Eval.Result!SExpr {
-            return try SExpr.Bool(at, !try eqlAddress(eval, args));
+        pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
+            return try SExpr.Bool(at, !try eqlAddress(interpreter, args));
         }
     } },
     .{ .{ "less-addr?", "<*" }, "determine if any number of values are in order of least to greatest; uses address comparisons for object types", struct {
-        pub fn fun(eval: *Eval, at: *const Source.Attr, args: SExpr) Eval.Result!SExpr {
-            var rargs = try eval.argIterator(true, args);
+        pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
+            var rargs = try interpreter.argIterator(true, args);
             var a = try rargs.atLeast();
             while (try rargs.next()) |b| {
                 if (!MiscUtils.lessAddress(a, b)) {
@@ -132,8 +132,8 @@ pub const Env = .{
         }
     } },
     .{ .{ "greater-addr?", ">*" }, "determine if any number of values are in order of greatest to least; uses address comparisons for object types", struct {
-        pub fn fun(eval: *Eval, at: *const Source.Attr, args: SExpr) Eval.Result!SExpr {
-            var rargs = try eval.argIterator(true, args);
+        pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
+            var rargs = try interpreter.argIterator(true, args);
             var a = try rargs.atLeast();
             while (try rargs.next()) |b| {
                 if (!MiscUtils.greaterAddress(a, b)) {
@@ -145,8 +145,8 @@ pub const Env = .{
         }
     } },
     .{ .{ "less-or-equal-addr?", "<=*" }, "determine if any number of values are in order from least to greatest, allowing adjacent values to be equal; uses address comparisons for object types", struct {
-        pub fn fun(eval: *Eval, at: *const Source.Attr, args: SExpr) Eval.Result!SExpr {
-            var rargs = try eval.argIterator(true, args);
+        pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
+            var rargs = try interpreter.argIterator(true, args);
             var a = try rargs.atLeast();
             while (try rargs.next()) |b| {
                 if (!MiscUtils.lessOrEqualAddress(a, b)) {
@@ -158,8 +158,8 @@ pub const Env = .{
         }
     } },
     .{ .{ "greater-or-equal-addr?", ">=*" }, "determine if any number of values are in order from greatest to least, allowing adjacent values to be equal; uses address comparisons for object types", struct {
-        pub fn fun(eval: *Eval, at: *const Source.Attr, args: SExpr) Eval.Result!SExpr {
-            var rargs = try eval.argIterator(true, args);
+        pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
+            var rargs = try interpreter.argIterator(true, args);
             var a = try rargs.atLeast();
             while (try rargs.next()) |b| {
                 if (!MiscUtils.greaterOrEqualAddress(a, b)) {
@@ -172,14 +172,14 @@ pub const Env = .{
     } },
 
     .{ .{ "not", "!" }, "logical not, performs truthy conversion", struct {
-        pub fn fun(eval: *Eval, at: *const Source.Attr, args: SExpr) Eval.Result!SExpr {
-            const arg = try eval.resolve1(args);
+        pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
+            const arg = try interpreter.eval1(args);
             return try SExpr.Bool(at, !arg.coerceNativeBool());
         }
     } },
     .{ .{ "and", "&&" }, "logical and accepting any number of values, short circuiting. performs truthy conversion for tests and returns the first failing value", struct {
-        pub fn fun(eval: *Eval, _: *const Source.Attr, args: SExpr) Eval.Result!SExpr {
-            var rargs = try eval.argIterator(true, args);
+        pub fn fun(interpreter: *Interpreter, _: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
+            var rargs = try interpreter.argIterator(true, args);
             var a = try rargs.atLeast();
             if (!a.coerceNativeBool()) {
                 return a;
@@ -194,8 +194,8 @@ pub const Env = .{
         }
     } },
     .{ .{ "or", "||" }, "logical or accepting any number of values, short circuiting. performs truthy conversion for tests and returns the first succeeding value", struct {
-        pub fn fun(eval: *Eval, _: *const Source.Attr, args: SExpr) Eval.Result!SExpr {
-            var rargs = try eval.argIterator(true, args);
+        pub fn fun(interpreter: *Interpreter, _: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
+            var rargs = try interpreter.argIterator(true, args);
             var a = try rargs.atLeast();
             if (a.coerceNativeBool()) {
                 return a;
@@ -210,18 +210,18 @@ pub const Env = .{
         }
     } },
     .{ "truthy?", "performs truthy conversion", struct {
-        pub fn fun(eval: *Eval, at: *const Source.Attr, args: SExpr) Eval.Result!SExpr {
-            const arg = try eval.resolve1(args);
+        pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
+            const arg = try interpreter.eval1(args);
             return try SExpr.Bool(at, arg.coerceNativeBool());
         }
     } },
     .{ "true", "boolean constant", struct {
-        pub fn init(at: *const Source.Attr) Eval.Result!SExpr {
+        pub fn init(at: *const Source.Attr) Interpreter.Result!SExpr {
             return try SExpr.Bool(at, true);
         }
     } },
     .{ "false", "boolean constant", struct {
-        pub fn init(at: *const Source.Attr) Eval.Result!SExpr {
+        pub fn init(at: *const Source.Attr) Interpreter.Result!SExpr {
             return try SExpr.Bool(at, false);
         }
     } },

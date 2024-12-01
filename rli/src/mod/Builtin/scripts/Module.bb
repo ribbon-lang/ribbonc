@@ -3,8 +3,8 @@
         (test
             (env
                 ,@(env-new '((a . 1)
-                            (b . 2)
-                            (c . 3))))
+                             (b . 2)
+                             (c . 3))))
             (exports (a . x) b c))
         ))
 
