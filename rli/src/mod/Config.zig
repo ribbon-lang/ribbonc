@@ -21,13 +21,13 @@ pub var REPL_DUMP_STDIN = REPL_DUMP_STDIN_DEFAULT;
 pub const REPL_HISTORY_PATH_DEFAULT: []const u8 = zig_config.replHistoryPath;
 pub var REPL_HISTORY_PATH = REPL_HISTORY_PATH_DEFAULT;
 
-pub const MAX_COMPTIME_DEPTH_DEFAULT: usize = zig_config.maxComptimeDepth;
-pub var MAX_COMPTIME_DEPTH = MAX_COMPTIME_DEPTH_DEFAULT;
+pub const MAX_DEPTH_DEFAULT: usize = zig_config.maxComptimeDepth;
+pub var MAX_DEPTH = MAX_DEPTH_DEFAULT;
 
-pub const MAX_COMPTIME_DEPTH_MIN: usize = 8;
+pub const MAX_DEPTH_MIN: usize = 8;
 
 comptime {
-    if (MAX_COMPTIME_DEPTH_DEFAULT < MAX_COMPTIME_DEPTH_MIN) {
+    if (MAX_DEPTH_DEFAULT < MAX_DEPTH_MIN) {
         @compileError("invalid maxComptimeDepth option set");
     }
 }

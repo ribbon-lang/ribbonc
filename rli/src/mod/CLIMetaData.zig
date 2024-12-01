@@ -102,7 +102,7 @@ pub const options =
     clap.parseParamsComptime(std.fmt.comptimePrint(
     \\--help                       Display options help message, and exit
     \\--version                    Display SemVer2 version number for rli, and exit
-    \\-i, --interactive            Run the compiler in REPL mode
+    \\--interactive                Run the interpreter in REPL mode
     \\--dump-stdin <bool>          (REPL) Dump stdin to a file [Default: {}]
     \\--history <path>             (REPL) Path to the REPL history file [Default: {s}]
     \\--disable-raw-mode           (REPL) Disable raw line editing mode
@@ -115,8 +115,8 @@ pub const options =
     Config.REPL_HISTORY_PATH_DEFAULT,
     Config.USE_EMOJI_DEFAULT,
     Config.USE_ANSI_STYLES_DEFAULT,
-    Config.MAX_COMPTIME_DEPTH_DEFAULT,
-    Config.MAX_COMPTIME_DEPTH_MIN,
+    Config.MAX_DEPTH_DEFAULT,
+    Config.MAX_DEPTH_MIN,
 }));
 
 pub const ArgsResult = union(enum) {
@@ -199,7 +199,7 @@ pub fn processArgs(allocator: std.mem.Allocator, args: []const []const u8) (Misc
         }
 
         try switch (err) {
-            error.DoesntTakinterpreterue => stderr.print(
+            error.DoesntTakeValue => stderr.print(
                 "The argument '{s}{s}' does not take a value\n\n",
                 .{ longest.kind.prefix(), longest.name },
             ),
@@ -236,15 +236,15 @@ pub fn processArgs(allocator: std.mem.Allocator, args: []const []const u8) (Misc
     }
 
     if (res.args.@"max-comptime-depth") |depth| {
-        if (depth < Config.MAX_COMPTIME_DEPTH_MIN) {
-            try stderr.print("Error: --max-comptime-depth ({} provided) must be >= {}\n", .{ depth, Config.MAX_COMPTIME_DEPTH_MIN });
+        if (depth < Config.MAX_DEPTH_MIN) {
+            try stderr.print("Error: --max-comptime-depth ({} provided) must be >= {}\n", .{ depth, Config.MAX_DEPTH_MIN });
             try printUsage(stderr);
             return error.InvalidArgument;
         }
-        if (Config.MAX_COMPTIME_DEPTH == depth) {
+        if (Config.MAX_DEPTH == depth) {
             try stderr.print("Note: --max-comptime-depth flag is unnecessary, config is already set to {} by default\n", .{depth});
         }
-        Config.MAX_COMPTIME_DEPTH = depth;
+        Config.MAX_DEPTH = depth;
     }
 
     if (res.args.@"use-emoji") |styles| {
@@ -262,6 +262,7 @@ pub fn processArgs(allocator: std.mem.Allocator, args: []const []const u8) (Misc
     }
 
     const interactive = interactive: {
+        std.debug.print("INTERACTIVE {}\n", .{res.args.interactive});
         if (res.args.interactive != 0) {
             if (res.args.@"disable-raw-mode" != 0) {
                 Config.REPL_DISABLE_RAW_MODE = true;

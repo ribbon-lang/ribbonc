@@ -142,7 +142,7 @@ pub const RichError = struct {
             EvaluationError.UnboundSymbol => return writer.print("Unbound symbol", .{}),
             EvaluationError.InvalidContext => return writer.print("Invalid context", .{}),
             EvaluationError.EnvironmentUnderflow => return writer.print("Environment underflow (no frame to pop)", .{}),
-            EvaluationError.CallStackOverflow => return writer.print("Call stack overflow (max call depth is {})", .{Config.MAX_COMPTIME_DEPTH}),
+            EvaluationError.CallStackOverflow => return writer.print("Call stack overflow (max call depth is {})", .{Config.MAX_DEPTH}),
             EvaluationError.MissingDynamic => return writer.print("Missing dynamic binding", .{}),
             EvaluationError.UnexpectedTerminate => return writer.print("Unexpected `terminate`", .{}),
             EvaluationError.MissingTerminationData => return writer.print("Missing termination data", .{}),
@@ -1268,7 +1268,7 @@ pub fn envFromHashMap(at: *const Source.Attr, map: *const SExpr.HashMapOf(?SExpr
 
 pub fn runFunction(interpreter: *Interpreter, at: *const Source.Attr, sfun: SExpr, args: SExpr) Result!SExpr {
     Core.log.debug("call depth {}\n", .{interpreter.callDepth});
-    if (interpreter.callDepth > Config.MAX_COMPTIME_DEPTH) {
+    if (interpreter.callDepth > Config.MAX_DEPTH) {
         return interpreter.exit(Error.CallStackOverflow, at);
     }
 

@@ -40,8 +40,9 @@ const NoEmoji = EmojiTable{
 style: ANSI.StyleT,
 emoji: EmojiTable,
 rli: *Rli,
+read_stdin: bool,
 
-fn init(gpa: std.mem.Allocator, out: std.io.AnyWriter, args: []const []const u8) !*Driver {
+fn init(gpa: std.mem.Allocator, out: std.io.AnyWriter, args: []const []const u8, readStdin: bool) !*Driver {
     const driver = try gpa.create(Driver);
     errdefer gpa.destroy(driver);
 
@@ -49,6 +50,7 @@ fn init(gpa: std.mem.Allocator, out: std.io.AnyWriter, args: []const []const u8)
     driver.style = if (Config.USE_ANSI_STYLES) ANSI.Style else ANSI.NoStyle;
     driver.rli = try Rli.init(gpa, out, &.{.Full}, args);
     driver.rli.readFileCallback = readFile;
+    driver.read_stdin = readStdin;
 
     return driver;
 }
@@ -110,14 +112,36 @@ fn entry() Error!void {
     };
     defer gpa.free(args);
 
-    const endOfOwnArgs =
-        for (args, 0..) |arg, i| {
-            if (std.mem.eql(u8, arg, "--")) {
-                break i;
-            }
-        } else args.len;
+    var endStyle: enum { none, scriptArgs, read_stdin } = .none;
+    var endOfOwnArgs = args.len;
+    var endOfScriptArgs = args.len;
 
-    const scriptArgs = args[@min(endOfOwnArgs + 1, args.len)..];
+    for (args, 0..) |arg, i| {
+        switch (endStyle) {
+            .none => {
+                if (std.mem.eql(u8, arg, "-")) {
+                    endStyle = .read_stdin;
+                } else if (std.mem.eql(u8, arg, "--")) {
+                    endStyle = .scriptArgs;
+                } else continue;
+                endOfOwnArgs = i;
+            },
+            .read_stdin => {
+                log.err("unexpected argument '{s}' following '-' in command line arguments", .{arg});
+                return error.Unexpected;
+            },
+            .scriptArgs => {
+                if (std.mem.eql(u8, arg, "-")) {
+                    endStyle = .read_stdin;
+                } else if (std.mem.eql(u8, arg, "--")) {
+                    log.err("unexpected secondary -- in command line arguments", .{});
+                } else continue;
+                endOfScriptArgs = i;
+            }
+        }
+    }
+
+    const scriptArgs = args[@min(endOfOwnArgs + 1, args.len)..endOfScriptArgs];
 
     const argsResult = try CLIMetaData.processArgs(gpa, args[1..endOfOwnArgs]);
     defer argsResult.deinit();
@@ -125,13 +149,13 @@ fn entry() Error!void {
     switch (argsResult) {
         .exit => return,
         .execute => |x| {
-            var driver = try Driver.init(gpa, stderr.any(), scriptArgs);
+            var driver = try Driver.init(gpa, stderr.any(), scriptArgs, endStyle == .read_stdin);
             defer driver.deinit();
 
-            if (x.interactive) {
+            if (x.interactive and endStyle != .read_stdin) {
                 try driver.runRepl(x.rootFiles);
             } else {
-                try driver.rli.readFiles(x.rootFiles);
+                try driver.readFiles(x.rootFiles);
             }
         },
     }
@@ -302,7 +326,7 @@ fn findHint(allocator: std.mem.Allocator, envKeys: []const []const u8, token: []
 
 fn readFile(rli: *Rli, fileName: []const u8) Rli.Error![]const u8 {
     const file = std.fs.cwd().openFile(fileName, .{ .mode = .read_only }) catch |err| {
-        log.err("could not open file [{s}]: {}", .{ fileName, err });
+        log.err("could not open file [{s}]: {s}", .{ fileName, @errorName(err) });
         return err;
     };
     defer file.close();
@@ -312,7 +336,36 @@ fn readFile(rli: *Rli, fileName: []const u8) Rli.Error![]const u8 {
     return reader.readAllAlloc(rli.gpa, std.math.maxInt(usize));
 }
 
+pub fn readFiles(driver: *Driver, files: []const []const u8) Error!void {
+    if (files.len > 0) {
+        log.info("running root files ...", .{});
+
+        try driver.rli.readFiles(files);
+
+        log.info("... finished running root files", .{});
+    } else {
+        log.info("... no root files provided", .{});
+    }
+
+    if (driver.read_stdin) {
+        const stdin = std.io.getStdIn().reader();
+
+        const src = stdin.readAllAlloc(driver.rli.gpa, std.math.maxInt(usize)) catch |err| {
+            log.err("failed to read from stdin: {s}", .{@errorName(err)});
+            return error.NothingRead;
+        };
+        defer driver.rli.gpa.free(src);
+
+        _ = try driver.rli.runFile("stdin", src);
+    }
+}
+
 fn runRepl(driver: *Driver, files: []const []const u8) Error!void {
+    if (driver.read_stdin) {
+        log.warn("cannot read file from stdin in REPL mode", .{});
+        driver.read_stdin = false;
+    }
+
     const stdout = std.io.getStdOut().writer();
 
     try stdout.print("\n{s} {s}Rli{s} {s}v{}{s} {s} {s}(REPL mode){s}\n", .{
@@ -380,7 +433,7 @@ fn runRepl(driver: *Driver, files: []const []const u8) Error!void {
         stdout.print("\n{s} goodbye!", .{driver.emoji.Heart}) catch {};
     }
 
-    try driver.rli.readFiles(files);
+    try driver.readFiles(files);
 
     log.info("beginning repl loop ...", .{});
 

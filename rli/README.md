@@ -131,7 +131,7 @@ rli --version
 |-|-|
 |`--help`| Display options help message, and exit |
 |`--version`| Display SemVer2 version number for rli, and exit |
-|`-i`, `--interactive`| Run the compiler in REPL mode |
+|`-i`, `--interactive`| Run the interpreter in REPL mode |
 |`--dump-stdin <bool>`| (REPL) Dump stdin to a file [Default: false] |
 |`--history <path>`| (REPL) Path to the REPL history file [Default: .rli-repl-history] |
 |`--disable-raw-mode`| (REPL) Disable raw line editing mode |
