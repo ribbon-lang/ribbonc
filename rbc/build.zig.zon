@@ -1,0 +1,16 @@
+.{
+    .name = "rbc",
+    .version = "0.1.0",
+    .dependencies = .{
+        .Utils = .{ .path = "../utils/" },
+        .ISA = .{ .path = "../rbc-isa/" },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+        "tools",
+        "scripts",
+        "README.md",
+    },
+}
