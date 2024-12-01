@@ -473,7 +473,7 @@ fn fullBuild(b: *Build, nativeCompSet: *Compilation, dependencies: anytype, vis:
     target.step.dependOn(&installInclude.step);
 
     const installLicense = b.addInstallFile(
-        b.path("LICENSE"),
+        b.path("../LICENSE"),
         b.fmt("{s}/LICENSE", .{relPath}),
     );
 
