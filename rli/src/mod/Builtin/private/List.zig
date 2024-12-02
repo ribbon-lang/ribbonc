@@ -20,8 +20,8 @@ pub const Env = .{
     } },
     .{ "cons", "join a head and tail into a pair", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const eargs = try interpreter.eval2(args);
-            return try SExpr.Cons(at, eargs[0], eargs[1]);
+            const rArgs = try interpreter.eval2(args);
+            return try SExpr.Cons(at, rArgs[0], rArgs[1]);
         }
     } },
     .{ "car", "get the head of a pair", struct {
@@ -32,9 +32,9 @@ pub const Env = .{
     } },
     .{ "set-car!", "set the head of a pair; returns the old value", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const eargs = try interpreter.eval2(args);
-            const list = try interpreter.castPair(at, eargs[0]);
-            const newCar = eargs[1];
+            const rArgs = try interpreter.eval2(args);
+            const list = try interpreter.castPair(at, rArgs[0]);
+            const newCar = rArgs[1];
             const oldCar = list.car;
             list.car = newCar;
             return oldCar;
@@ -48,9 +48,9 @@ pub const Env = .{
     } },
     .{ "set-cdr!", "set the tail of a pair; returns the old value", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const eargs = try interpreter.eval2(args);
-            const list = try interpreter.castPair(at, eargs[0]);
-            const newCdr = eargs[1];
+            const rArgs = try interpreter.eval2(args);
+            const list = try interpreter.castPair(at, rArgs[0]);
+            const newCdr = rArgs[1];
             const oldCdr = list.cdr;
             list.cdr = newCdr;
             return oldCdr;
@@ -61,7 +61,7 @@ pub const Env = .{
             return interpreter.evalListRecursive(args);
         }
     } },
-    .{ "length", "get the length of a list", struct {
+    .{ "list-length", "get the length of a list", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const list = try interpreter.eval1(args);
             try interpreter.validateListOrNil(at, list);
@@ -76,11 +76,11 @@ pub const Env = .{
             return SExpr.Int(at, @intCast(len));
         }
     } },
-    .{ "map", "apply a function to each element of a list, returning a new list of the results", struct {
+    .{ "list-map", "apply a function to each element of a list, returning a new list of the results", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const rargs = try interpreter.eval2(args);
-            const list = rargs[0];
-            const func = rargs[1];
+            const rArgs = try interpreter.eval2(args);
+            const list = rArgs[0];
+            const func = rArgs[1];
             try interpreter.validateListOrNil(at, list);
             try interpreter.validateCallable(at, func);
             var iter = try interpreter.argIterator(false, list);
@@ -93,11 +93,11 @@ pub const Env = .{
             return try SExpr.List(at, out.items);
         }
     } },
-    .{ "each", "apply a function to each element of a list", struct {
+    .{ "list-each", "apply a function to each element of a list", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const rargs = try interpreter.eval2(args);
-            const list = rargs[0];
-            const func = rargs[1];
+            const rArgs = try interpreter.eval2(args);
+            const list = rArgs[0];
+            const func = rArgs[1];
             try interpreter.validateListOrNil(at, list);
             try interpreter.validateCallable(at, func);
             var iter = try interpreter.argIterator(false, list);
@@ -107,11 +107,11 @@ pub const Env = .{
             return try SExpr.Nil(at);
         }
     } },
-    .{ "element", "determine if a given value is contained in a list", struct {
+    .{ "list-member?", "determine if a given value is contained in a list", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const rargs = try interpreter.eval2(args);
-            const list = rargs[0];
-            const value = rargs[1];
+            const rArgs = try interpreter.eval2(args);
+            const list = rArgs[0];
+            const value = rArgs[1];
             try interpreter.validateListOrNil(at, list);
             var iter = try interpreter.argIterator(false, list);
             while (try iter.next()) |arg| {

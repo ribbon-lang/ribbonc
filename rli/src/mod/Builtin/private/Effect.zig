@@ -25,7 +25,7 @@ pub const Doc =
     \\> Where `kind` is one of:
     \\> + `fun` for lambda-like effect handlers
     \\> + `macro` for macro-like effect handlers
-    \\> + `var` for simple variable bindings
+    \\> + [none] simple variable bindings
     \\
     \\Values created via `with` and `with-global` are provided a special binding, `terminate`,
     \\which can be called to cancel the inner computation of
@@ -43,7 +43,7 @@ pub const Doc =
     \\> ```lisp
     \\> (with ((fun abort (x) (terminate x))
     \\>        (macro error (x) (prompt abort (interpreter x)))
-    \\>        (var abort2 terminate))
+    \\>        (abort2 terminate))
     \\>   (action1)
     \\>   (action2))
     \\> ```
@@ -59,7 +59,7 @@ pub const Doc =
 
 
 pub const Env = .{
-    .{ "with-global", "provide one or more named *top-level* effect handlers to serve as a last resort; note that the `terminate` which is provided to handlers bound this way will terminate compilation", struct {
+    .{ "with-global", "provide one or more named *top-level* effect handlers to serve as a last resort; note that the `terminate` which is provided to handlers bound this way will terminate the interpreter", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             _ = try bindDefs(interpreter, at, args, "global-terminator", terminator, bindGlobal);
             return SExpr.Nil(at);
@@ -125,11 +125,14 @@ fn bindDefs(interpreter: *Interpreter, at: *const Source.Attr, defs: SExpr, comp
     var iter = try interpreter.argIterator(false, defs);
 
     while (try iter.next()) |info| {
-        const res = try interpreter.expectAtLeast2(info);
+        var res = try interpreter.expectAtLeast1(info);
 
-        const kind = try Binding.DefKind.matchSymbol(interpreter, res.head[0]);
+        const kind = try Binding.DefKind.matchSymbol(interpreter, res.head);
+        if (kind != .Var) {
+            res = try interpreter.expectAtLeast1(res.tail);
+        }
 
-        const nameSymbol = res.head[1];
+        const nameSymbol = res.head;
         try interpreter.validateSymbol(nameSymbol.getAttr(), nameSymbol);
 
         const originalEnv = interpreter.env;

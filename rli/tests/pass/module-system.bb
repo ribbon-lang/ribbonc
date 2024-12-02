@@ -11,9 +11,9 @@
 (print-ln t/c)
 
 
-(export-var a 100)
-(export-fun bar (x) (print-ln (+ x 1)))
-(export (a . y))
+(export a 100)
+(export fun bar (x) (print-ln (+ x 1)))
+(export as (a . y))
 
 (import foo f)
 (print-ln f/a)

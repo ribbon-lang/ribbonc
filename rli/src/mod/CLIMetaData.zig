@@ -262,7 +262,6 @@ pub fn processArgs(allocator: std.mem.Allocator, args: []const []const u8) (Misc
     }
 
     const interactive = interactive: {
-        std.debug.print("INTERACTIVE {}\n", .{res.args.interactive});
         if (res.args.interactive != 0) {
             if (res.args.@"disable-raw-mode" != 0) {
                 Config.REPL_DISABLE_RAW_MODE = true;

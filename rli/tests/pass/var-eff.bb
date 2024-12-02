@@ -1,2 +1,2 @@
-(with ((var abort terminate))
+(with ((abort terminate))
     (prompt abort 'foo))

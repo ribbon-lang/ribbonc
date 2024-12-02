@@ -15,9 +15,9 @@ pub const Doc =
     \\
     \\> ##### Example
     \\> ```lisp
-    \\> (def-var p (parser-new))
-    \\> (def-var first-ln "(print-ln \"hello world\")")
-    \\> (def-var line-len (string-length first-ln))
+    \\> (def p (parser-new))
+    \\> (def first-ln "(print-ln \"hello world\")")
+    \\> (def line-len (string-length first-ln))
     \\> (parser-filename! p "foo")
     \\> (parser-input! p
     \\>     (string-intercalate "\n"
@@ -25,7 +25,7 @@ pub const Doc =
     \\>         "(print-ln \"goodbye world\")"
     \\>         "(+ 1 2)")
     \\>     '((2 . 1) . 0))
-    \\> (def-var res1 (parse-sexpr! p))
+    \\> (def res1 (parse-sexpr! p))
     \\> (assert-eq
     \\>     (cdr (attr-range (attr-of res1)))
     \\>     (cons (cons 2 (+ 1 line-len)) line-len))

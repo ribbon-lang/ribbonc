@@ -15,7 +15,7 @@ pub const Doc =
     \\and evaluates the body in that frame.
     \\> ##### Example
     \\> ```lisp
-    \\> (let ((var x (+ 1 1))
+    \\> (let ((x (+ 1 1))
     \\>       (fun f (x) (+ x 1))
     \\>       (macro m (x) `(f ,x)))
     \\>   (action1 x)
@@ -23,12 +23,14 @@ pub const Doc =
     \\>   (action3 (m x)))
     \\> ```
     \\
-    \\`def-var`, `def-fun`, and `def-macro` forms mirror the syntax of `let`,
+    \\`def`, `def fun`, and `def macro` forms mirror the syntax of `let`,
     \\but bind individual symbols in the current environment.
     \\> ##### Example
     \\> ```lisp
-    \\> (def-var x (+ 1 1))
-    \\> (action x)
+    \\> (def x (+ 1 1))
+    \\> (def fun f (x) (+ x 1))
+    \\> (action1 x)
+    \\> (action2 (f x))
     \\> ```
     \\
     \\`bound?` and `set!` can be used to query and manipulate
@@ -37,41 +39,14 @@ pub const Doc =
 ;
 
 pub const Env = .{
-    .{ "def-var", "define a new variable", struct {
-        pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const res = try interpreter.expectAtLeast1(args);
-            const name = res.head;
-            try interpreter.validateSymbol(at, name);
-            const value = value: {
-                const baseEnv = interpreter.env;
-                try Interpreter.pushNewFrame(at, &interpreter.env);
-                defer interpreter.env = baseEnv;
-                break :value try interpreter.runProgram(res.tail);
-            };
-            try Interpreter.extendEnvFrame(at, name, value, interpreter.env);
-            return value;
-        }
-    } },
-    .{ "def-fun", "define a new function", struct {
-        pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const res = try interpreter.expectAtLeast1(args);
-            const name = res.head;
-            try interpreter.validateSymbol(at, name);
-            const body = res.tail;
-            const func = try Procedure.function(interpreter, at, .Lambda, body);
-            try Interpreter.extendEnvFrame(at, name, func, interpreter.env);
-            return func;
-        }
-    } },
-    .{ "def-macro", "define a new macro function", struct {
-        pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const res = try interpreter.expectAtLeast1(args);
-            const name = res.head;
-            try interpreter.validateSymbol(at, name);
-            const body = res.tail;
-            const func = try Procedure.function(interpreter, at, .Macro, body);
-            try Interpreter.extendEnvFrame(at, name, func, interpreter.env);
-            return func;
+    .{ "def", "define a new variable", struct {
+        pub fn fun(interpreter: *Interpreter, _: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
+            return bindDef(interpreter, args, struct {
+                fn fun(i: *Interpreter, name: SExpr, obj: SExpr) Interpreter.Result!SExpr {
+                    try Interpreter.extendEnvFrame(name.getAttr(), name, obj, i.env);
+                    return obj;
+                }
+            }.fun);
         }
     } },
     .{ "let", "create local value bindings", struct {
@@ -82,9 +57,10 @@ pub const Env = .{
             const baseEnv = interpreter.env;
             try Interpreter.pushNewFrame(at, &interpreter.env);
             defer interpreter.env = baseEnv;
-            try bindDefs(interpreter, defs, struct {
-                fn fun(interpreter2: *Interpreter, name: SExpr, obj: SExpr) Interpreter.Result!void {
-                    try Interpreter.extendEnvFrame(name.getAttr(), name, obj, interpreter2.env);
+            _ = try bindDefs(interpreter, defs, struct {
+                fn fun(i: *Interpreter, name: SExpr, obj: SExpr) Interpreter.Result!SExpr {
+                    try Interpreter.extendEnvFrame(name.getAttr(), name, obj, i.env);
+                    return obj;
                 }
             }.fun);
             return try interpreter.runProgram(body);
@@ -99,10 +75,10 @@ pub const Env = .{
     } },
     .{ "set!", "set the value of a symbol in the current env. symbol must already be bound. returns old value", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const buf = try interpreter.eval2(args);
+            const buf = try interpreter.expect2(args);
             const symbol = buf[0];
             try interpreter.validateSymbol(at, symbol);
-            const value = buf[1];
+            const value = try interpreter.eval(buf[1]);
             if (try Interpreter.envLookupPair(symbol, interpreter.env)) |pair| {
                 const xp = pair.forceCons();
                 const out = xp.cdr;
@@ -122,9 +98,7 @@ pub const DefKind = enum {
 
     pub fn matchSymbol(interpreter: *Interpreter, kindSymbol: SExpr) Interpreter.Result!DefKind {
         const kStr = try interpreter.castSymbolSlice(kindSymbol.getAttr(), kindSymbol);
-        return if (std.mem.eql(u8, kStr, "fun")) .Fun else if (std.mem.eql(u8, kStr, "macro")) .Macro else if (std.mem.eql(u8, kStr, "var")) .Var else {
-            return interpreter.abort(Interpreter.Error.TypeError, kindSymbol.getAttr(), "unknown binding kind `{}`, expected `fun`, `macro`, or `var`", .{kindSymbol});
-        };
+        return if (std.mem.eql(u8, kStr, "fun")) .Fun else if (std.mem.eql(u8, kStr, "macro")) .Macro else .Var;
     }
 
     pub fn constructObject(self: DefKind, interpreter: *Interpreter, at: *const Source.Attr, def: SExpr) Interpreter.Result!SExpr {
@@ -136,19 +110,26 @@ pub const DefKind = enum {
     }
 };
 
-pub fn bindDefs(interpreter: *Interpreter, defs: SExpr, comptime bind: fn (*Interpreter, SExpr, SExpr) Interpreter.Result!void) Interpreter.Result!void {
+pub fn bindDefs(interpreter: *Interpreter, defs: SExpr, comptime bind: fn (*Interpreter, SExpr, SExpr) Interpreter.Result!SExpr) Interpreter.Result!SExpr {
     var iter = try interpreter.argIterator(false, defs);
 
-    while (try iter.next()) |info| {
-        const res = try interpreter.expectAtLeast2(info);
+    var last: SExpr = undefined;
+    while (try iter.next()) |info| last = try bindDef(interpreter, info, bind);
+    return last;
+}
 
-        const kind = try DefKind.matchSymbol(interpreter, res.head[0]);
+pub fn bindDef(interpreter: *Interpreter, info: SExpr, comptime bind: fn (*Interpreter, SExpr, SExpr) Interpreter.Result!SExpr) Interpreter.Result!SExpr {
+    var res = try interpreter.expectAtLeast1(info);
 
-        const nameSymbol = res.head[1];
-        try interpreter.validateSymbol(nameSymbol.getAttr(), nameSymbol);
-
-        const obj = try kind.constructObject(interpreter, nameSymbol.getAttr(), res.tail);
-
-        try bind(interpreter, nameSymbol, obj);
+    const kind = try DefKind.matchSymbol(interpreter, res.head);
+    if (kind != .Var) {
+        res = try interpreter.expectAtLeast1(res.tail);
     }
+
+    const nameSymbol = res.head;
+    try interpreter.validateSymbol(nameSymbol.getAttr(), nameSymbol);
+
+    const obj = try kind.constructObject(interpreter, nameSymbol.getAttr(), res.tail);
+
+    return bind(interpreter, nameSymbol, obj);
 }

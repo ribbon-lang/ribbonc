@@ -1,5 +1,5 @@
 (assert-eq 'okay
-    (with ((var return terminate))
+    (with ((return terminate))
         (let ((fun test (x) (prompt return x)))
             ((run-lambda-list (-> test) 'okay)))))
 

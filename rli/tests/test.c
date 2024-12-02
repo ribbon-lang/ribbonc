@@ -68,18 +68,18 @@ int main (int argc, char** argv) {
 
     putchar('\n');
 
-    BB_SExpr evald = BB_Interpreter_eval(interpreter, result, &err);
+    BB_SExpr eExpr = BB_Interpreter_eval(interpreter, result, &err);
     if (err != BB_OKAY) {
         fprintf(stderr, "Failed to eval S-expression: %s\n", BB_Error_name(err));
         goto end3;
     }
 
-    if (evald.data.integral != 6) {
-        fprintf(stderr, "Unexpected result: %"PRId64"\n", evald.data.integral);
+    if (eExpr.data.integral != 6) {
+        fprintf(stderr, "Unexpected result: %"PRId64"\n", eExpr.data.integral);
         goto end3;
     }
 
-    printf("Result: %"PRId64"\n", evald.data.integral);
+    printf("Result: %"PRId64"\n", eExpr.data.integral);
 
     end3: BB_Parser_deinit(parser);
     end2: BB_Interpreter_deinit(interpreter);

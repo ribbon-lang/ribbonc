@@ -527,11 +527,11 @@ fn wrapNativeHandler(interpreter: *Interpreter, at: *const Source.Attr, ctxId: S
     try extendEnvFrame(at, handlerSym, try SExpr.Builtin(at, "native-handler", handler), env);
     try extendEnvFrame(at, terminatorSym, try wrapTerminator(interpreter, at, ctxId, promptSym, "native-terminator", valueTerminator), env);
 
-    const llist = try SExpr.List(at, &[_]SExpr{ try SExpr.Symbol(at, "..."), argsSym });
+    const lList = try SExpr.List(at, &[_]SExpr{ try SExpr.Symbol(at, "..."), argsSym });
     const apply = try SExpr.List(at, &[_]SExpr{try SExpr.Symbol(at, "apply"), handlerSym, argsSym });
     const closureBody = try SExpr.List(at, &[_]SExpr{ apply });
 
-    return try SExpr.Function(at, .Lambda, llist, env, closureBody);
+    return try SExpr.Function(at, .Lambda, lList, env, closureBody);
 }
 
 
@@ -545,11 +545,11 @@ pub fn wrapTerminator(interpreter: *Interpreter, at: *const Source.Attr, ctxId: 
     try extendEnvFrame(at, terminateSym, try SExpr.Builtin(at, terminatorName, terminator), env);
 
     const val = try SExpr.List(at, &[_]SExpr{ try SExpr.Symbol(at, "?"), valSym });
-    const llist = try SExpr.List(at, &[_]SExpr{val});
+    const lList = try SExpr.List(at, &[_]SExpr{val});
     const invoker = try SExpr.List(at, &[_]SExpr{ terminateSym, ctxId, promptName, valSym });
     const body = try SExpr.List(at, &[_]SExpr{invoker});
 
-    return try SExpr.Function(at, .Lambda, llist, env, body);
+    return try SExpr.Function(at, .Lambda, lList, env, body);
 }
 
 pub fn valueTerminator(interpreter: *Interpreter, _: *const Source.Attr, args: SExpr) Result!SExpr {
@@ -616,30 +616,30 @@ pub fn eval(interpreter: *Interpreter, sexpr: SExpr) Result!SExpr {
     }
 }
 
-pub fn evalListRecursive(interpreter: *Interpreter, slist: SExpr) Result!SExpr {
+pub fn evalListRecursive(interpreter: *Interpreter, sList: SExpr) Result!SExpr {
     const xp =
-        if (slist.castCons()) |c| c
-        else if (slist.isNil()) return slist
+        if (sList.castCons()) |c| c
+        else if (sList.isNil()) return sList
         else {
-            return interpreter.abort(EvaluationError.TypeError, slist.getAttr(), "expected a list, got {}", .{slist.getTag()});
+            return interpreter.abort(EvaluationError.TypeError, sList.getAttr(), "expected a list, got {}", .{sList.getTag()});
         };
     const newCar = try interpreter.eval(xp.car);
     const newCdr = try interpreter.evalListRecursive(xp.cdr);
-    return try SExpr.Cons(slist.getAttr(), newCar, newCdr);
+    return try SExpr.Cons(sList.getAttr(), newCar, newCdr);
 }
 
-pub fn evalList(interpreter: *Interpreter, slist: SExpr) Result![]const SExpr {
-    return evalListInRange(interpreter, slist, 0, std.math.maxInt(usize));
+pub fn evalList(interpreter: *Interpreter, sList: SExpr) Result![]const SExpr {
+    return evalListInRange(interpreter, sList, 0, std.math.maxInt(usize));
 }
 
-pub fn evalListInRange(interpreter: *Interpreter, slist: SExpr, minLength: usize, maxLength: usize) Result![]const SExpr {
-    return evalListOfInRange(interpreter, slist, minLength, maxLength, "", passAll);
+pub fn evalListInRange(interpreter: *Interpreter, sList: SExpr, minLength: usize, maxLength: usize) Result![]const SExpr {
+    return evalListOfInRange(interpreter, sList, minLength, maxLength, "", passAll);
 }
 
-pub fn evalListOfInRange(interpreter: *Interpreter, slist: SExpr, minLength: usize, maxLength: usize, comptime expected: []const u8, predicate: fn (SExpr) bool) Result![]const SExpr {
+pub fn evalListOfInRange(interpreter: *Interpreter, sList: SExpr, minLength: usize, maxLength: usize, comptime expected: []const u8, predicate: fn (SExpr) bool) Result![]const SExpr {
     var listBuf = std.ArrayList(SExpr).init(interpreter.context.allocator);
 
-    var tail = slist;
+    var tail = sList;
 
     while (!tail.isNil()) {
         const xp: *SExpr.Types.Cons = (tail.castCons() orelse {
@@ -660,11 +660,11 @@ pub fn evalListOfInRange(interpreter: *Interpreter, slist: SExpr, minLength: usi
     const len = listBuf.items.len;
 
     if (len < minLength) {
-        return interpreter.abort(Error.NotEnoughArguments, slist.getAttr(), "expected at least {} arguments, got {}", .{ minLength, len });
+        return interpreter.abort(Error.NotEnoughArguments, sList.getAttr(), "expected at least {} arguments, got {}", .{ minLength, len });
     }
 
     if (len > maxLength) {
-        return interpreter.abort(Error.TooManyArguments, slist.getAttr(), "expected at most {} arguments, got {}", .{ maxLength, len });
+        return interpreter.abort(Error.TooManyArguments, sList.getAttr(), "expected at most {} arguments, got {}", .{ maxLength, len });
     }
 
     listBuf.shrinkAndFree(len);
@@ -672,7 +672,7 @@ pub fn evalListOfInRange(interpreter: *Interpreter, slist: SExpr, minLength: usi
     return listBuf.items;
 }
 
-pub fn invoke(interpreter: *Interpreter, at: *const Source.Attr, fun: SExpr, sargs: SExpr) Result!SExpr {
+pub fn invoke(interpreter: *Interpreter, at: *const Source.Attr, fun: SExpr, sArgs: SExpr) Result!SExpr {
     switch (fun.getTag()) {
         .Nil,
         .Bool,
@@ -689,12 +689,12 @@ pub fn invoke(interpreter: *Interpreter, at: *const Source.Attr, fun: SExpr, sar
         },
 
         .Function => {
-            return @call(.always_inline, runFunction, .{ interpreter, at, fun, sargs });
+            return @call(.always_inline, runFunction, .{ interpreter, at, fun, sArgs });
         },
 
-        .Builtin => return @call(.always_inline, runBuiltin, .{ interpreter, at, fun, sargs }),
+        .Builtin => return @call(.always_inline, runBuiltin, .{ interpreter, at, fun, sArgs }),
 
-        .ExternFunction => return @call(.always_inline, runExternFunction, .{ interpreter, at, fun, sargs }),
+        .ExternFunction => return @call(.always_inline, runExternFunction, .{ interpreter, at, fun, sArgs }),
     }
 }
 
@@ -1266,7 +1266,7 @@ pub fn envFromHashMap(at: *const Source.Attr, map: *const SExpr.HashMapOf(?SExpr
     return try SExpr.Cons(at, frame, try SExpr.Nil(at));
 }
 
-pub fn runFunction(interpreter: *Interpreter, at: *const Source.Attr, sfun: SExpr, args: SExpr) Result!SExpr {
+pub fn runFunction(interpreter: *Interpreter, at: *const Source.Attr, sFun: SExpr, args: SExpr) Result!SExpr {
     Core.log.debug("call depth {}\n", .{interpreter.callDepth});
     if (interpreter.callDepth > Config.MAX_DEPTH) {
         return interpreter.exit(Error.CallStackOverflow, at);
@@ -1275,7 +1275,7 @@ pub fn runFunction(interpreter: *Interpreter, at: *const Source.Attr, sfun: SExp
     interpreter.callDepth += 1;
     defer interpreter.callDepth -= 1;
 
-    const fun = sfun.forceFunction();
+    const fun = sFun.forceFunction();
 
     const eArgs = switch (fun.kind) {
         .Lambda => try interpreter.evalListRecursive(args),
@@ -1311,18 +1311,18 @@ pub fn runFunction(interpreter: *Interpreter, at: *const Source.Attr, sfun: SExp
     };
 }
 
-pub fn runBuiltin(interpreter: *Interpreter, at: *const Source.Attr, sbuiltin: SExpr, sargs: SExpr) Result!SExpr {
-    const builtin = sbuiltin.forceBuiltin();
-    return try builtin.getProc()(interpreter, at, sargs);
+pub fn runBuiltin(interpreter: *Interpreter, at: *const Source.Attr, sBuiltin: SExpr, sArgs: SExpr) Result!SExpr {
+    const builtin = sBuiltin.forceBuiltin();
+    return try builtin.getProc()(interpreter, at, sArgs);
 }
 
-pub fn runExternFunction(interpreter: *Interpreter, at: *const Source.Attr, sexternFunction: SExpr, sargs: SExpr) Result!SExpr {
-    const externFunction = sexternFunction.forceExternFunction();
+pub fn runExternFunction(interpreter: *Interpreter, at: *const Source.Attr, sExternFunction: SExpr, sArgs: SExpr) Result!SExpr {
+    const externFunction = sExternFunction.forceExternFunction();
 
     var msg: ExternMessage = undefined;
     var out: SExpr = undefined;
 
-    if (externFunction.proc(interpreter, at, &msg, &out, sargs)) {
+    if (externFunction.proc(interpreter, at, &msg, &out, sArgs)) {
         return out;
     } else {
         return resultFromExtern(msg);

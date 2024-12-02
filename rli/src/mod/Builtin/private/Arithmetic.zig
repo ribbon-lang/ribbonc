@@ -18,17 +18,17 @@ fn checkIsIntOrFloat(interpreter: *Interpreter, at: *const Source.Attr, index: u
 pub const Env = .{
     .{ .{ "add", "+" }, "integer/floating point addition on any number of values", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            var rargs = try interpreter.argIterator(true, args);
-            var a = try rargs.atLeast();
+            var rArgs = try interpreter.argIterator(true, args);
+            var a = try rArgs.atLeast();
             try checkIsIntOrFloat(interpreter, at, 0, a);
-            if (!rargs.hasNext()) {
+            if (!rArgs.hasNext()) {
                 switch (a.getTag()) {
                     .Int => return try SExpr.Int(at, @as(i64, @intCast(@abs(a.forceInt())))),
                     .Float => return try SExpr.Float(at, @abs(a.forceFloat())),
                     else => unreachable,
                 }
             }
-            while (try rargs.nextWithIndex()) |next| {
+            while (try rArgs.nextWithIndex()) |next| {
                 const b = next[0];
                 const i = next[1];
                 try checkIsIntOrFloat(interpreter, at, i, b);
@@ -47,17 +47,17 @@ pub const Env = .{
     } },
     .{ .{ "sub", "-" }, "integer/floating point subtraction on any number of values", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            var rargs = try interpreter.argIterator(true, args);
-            var a = try rargs.atLeast();
+            var rArgs = try interpreter.argIterator(true, args);
+            var a = try rArgs.atLeast();
             try checkIsIntOrFloat(interpreter, at, 0, a);
-            if (!rargs.hasNext()) {
+            if (!rArgs.hasNext()) {
                 switch (a.getTag()) {
                     .Int => return try SExpr.Int(at, -a.forceInt()),
                     .Float => return try SExpr.Float(at, -a.forceFloat()),
                     else => unreachable,
                 }
             }
-            while (try rargs.nextWithIndex()) |next| {
+            while (try rArgs.nextWithIndex()) |next| {
                 const b = next[0];
                 const i = next[1];
                 try checkIsIntOrFloat(interpreter, at, i, b);
@@ -76,10 +76,10 @@ pub const Env = .{
     } },
     .{ .{ "mul", "*" }, "integer/floating point multiplication on any number of values", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            var rargs = try interpreter.argIterator(true, args);
-            var a = try rargs.atLeast();
+            var rArgs = try interpreter.argIterator(true, args);
+            var a = try rArgs.atLeast();
             try checkIsIntOrFloat(interpreter, at, 0, a);
-            while (try rargs.nextWithIndex()) |next| {
+            while (try rArgs.nextWithIndex()) |next| {
                 const b = next[0];
                 const i = next[1];
                 try checkIsIntOrFloat(interpreter, at, i, b);
@@ -98,10 +98,10 @@ pub const Env = .{
     } },
     .{ .{ "div", "/" }, "integer/floating point division on any number of values", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            var rargs = try interpreter.argIterator(true, args);
-            var a = try rargs.atLeast();
+            var rArgs = try interpreter.argIterator(true, args);
+            var a = try rArgs.atLeast();
             try checkIsIntOrFloat(interpreter, at, 0, a);
-            while (try rargs.nextWithIndex()) |next| {
+            while (try rArgs.nextWithIndex()) |next| {
                 const b = next[0];
                 const i = next[1];
                 try checkIsIntOrFloat(interpreter, at, i, b);
@@ -136,10 +136,10 @@ pub const Env = .{
     } },
     .{ .{ "mod", "%" }, "integer/floating point remainder division on any number of values", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            var rargs = try interpreter.argIterator(true, args);
-            var a = try rargs.atLeast();
+            var rArgs = try interpreter.argIterator(true, args);
+            var a = try rArgs.atLeast();
             try checkIsIntOrFloat(interpreter, at, 0, a);
-            while (try rargs.nextWithIndex()) |next| {
+            while (try rArgs.nextWithIndex()) |next| {
                 const b = next[0];
                 const i = next[1];
                 try checkIsIntOrFloat(interpreter, at, i, b);
@@ -174,10 +174,10 @@ pub const Env = .{
     } },
     .{ .{ "pow", "^" }, "integer/floating point exponentiation on any number of values", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            var rargs = try interpreter.argIterator(true, args);
-            var a = try rargs.atLeast();
+            var rArgs = try interpreter.argIterator(true, args);
+            var a = try rArgs.atLeast();
             try checkIsIntOrFloat(interpreter, at, 0, a);
-            while (try rargs.nextWithIndex()) |next| {
+            while (try rArgs.nextWithIndex()) |next| {
                 const b = next[0];
                 const i = next[1];
                 try checkIsIntOrFloat(interpreter, at, i, b);

@@ -1,4 +1,4 @@
-(def-var foo 100)
+(def foo 100)
 
 (print-ln (attr-of foo))
 (print-ln (attr-of '@))

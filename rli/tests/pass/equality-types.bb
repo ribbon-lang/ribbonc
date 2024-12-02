@@ -1,5 +1,5 @@
 (assert-eq '(1 2) '(1 2))
-(def-var foo '(1 2))
+(def foo '(1 2))
 (assert-eq-addr foo foo)
 (assert (eq-addr? foo foo))
 (assert (not (==* foo '(1 2))))

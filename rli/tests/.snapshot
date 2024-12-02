@@ -91,7 +91,7 @@ err[0]:
 ## pass:attr
 out[101]:
 ```
-[./tests/pass/attr.bb:1:14-17]
+[./tests/pass/attr.bb:1:10-13]
 [./tests/pass/attr.bb:4:21-22]
 [foo:100:50 to 200:22]
 [foo:?-?]

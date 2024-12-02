@@ -688,22 +688,22 @@ pub const SExpr = extern struct {
 
     pub fn ExternDataErased(attr: *const Source.Attr, ptr: *anyopaque, vtable: *const Types.ExternData.VTable(anyopaque), typeName: []const u8) !SExpr {
         const buf = try attr.context.newBuffer(u8, typeName);
-        const externdata = try attr.context.new(Types.ExternData{ .attr = attr, .ptr = ptr, .vtable = vtable, .typeName = Extern.UStr.fromNative(buf) });
+        const externData = try attr.context.new(Types.ExternData{ .attr = attr, .ptr = ptr, .vtable = vtable, .typeName = Extern.UStr.fromNative(buf) });
 
-        attr.context.setFinalizer(externdata, Types.ExternData.finalizer);
+        attr.context.setFinalizer(externData, Types.ExternData.finalizer);
 
         return SExpr{
-            .head = Head.init(Types.ExternData, externdata),
+            .head = Head.init(Types.ExternData, externData),
             .data = .{ .nil = .{} },
         };
     }
 
     pub fn ExternFunction(attr: *const Source.Attr, name: []const u8, proc: Types.ExternFunction.Proc) !SExpr {
         const buf = try attr.context.newBuffer(u8, name);
-        const externfunction = try attr.context.new(Types.ExternFunction{ .attr = attr, .name = Extern.UStr.fromNative(buf), .proc = proc });
+        const externFunction = try attr.context.new(Types.ExternFunction{ .attr = attr, .name = Extern.UStr.fromNative(buf), .proc = proc });
 
         return SExpr{
-            .head = Head.init(Types.ExternFunction, externfunction),
+            .head = Head.init(Types.ExternFunction, externFunction),
             .data = .{ .nil = .{} },
         };
     }

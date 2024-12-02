@@ -1,5 +1,5 @@
-(def-var foo "bar")
+(def foo "bar")
 
-(def-fun bar ()
+(def fun bar ()
   (print-ln foo))
 (bar)

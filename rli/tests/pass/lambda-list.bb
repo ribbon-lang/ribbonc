@@ -27,23 +27,23 @@
 
 (assert-eq '((c . 3) (b . 2))
     (run-lambda-list
-        (-> (lambda (x) (f-assert-eq x 2) (list x 3)) . (b c))
+        (-> (fun (x) (f-assert-eq x 2) (list x 3)) . (b c))
         2))
 
 (assert-eq '((x . (2 3)))
     (run-lambda-list
-        (-> (lambda (x) (f-assert-eq x 2) (list x 3)) . x)
+        (-> (fun (x) (f-assert-eq x 2) (list x 3)) . x)
         2))
 
 (assert-eq '((x . 2))
     (run-lambda-list
-        (-> (lambda (x) (f-assert-eq x 2) x) . x)
+        (-> (fun (x) (f-assert-eq x 2) x) . x)
         2))
 
 (assert-eq 'okay
     (with ((fun fail () (terminate 'okay)))
         (f-lambda-list
-            (-> (lambda (x) (f-assert-eq x 1) (list x)) a)
+            (-> (fun (x) (f-assert-eq x 1) (list x)) a)
             2)))
 
 (assert-eq ()

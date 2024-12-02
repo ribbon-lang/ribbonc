@@ -117,7 +117,7 @@ The `rli` executable is a work in progress, but offers a functional command line
 
 #### CLI Usage
 ```
-rli [-i] [--dump-stdin <bool>] [--history <path>] [--disable-raw-mode] [--use-emoji <bool>] [--use-ansi-styles <bool>] [--max-comptime-depth <uint>] <path>...
+rli [--interactive] [--dump-stdin <bool>] [--history <path>] [--disable-raw-mode] [--use-emoji <bool>] [--use-ansi-styles <bool>] [--max-comptime-depth <uint>] <path>...
 ```
 ```
 rli --help
@@ -131,7 +131,7 @@ rli --version
 |-|-|
 |`--help`| Display options help message, and exit |
 |`--version`| Display SemVer2 version number for rli, and exit |
-|`-i`, `--interactive`| Run the interpreter in REPL mode |
+|`--interactive`| Run the interpreter in REPL mode |
 |`--dump-stdin <bool>`| (REPL) Dump stdin to a file [Default: false] |
 |`--history <path>`| (REPL) Path to the REPL history file [Default: .rli-repl-history] |
 |`--disable-raw-mode`| (REPL) Disable raw line editing mode |
@@ -280,7 +280,7 @@ bindings in the current environment.
 and evaluates the body in that frame.
 > ##### Example
 > ```lisp
-> (let ((var x (+ 1 1))
+> (let ((x (+ 1 1))
 >       (fun f (x) (+ x 1))
 >       (macro m (x) `(f ,x)))
 >   (action1 x)
@@ -288,12 +288,14 @@ and evaluates the body in that frame.
 >   (action3 (m x)))
 > ```
 
-`def-var`, `def-fun`, and `def-macro` forms mirror the syntax of `let`,
+`def`, `def fun`, and `def macro` forms mirror the syntax of `let`,
 but bind individual symbols in the current environment.
 > ##### Example
 > ```lisp
-> (def-var x (+ 1 1))
-> (action x)
+> (def x (+ 1 1))
+> (def fun f (x) (+ x 1))
+> (action1 x)
+> (action2 (f x))
 > ```
 
 `bound?` and `set!` can be used to query and manipulate
@@ -301,9 +303,7 @@ bindings created with any of the above forms.
 
 | Symbol | Description |
 |-|-|
-|`def-var`| define a new variable |
-|`def-fun`| define a new function |
-|`def-macro`| define a new macro function |
+|`def`| define a new variable |
 |`let`| create local value bindings |
 |`bound?`| check if a given symbol is bound in the current env |
 |`set!`| set the value of a symbol in the current env. symbol must already be bound. returns old value |
@@ -619,7 +619,7 @@ See [Syntax](#syntax) for more information on the syntax of `quote` and `quasiqu
 |`env-copy`| copy a given environment |
 |`env-new`| make a new environment from a simple a-list |
 |`env-get-frame`| get the environment frame at the given offset depth; prompts `fail` if the depth is out of bounds |
-|`env-push`| push a given environment frame into the current environment, returning the modified enviroment |
+|`env-push`| push a given environment frame into the current environment, returning the modified environment |
 |`env-pop`| pop an environment frame off the current environment, returning it and the modified environment as a pair `(frame . env)`; prompts `fail` if the environment is empty |
 |`swap-env`| replace the current environment with the given one, returning the old one; optionally accepts `'self` `'caller` or `'evidence` symbols indicating which environment to effect |
 |`take-env`| take the current environment, leaving it empty; optionally accepts `'self` `'caller` or `'evidence` symbols indicating which environment to effect |
@@ -634,9 +634,9 @@ This module provides access to Ribbon's parser from within the language.
 
 > ##### Example
 > ```lisp
-> (def-var p (parser-new))
-> (def-var first-ln "(print-ln \"hello world\")")
-> (def-var line-len (string-length first-ln))
+> (def p (parser-new))
+> (def first-ln "(print-ln \"hello world\")")
+> (def line-len (string-length first-ln))
 > (parser-filename! p "foo")
 > (parser-input! p
 >     (string-intercalate "\n"
@@ -644,7 +644,7 @@ This module provides access to Ribbon's parser from within the language.
 >         "(print-ln \"goodbye world\")"
 >         "(+ 1 2)")
 >     '((2 . 1) . 0))
-> (def-var res1 (parse-sexpr! p))
+> (def res1 (parse-sexpr! p))
 > (assert-eq
 >     (cdr (attr-range (attr-of res1)))
 >     (cons (cons 2 (+ 1 line-len)) line-len))
