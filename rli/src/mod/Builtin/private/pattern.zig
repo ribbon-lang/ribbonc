@@ -6,7 +6,7 @@ const SExpr = Core.SExpr;
 const Interpreter = Core.Interpreter;
 
 pub const Doc =
-    \\##### Supported lambda list syntax
+    \\##### Supported pattern syntax
     \\- `optional` = `(? var)`
     \\    > if there are arguments remaining, apply `var` to the next argument; otherwise any bindings within `var` are `nil`
     \\- `rest` = `(... symbol)`
@@ -41,83 +41,83 @@ pub const Doc =
     \\> ##### Example
     \\> ```lisp
     \\> (assert-eq
-    \\>     (run-lambda-list (a b) '(1 2))
+    \\>     (pattern/run (a b) '(1 2))
     \\>     '((b . 2) (a . 1)))
     \\>
     \\> (assert-eq
     \\>     (with ((fun fail () (terminate ())))
-    \\>         (f-lambda-list (a b) '(1)))
+    \\>         (pattern/run-f (a b) '(1)))
     \\>     ())
     \\>
     \\> (assert-eq
-    \\>     (run-lambda-list (@ a 1) 1)
+    \\>     (pattern/run (@ a 1) 1)
     \\>     '((a . 1)))
     \\>
     \\> (assert-eq
-    \\>     (run-lambda-list 1 1)
+    \\>     (pattern/run 1 1)
     \\>     ())
     \\>
     \\> (assert-eq '((x . (2 3)))
-    \\>     (run-lambda-list
+    \\>     (pattern/run
     \\>         (-> (lambda (x) (f-assert-eq x 2) (list x 3)) . x)
     \\>         2))
     \\>
     \\> (assert-eq 'okay
     \\>     (with ((fun fail () (terminate 'okay)))
-    \\>         (f-lambda-list
+    \\>         (pattern/run-f
     \\>             (-> (lambda (x) (f-assert-eq x 1) (list x)) a)
     \\>             2)))
     \\>
     \\> (assert-eq '((x . (1 . 2)))
-    \\>     (run-lambda-list
+    \\>     (pattern/run
     \\>         (@ x (: pair?))
     \\>         '(1 . 2)))
     \\>
     \\> (assert-eq 'okay
     \\>     (with ((fun fail () (terminate 'okay)))
-    \\>         (f-lambda-list
+    \\>         (pattern/run-f
     \\>             (@ x (: pair?))
     \\>             1)))
     \\> ```
 ;
 
 pub const Env = .{
-    .{ "validate-lambda-list", "given a lambda list, returns a boolean indicating whether it is valid", struct {
+    .{ "pattern/validate", "given a pattern, returns a boolean indicating whether it is valid", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const llist = try interpreter.eval1(args);
-            if (Interpreter.LambdaListRich.validate(interpreter, llist)) |_| {
+            if (Interpreter.PatternRich.validate(interpreter, llist)) |_| {
                 return try SExpr.Bool(at, true);
             } else |_| {
                 return try SExpr.Bool(at, false);
             }
         }
     } },
-    .{ "lambda-list-binders", "given a lambda list, returns a list of the symbols that will be bound if it is successfully run on an input", struct {
+    .{ "pattern/binders", "given a pattern, returns a list of the symbols that will be bound if it is successfully run on an input", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const llist = try interpreter.eval1(args);
-            const binders = try Interpreter.LambdaListLite.binders(interpreter, at, llist);
+            const binders = try Interpreter.PatternLite.binders(interpreter, at, llist);
             defer interpreter.context.allocator.free(binders);
             return SExpr.List(at, binders);
         }
     } },
-    .{ "f-lambda-list", "given a lambda list and an input, returns an env frame binding the symbols of the list to the values of the input, or prompts fail", struct {
+    .{ "pattern/run-f", "given a pattern and an input, returns an env frame binding the symbols of the list to the values of the input, or prompts fail", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const buf = try interpreter.expect2(args);
             const llist = buf[0];
             const largs = try interpreter.eval(buf[1]);
-            const result = try Interpreter.LambdaListLite.run(interpreter, at, llist, largs);
+            const result = try Interpreter.PatternLite.run(interpreter, at, llist, largs);
             switch (result) {
                 .Okay => |env| return env,
                 .Error => return interpreter.nativePrompt(at, "fail", &[0]SExpr{}),
             }
         }
     } },
-    .{ "e-lambda-list", "given a lambda list and an input, returns an env frame binding the symbols of the list to the values of the input, or prompts an exception on failure", struct {
+    .{ "pattern/run-e", "given a pattern and an input, returns an env frame binding the symbols of the list to the values of the input, or prompts an exception on failure", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const buf = try interpreter.expect2(args);
             const llist = buf[0];
             const largs = try interpreter.eval(buf[1]);
-            const result = try Interpreter.LambdaListRich.run(interpreter, at, llist, largs);
+            const result = try Interpreter.PatternRich.run(interpreter, at, llist, largs);
             switch (result) {
                 .Okay => |env| return env,
                 .Error => |err| {
@@ -127,15 +127,15 @@ pub const Env = .{
             }
         }
     } },
-    .{ "run-lambda-list", "given a lambda list and an input, returns an env frame binding the symbols of the list to the values of the input, or causes a compile time error on failure", struct {
+    .{ "pattern/run", "given a pattern and an input, returns an env frame binding the symbols of the list to the values of the input, or causes a compile time error on failure", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const buf = try interpreter.expect2(args);
             const llist = buf[0];
             const largs = try interpreter.eval(buf[1]);
-            const result = try Interpreter.LambdaListRich.run(interpreter, at, llist, largs);
+            const result = try Interpreter.PatternRich.run(interpreter, at, llist, largs);
             switch (result) {
                 .Okay => |env| return env,
-                .Error => |err| return interpreter.abort(err.err, err.attr orelse at, "lambda list failed: {s}", .{err.msg orelse "no message provided"}),
+                .Error => |err| return interpreter.abort(err.err, err.attr orelse at, "pattern failed: {s}", .{err.msg orelse "no message provided"}),
             }
         }
     } },

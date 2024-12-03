@@ -19,9 +19,9 @@ out[0]:
 ```
 err[165]:
 ```
-! Evaluation error at [./tests/fail/empty-parse.bb:1:1 to 3:38]: Panic
+! Evaluation error at [./tests/fail/empty-parse.bb:3:1 to 5:38]: Panic
 	global prompt `fail` terminated with:
-		[./tests/fail/empty-parse.bb:3:20-35]: uncaught fail
+		[./tests/fail/empty-parse.bb:5:20-35]: uncaught fail
 
 ```
 
@@ -58,9 +58,9 @@ out[0]:
 ```
 err[177]:
 ```
-! Evaluation error at [./tests/fail/unstringify.bb:1:1 to 3:64]: Panic
+! Evaluation error at [./tests/fail/unstringify.bb:3:1 to 5:64]: Panic
 	global prompt `exception` terminated with:
-		[./tests/fail/unstringify.bb:3:20-61]: uncaught ExpectedEof
+		[./tests/fail/unstringify.bb:5:20-61]: uncaught ExpectedEof
 
 ```
 
@@ -91,8 +91,8 @@ err[0]:
 ## pass:attr
 out[101]:
 ```
-[./tests/pass/attr.bb:1:10-13]
-[./tests/pass/attr.bb:4:21-22]
+[./tests/pass/attr.bb:3:10-13]
+[./tests/pass/attr.bb:6:21-22]
 [foo:100:50 to 200:22]
 [foo:?-?]
 [foo]
@@ -246,6 +246,17 @@ out[17]:
 100
 100
 11
+
+```
+err[0]:
+```
+
+```
+
+## pass:pattern
+out[18]:
+```
+((b . 2) (a . 1))
 
 ```
 err[0]:

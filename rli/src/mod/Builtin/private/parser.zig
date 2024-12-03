@@ -2,7 +2,7 @@ const std = @import("std");
 
 const Extern = @import("Utils").Extern;
 const MiscUtils = @import("Utils").Misc;
-const BuiltinSource = @import("Builtin:Source");
+const attr = @import("Builtin:attr");
 
 const Core = @import("Core");
 const Source = Core.Source;
@@ -15,29 +15,29 @@ pub const Doc =
     \\
     \\> ##### Example
     \\> ```lisp
-    \\> (def p (parser-new))
+    \\> (def p (parser/new))
     \\> (def first-ln "(print-ln \"hello world\")")
     \\> (def line-len (string-length first-ln))
-    \\> (parser-filename! p "foo")
-    \\> (parser-input! p
+    \\> (parser/filename! p "foo")
+    \\> (parser/input! p
     \\>     (string-intercalate "\n"
     \\>         first-ln
     \\>         "(print-ln \"goodbye world\")"
     \\>         "(+ 1 2)")
     \\>     '((2 . 1) . 0))
-    \\> (def res1 (parse-sexpr! p))
+    \\> (def res1 (parser/parse-sexpr! p))
     \\> (assert-eq
     \\>     (cdr (attr-range (attr-of res1)))
     \\>     (cons (cons 2 (+ 1 line-len)) line-len))
     \\> (interpreter res1)
     \\> (interpreter (parse-sexpr! p))
     \\> (assert-eq (interpreter (parse-sexpr! p)) 3)
-    \\> (assert (parser-eof? p))
+    \\> (assert (parser/eof? p))
     \\> ```
 ;
 
 pub const Env = .{
-    .{ "parser-new", "create a parser object", struct {
+    .{ "parser/new", "create a parser object", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             try interpreter.expect0(args);
             const parser = try Parser.init(interpreter.context);
@@ -45,7 +45,7 @@ pub const Env = .{
         }
     } },
 
-    .{ "parser-filename!", "set the file name of the given parser; returns old value", struct {
+    .{ "parser/filename!", "set the file name of the given parser; returns old value", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const rargs = try interpreter.eval2(args);
             const parser = try interpreter.castExternDataPtr(Parser, at, rargs[0]);
@@ -55,7 +55,7 @@ pub const Env = .{
             return try SExpr.StringPreallocated(at, oldFileName);
         }
     } },
-    .{ "parser-filename", "get the file name of the given parser", struct {
+    .{ "parser/filename", "get the file name of the given parser", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const arg = try interpreter.eval1(args);
             const parser = try interpreter.castExternDataPtr(Parser, at, arg);
@@ -63,20 +63,20 @@ pub const Env = .{
         }
     } },
 
-    .{ "parser-input!", "set the input of the given parser, optionally providing a position offset; returns old values as a pair", struct {
+    .{ "parser/input!", "set the input of the given parser, optionally providing a position offset; returns old values as a pair", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             var eargs = [3]SExpr{ undefined, undefined, undefined };
             const len = try interpreter.evalSmallList(args, 2, &eargs);
             const parser = try interpreter.castExternDataPtr(Parser, at, eargs[0]);
             const input = try interpreter.castStringSlice(at, eargs[1]);
-            const offset = if (len == 3) try BuiltinSource.convertSExprToPos(interpreter, at, eargs[2]) else null;
+            const offset = if (len == 3) try attr.convertSExprToPos(interpreter, at, eargs[2]) else null;
             const oldInput = parser.input;
-            const oldOffset = try BuiltinSource.convertPosToSExpr(at, parser.posOffset);
+            const oldOffset = try attr.convertPosToSExpr(at, parser.posOffset);
             parser.setInput(input, offset);
             return try SExpr.Cons(at, try SExpr.String(at, oldInput), oldOffset);
         }
     } },
-    .{ "parser-input", "get the input of the given parser", struct {
+    .{ "parser/input", "get the input of the given parser", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const arg = try interpreter.eval1(args);
             const parser = try interpreter.castExternDataPtr(Parser, at, arg);
@@ -84,7 +84,7 @@ pub const Env = .{
         }
     } },
 
-    .{ "parse-sexpr!", "parse an S-expression from the given parser's input; prompts `exception` with an error symbol if an error is encountered; prompts `fail` if there was nothing to parse", struct {
+    .{ "parser/parse-sexpr!", "parse an S-expression from the given parser's input; prompts `exception` with an error symbol if an error is encountered; prompts `fail` if there was nothing to parse", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const arg = try interpreter.eval1(args);
             const parser = try interpreter.castExternDataPtr(Parser, at, arg);
@@ -110,7 +110,7 @@ pub const Env = .{
         }
     } },
 
-    .{ "parser-eof?", "determine whether a parser is at the end of its input", struct {
+    .{ "parser/eof?", "determine whether a parser is at the end of its input", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const arg = try interpreter.eval1(args);
             const parser = try interpreter.castExternDataPtr(Parser, at, arg);
@@ -119,7 +119,7 @@ pub const Env = .{
     } },
 };
 
-pub fn ExternParser(attr: *const Source.Attr, parser: *Core.Parser) !SExpr {
+pub fn ExternParser(at: *const Source.Attr, parser: *Core.Parser) !SExpr {
     const ParserVTable = SExpr.Types.ExternData.VTable(Core.Parser){
         .compare = struct {
             fn fun(self: *const Core.Parser, other: *const Core.Parser) callconv(.C) MiscUtils.Ordering {
@@ -138,5 +138,5 @@ pub fn ExternParser(attr: *const Source.Attr, parser: *Core.Parser) !SExpr {
         }.fun,
     };
 
-    return SExpr.ExternData(Core.Parser, attr, parser, &ParserVTable);
+    return SExpr.ExternData(Core.Parser, at, parser, &ParserVTable);
 }

@@ -11,14 +11,14 @@ pub const Doc =
 ;
 
 pub const Env = .{
-    .{ "alist-pair", "lookup a key symbol in an association list, returning the pair it binds; prompts `fail` if the key is not found", struct {
+    .{ "alist/pair", "lookup a key symbol in an association list, returning the pair it binds; prompts `fail` if the key is not found", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const rArgs = try interpreter.eval2(args);
             const key = rArgs[0];
             try interpreter.validateSymbol(at, key);
             const alist = rArgs[1];
             try interpreter.validateListOrNil(at, alist);
-            const pair = Interpreter.frameLookup(key, alist) catch |err| {
+            const pair = Interpreter.alistLookup(key, alist) catch |err| {
                 return interpreter.abort(err, at, "expected an association list, got {}: `{}`", .{ alist.getTag(), alist });
             };
             if (pair) |p| {
@@ -28,14 +28,14 @@ pub const Env = .{
             }
         }
     } },
-    .{ "alist-lookup", "lookup a key symbol in an association list, returning its associated value; prompts `fail` if the key is not found", struct {
+    .{ "alist/lookup-f", "lookup a key symbol in an association list, returning its associated value; prompts `fail` if the key is not found", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const rArgs = try interpreter.eval2(args);
             const key = rArgs[0];
             try interpreter.validateSymbol(at, key);
             const alist = rArgs[1];
             try interpreter.validateListOrNil(at, alist);
-            const pair = Interpreter.frameLookup(key, alist) catch |err| {
+            const pair = Interpreter.alistLookup(key, alist) catch |err| {
                 return interpreter.abort(err, at, "expected an association list, got {}: `{}`", .{ alist.getTag(), alist });
             };
             if (pair) |p| {
@@ -46,20 +46,38 @@ pub const Env = .{
             }
         }
     } },
-    .{ "alist-member?", "check if a key symbol is present in an association list", struct {
+    .{ "alist/lookup", "lookup a key symbol in an association list, returning its associated value; returns `nil` if the key is not found", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const rArgs = try interpreter.eval2(args);
             const key = rArgs[0];
             try interpreter.validateSymbol(at, key);
             const alist = rArgs[1];
             try interpreter.validateListOrNil(at, alist);
-            const pair = Interpreter.frameLookup(key, alist) catch |err| {
+            const pair = Interpreter.alistLookup(key, alist) catch |err| {
+                return interpreter.abort(err, at, "expected an association list, got {}: `{}`", .{ alist.getTag(), alist });
+            };
+            if (pair) |p| {
+                const xp = try interpreter.castPair(at, p);
+                return xp.cdr;
+            } else {
+                return try SExpr.Nil(at);
+            }
+        }
+    } },
+    .{ "alist/member?", "check if a key symbol is present in an association list", struct {
+        pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
+            const rArgs = try interpreter.eval2(args);
+            const key = rArgs[0];
+            try interpreter.validateSymbol(at, key);
+            const alist = rArgs[1];
+            try interpreter.validateListOrNil(at, alist);
+            const pair = Interpreter.alistLookup(key, alist) catch |err| {
                 return interpreter.abort(err, at, "expected an association list, got {}: `{}`", .{ alist.getTag(), alist });
             };
             return SExpr.Bool(at, pair != null);
         }
     } },
-    .{ "alist-append", "append a key-value pair to an association list", struct {
+    .{ "alist/append", "append a key-value pair to an association list", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const rArgs = try interpreter.eval3(args);
             const key = rArgs[0];
@@ -70,7 +88,7 @@ pub const Env = .{
             return SExpr.Cons(at, try SExpr.Cons(at, key, value), alist);
         }
     } },
-    .{ "alist-set!", "set the value of an existing key-value pair in an association list, returning the old value; prompts `fail` if the key is not found", struct {
+    .{ "alist/set!", "set the value of an existing key-value pair in an association list, returning the old value; prompts `fail` if the key is not found", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const rArgs = try interpreter.eval3(args);
             const key = rArgs[0];
@@ -78,7 +96,7 @@ pub const Env = .{
             const value = rArgs[1];
             const alist = rArgs[2];
             try interpreter.validateListOrNil(at, alist);
-            const pair = Interpreter.frameLookup(key, alist) catch |err| {
+            const pair = Interpreter.alistLookup(key, alist) catch |err| {
                 return interpreter.abort(err, at, "expected an association list, got {}: `{}`", .{ alist.getTag(), alist });
             };
             if (pair) |p| {
@@ -91,7 +109,7 @@ pub const Env = .{
             }
         }
     } },
-    .{ "alist-each", "calls a function with each key-value pair in an association list", struct {
+    .{ "alist/each", "calls a function with each key-value pair in an association list", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const rArgs = try interpreter.eval2(args);
             const alist = rArgs[0];
@@ -105,10 +123,10 @@ pub const Env = .{
             return try SExpr.Nil(at);
         }
     } },
-    .{ "alist-keys", "get the keys of a given association list", struct {
+    .{ "alist/keys", "get the keys of a given association list", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const frame = try interpreter.eval1(args);
-            const keys = Interpreter.frameKeys(frame) catch |err| {
+            const keys = Interpreter.alistKeys(frame) catch |err| {
                 return interpreter.abort(err, at, "expected an association list, got {}: `{}`", .{ frame.getTag(), frame });
             };
             defer interpreter.context.allocator.free(keys);

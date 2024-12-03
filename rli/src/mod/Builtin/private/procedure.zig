@@ -47,6 +47,6 @@ pub const Env = .{
 
 pub fn function(interpreter: *Interpreter, at: *const Source.Attr, kind: SExpr.Types.Function.Kind, args: SExpr) Interpreter.Result!SExpr {
     const rArgs = try interpreter.expectAtLeast1(args);
-    try Interpreter.LambdaListRich.validate(interpreter, rArgs.head);
+    try Interpreter.PatternRich.validate(interpreter, rArgs.head);
     return try SExpr.Function(at, kind, rArgs.head, interpreter.env, rArgs.tail);
 }

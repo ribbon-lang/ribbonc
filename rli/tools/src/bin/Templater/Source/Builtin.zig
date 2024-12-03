@@ -57,11 +57,12 @@ pub fn main() !void {
             const envFiles = try readDir(allocator, envPath);
             for (envFiles) |fileName| {
                 const envName = std.fs.path.stem(fileName);
+                const filteredName = try filterName(allocator, envName);
 
                 try output.print(
                 \\pub const {s} = @import("Builtin:{s}").Env;
                 \\
-                , .{ envName, envName });
+                , .{ filteredName, envName });
             }
         },
         .SCRIPTS => {
@@ -78,13 +79,14 @@ pub fn main() !void {
 
                 const fileName = entry.name;
                 const scriptName = std.fs.path.stem(fileName);
+                const filteredName = try filterName(allocator, scriptName);
 
                 const file = try dir.openFile(fileName, .{ .mode = .read_only });
                 defer file.close();
 
                 const reader = file.reader();
 
-                try output.print("    .{s} =\n", .{ scriptName });
+                try output.print("    .{s} =\n", .{ filteredName });
 
                 while (try reader.readUntilDelimiterOrEofAlloc(allocator, '\n', std.math.maxInt(usize))) |line| {
                     try output.print("        \\\\{s}\n", .{ line });
@@ -97,6 +99,7 @@ pub fn main() !void {
             const envFiles = try readDir(allocator, envPath);
             for (envFiles, 0..) |fileName, i| {
                 const envName = std.fs.path.stem(fileName);
+                const filteredName = try filterName(allocator, envName);
 
                 try output.print(
                 \\pub const {s}: ?[]const u8 = {s}: {{
@@ -109,7 +112,7 @@ pub fn main() !void {
                 \\    }}
                 \\}};
                 \\
-                , .{ envName, envName, envName, envName, envName });
+                , .{ filteredName, filteredName, envName, filteredName, filteredName });
 
                 if (i < envFiles.len - 1) {
                     try output.writeAll("\n");
@@ -119,6 +122,38 @@ pub fn main() !void {
     }
 }
 
+const ZigBuiltinNames = [_][]const u8 {"type", "struct", "union", "fn", "const", "var", "enum", "pub", "comptime", "extern", "export", "inline"};
+const ZigAllowedChars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_";
+
+fn nameNeedsFilter(name: []const u8) bool {
+    validate: for (name) |c| {
+        inline for (ZigAllowedChars) |allowedChar| {
+            if (c == allowedChar) {
+                continue :validate;
+            }
+        }
+        return true;
+    }
+
+    inline for (ZigBuiltinNames) |zigName| {
+        if (std.mem.eql(u8, zigName, name)) return true;
+    }
+
+    return false;
+}
+
+fn filterName(allocator: std.mem.Allocator, name: []const u8) ![]const u8 {
+    if (nameNeedsFilter(name)) {
+        const filtered = try allocator.alloc(u8, name.len + 3);
+        filtered[0] = '@';
+        filtered[1] = '"';
+        std.mem.copyForwards(u8, filtered[2..], name);
+        filtered[name.len + 2] = '"';
+        return filtered;
+    }
+
+    return name;
+}
 
 fn readDir(allocator: std.mem.Allocator, path: []const u8) ![]const []const u8 {
     const cwd = std.fs.cwd();

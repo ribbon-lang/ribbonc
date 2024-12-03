@@ -18,7 +18,7 @@ const Rli = @This();
 
 gpa: std.mem.Allocator,
 out: std.io.AnyWriter,
-ctx: *Context,
+context: *Context,
 parser: *Parser,
 interpreter: *Interpreter,
 readFileCallback: ?*const fn (rli: *Rli, []const u8) Error![]const u8 = null,
@@ -26,22 +26,22 @@ userdata: *anyopaque = undefined,
 
 pub const Error = Parser.SyntaxError || Interpreter.Result || MiscUtils.IOError;
 
-pub fn init(gpa: std.mem.Allocator, out: std.io.AnyWriter, builtinEnvs: []const Builtin.EnvName, args: []const []const u8) Error!*Rli {
+pub fn init(gpa: std.mem.Allocator, out: std.io.AnyWriter, builtinEnvs: Builtin.EnvSet, args: []const []const u8) Error!*Rli {
     log.info("initializing context ...", .{});
-    var ctx = ctx: {
+    var context = context: {
         if (Context.initGc()) |ptr| {
             log.info("... context ready", .{});
-            break :ctx ptr;
+            break :context ptr;
         } else |err| {
             log.err("... failed to initialize context", .{});
             return err;
         }
     };
-    errdefer ctx.deinit();
+    errdefer context.deinit();
 
     log.info("initializing parser ...", .{});
     var parser = parser: {
-        if (Parser.init(ctx)) |ptr| {
+        if (Parser.init(context)) |ptr| {
             log.info("... parser ready", .{});
             break :parser ptr;
         } else |err| {
@@ -53,7 +53,7 @@ pub fn init(gpa: std.mem.Allocator, out: std.io.AnyWriter, builtinEnvs: []const 
 
     log.info("initializing interpreter ...", .{});
     var interpreter = interpreter: {
-        if (Interpreter.init(ctx)) |ptr| {
+        if (Interpreter.init(context)) |ptr| {
             log.info("... interpreter ready", .{});
             break :interpreter ptr;
         } else |err| {
@@ -65,12 +65,18 @@ pub fn init(gpa: std.mem.Allocator, out: std.io.AnyWriter, builtinEnvs: []const 
 
     const self = try gpa.create(Rli);
 
-    self.* = .{ .gpa = gpa, .out = out, .ctx = ctx, .parser = parser, .interpreter = interpreter };
+    self.* = Rli{
+        .gpa = gpa,
+        .out = out,
+        .context = context,
+        .parser = parser,
+        .interpreter = interpreter
+    };
 
     log.info("loading boot code ...", .{});
     {
         log.info("initializing primary process environment ...", .{});
-        const sArgs = makeArgs(self.ctx, args) catch |err| {
+        const sArgs = makeArgs(self.context, args) catch |err| {
             log.err("... failed to load command line arguments", .{});
             return err;
         };
@@ -85,7 +91,8 @@ pub fn init(gpa: std.mem.Allocator, out: std.io.AnyWriter, builtinEnvs: []const 
         log.info("... primary process environment loaded", .{});
 
         log.info("initializing builtin environments ...", .{});
-        for (builtinEnvs) |env| {
+        var envIterator = Builtin.EnvIterator.from(builtinEnvs);
+        while (envIterator.next()) |env| {
             self.interpreter.bindBuiltinEnv(self.interpreter.env, env) catch |err| {
                 log.err("... failed to initialize builtin environment {s}", .{@tagName(env)});
                 return err;
@@ -104,7 +111,12 @@ pub fn init(gpa: std.mem.Allocator, out: std.io.AnyWriter, builtinEnvs: []const 
             log.info("... finished builtin script [{s}], result:\n{}", .{ scriptName, result });
         }
 
-        log.info("... boot code loaded", .{});
+        log.info("modularizing environments ...", .{});
+        self.interpreter.env = Interpreter.modularizeEnv(self.context.attr, self.interpreter.env) catch |err| {
+            log.err("... failed to modularize environment", .{});
+            return err;
+        };
+        log.debug("... environment modularized", .{});
     }
 
 
@@ -114,7 +126,7 @@ pub fn init(gpa: std.mem.Allocator, out: std.io.AnyWriter, builtinEnvs: []const 
 pub fn deinit(self: *Rli) void {
     self.interpreter.deinit();
     self.parser.deinit();
-    self.ctx.deinit();
+    self.context.deinit();
     self.gpa.destroy(self);
 }
 
@@ -130,17 +142,17 @@ pub fn expectedOutput(self: *Rli, comptime fmt: []const u8, args: anytype) Error
     };
 }
 
-fn makeArgs(ctx: *Context, args: []const []const u8) Error!SExpr {
-    var sArgs = std.ArrayList(SExpr).init(ctx.allocator);
+fn makeArgs(context: *Context, args: []const []const u8) Error!SExpr {
+    var sArgs = std.ArrayList(SExpr).init(context.allocator);
     defer sArgs.deinit();
 
     for (args) |arg| {
-        const sArg = try SExpr.String(ctx.attr, arg);
+        const sArg = try SExpr.String(context.attr, arg);
 
         try sArgs.append(sArg);
     }
 
-    return try SExpr.List(ctx.attr, sArgs.items);
+    return try SExpr.List(context.attr, sArgs.items);
 }
 
 pub fn readFile(self: *Rli, fileName: []const u8) Error!SExpr {

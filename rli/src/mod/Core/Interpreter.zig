@@ -11,6 +11,9 @@ const SExpr = Core.SExpr;
 const Context = Core.Context;
 const Source = Core.Source;
 
+const log = Core.log;
+
+
 context: *Context,
 errorCause: ?[]const u8,
 attr: ?*const Source.Attr,
@@ -47,6 +50,7 @@ pub const EvaluationError = error{
     MissingDynamic,
     UnexpectedTerminate,
     MissingTerminationData,
+    NoModuleSystem,
 };
 
 pub fn asResult(r: anyerror) ?Result {
@@ -146,6 +150,7 @@ pub const RichError = struct {
             EvaluationError.MissingDynamic => return writer.print("Missing dynamic binding", .{}),
             EvaluationError.UnexpectedTerminate => return writer.print("Unexpected `terminate`", .{}),
             EvaluationError.MissingTerminationData => return writer.print("Missing termination data", .{}),
+            EvaluationError.NoModuleSystem => return writer.print("No module system", .{}),
 
             TextUtils.Error.BadEncoding => return writer.print("Bad text encoding", .{}),
             Context.Error.OutOfMemory => return writer.print("Out of memory", .{}),
@@ -219,17 +224,12 @@ pub fn errFmt(interpreter: *const Interpreter, err: Error) RichError {
 }
 
 pub fn envLookupPair(symbol: SExpr, env: SExpr) Error!?SExpr {
-    var current = env;
-    while (!current.isNil()) {
-        const xp = current.castCons() orelse return EvaluationError.TypeError;
-        const frame = xp.car;
-        const rest = xp.cdr;
+    var it = env.iter();
 
-        if (try frameLookup(symbol, frame)) |pair| {
+    while (try it.next()) |frame| {
+        if (try alistLookup(symbol, frame)) |pair| {
             return pair;
         }
-
-        current = rest;
     }
 
     return null;
@@ -249,7 +249,7 @@ pub fn envKeys(env: SExpr, allocator: std.mem.Allocator) Error![]SExpr {
     var keyset = SExpr.HashSet.init(allocator);
     defer keyset.deinit();
 
-    try envKeysIn(env, &keyset);
+    try envKeysToSet(env, &keyset);
 
     return try allocator.dupe(SExpr, keyset.keys());
 }
@@ -258,7 +258,7 @@ pub fn envKeyStrs(env: SExpr, allocator: std.mem.Allocator) Error![]const []cons
     var keyset = SExpr.HashSet.init(allocator);
     defer keyset.deinit();
 
-    try envKeysIn(env, &keyset);
+    try envKeysToSet(env, &keyset);
 
     var buf = std.ArrayList([]const u8).init(allocator);
     defer buf.deinit();
@@ -270,29 +270,29 @@ pub fn envKeyStrs(env: SExpr, allocator: std.mem.Allocator) Error![]const []cons
     return try buf.toOwnedSlice();
 }
 
-pub fn envKeysIn(env: SExpr, keyset: *SExpr.HashSet) Error!void {
+pub fn envKeysToSet(env: SExpr, keyset: *SExpr.HashSet) Error!void {
     var current = env;
     while (!current.isNil()) {
         const xp = current.castCons() orelse return EvaluationError.TypeError;
 
-        try frameKeysIn(xp.car, keyset);
+        try alistKeysToSet(xp.car, keyset);
 
         current = xp.cdr;
     }
 }
 
-pub fn frameKeys(frame: SExpr) Error![]SExpr {
+pub fn alistKeys(frame: SExpr) Error![]SExpr {
     const allocator = frame.getAttr().context.allocator;
 
     var keyset = SExpr.HashSet.init(allocator);
     defer keyset.deinit();
 
-    try frameKeysIn(frame, &keyset);
+    try alistKeysToSet(frame, &keyset);
 
     return allocator.dupe(SExpr, keyset.keys());
 }
 
-pub fn frameKeysIn(frame: SExpr, keyset: *SExpr.HashSet) Error!void {
+pub fn alistKeysToSet(frame: SExpr, keyset: *SExpr.HashSet) Error!void {
     var current = frame;
     while (!current.isNil()) {
         const xp = current.castCons() orelse return EvaluationError.TypeError;
@@ -309,7 +309,7 @@ pub fn frameKeysIn(frame: SExpr, keyset: *SExpr.HashSet) Error!void {
     }
 }
 
-pub fn frameLookup(symbol: SExpr, frame: SExpr) Error!?SExpr {
+pub fn alistLookup(symbol: SExpr, frame: SExpr) Error!?SExpr {
     var current = frame;
 
     while (!current.isNil()) {
@@ -318,7 +318,7 @@ pub fn frameLookup(symbol: SExpr, frame: SExpr) Error!?SExpr {
         const rest = xp.cdr;
 
         const bindingXp = binding.castCons() orelse {
-            Core.log.err("frameLookup: expected binding to be a cons, got {}: `{}` in frame `{}`", .{ binding.getTag(), binding, frame });
+            Core.log.err("alistLookup: expected binding to be a cons, got {}: `{}` in frame `{}`", .{ binding.getTag(), binding, frame });
             return EvaluationError.TypeError;
         };
 
@@ -565,7 +565,7 @@ pub fn valueTerminator(interpreter: *Interpreter, _: *const Source.Attr, args: S
 
 pub fn liftFetch(interpreter: *Interpreter, at: *const Source.Attr, name: SExpr) Result!SExpr {
     const binding =
-        if (try envLookupPair(name, interpreter.evidence) orelse try frameLookup(name, interpreter.globalEvidence)) |pair| pair.forceCons().cdr else {
+        if (try envLookupPair(name, interpreter.evidence) orelse try alistLookup(name, interpreter.globalEvidence)) |pair| pair.forceCons().cdr else {
         return interpreter.abort(EvaluationError.MissingDynamic, at,
             "unhandled fetch `{}`", .{name});
     };
@@ -574,7 +574,6 @@ pub fn liftFetch(interpreter: *Interpreter, at: *const Source.Attr, name: SExpr)
 
 pub fn liftPrompt(interpreter: *Interpreter, at: *const Source.Attr, name: SExpr, args: SExpr) Result!SExpr {
     const handler = try liftFetch(interpreter, at, name);
-
     return interpreter.invoke(at, handler, args);
 }
 
@@ -698,7 +697,7 @@ pub fn invoke(interpreter: *Interpreter, at: *const Source.Attr, fun: SExpr, sAr
     }
 }
 
-fn mkLambdaListRichError(interpreter: *Interpreter, err: EvaluationError, at: *const Source.Attr, comptime fmt: []const u8, args: anytype) Error!RichError {
+fn mkPatternRichError(interpreter: *Interpreter, err: EvaluationError, at: *const Source.Attr, comptime fmt: []const u8, args: anytype) Error!RichError {
     return RichError{
         .err = err,
         .msg = try std.fmt.allocPrint(interpreter.context.allocator, fmt, args),
@@ -706,14 +705,14 @@ fn mkLambdaListRichError(interpreter: *Interpreter, err: EvaluationError, at: *c
     };
 }
 
-fn mkLambdaListLiteError(_: *Interpreter, _: EvaluationError, _: *const Source.Attr, comptime _: []const u8, _: anytype) Error!void {
+fn mkPatternLiteError(_: *Interpreter, _: EvaluationError, _: *const Source.Attr, comptime _: []const u8, _: anytype) Error!void {
     return {};
 }
 
-pub const LambdaListLite = LambdaList(void, mkLambdaListLiteError);
-pub const LambdaListRich = LambdaList(RichError, mkLambdaListRichError);
+pub const PatternLite = Pattern(void, mkPatternLiteError);
+pub const PatternRich = Pattern(RichError, mkPatternRichError);
 
-fn LambdaList(comptime E: type, comptime mkError: fn (*Interpreter, EvaluationError, *const Source.Attr, comptime []const u8, anytype) Result!E) type {
+fn Pattern(comptime E: type, comptime mkError: fn (*Interpreter, EvaluationError, *const Source.Attr, comptime []const u8, anytype) Result!E) type {
     return struct {
         pub const Error = E;
         pub const LLResult = union(enum) {
@@ -743,7 +742,7 @@ fn LambdaList(comptime E: type, comptime mkError: fn (*Interpreter, EvaluationEr
                 => if (MiscUtils.equal(given, expected)) {
                     return null;
                 } else {
-                    return lambdaListError(interpreter, EvaluationError.TypeError, at,
+                    return patternError(interpreter, EvaluationError.TypeError, at,
                         "expected {}, got {}", .{ expected, given });
                 },
 
@@ -758,12 +757,12 @@ fn LambdaList(comptime E: type, comptime mkError: fn (*Interpreter, EvaluationEr
                     if (xp.car.isExactSymbol("quote")) {
                         xp = xp.cdr.castCons() orelse {
                             return interpreter.abort(EvaluationError.TypeError, xp.attr,
-                                "lambda list element contains invalid quote, body is {}", .{xp.cdr.getTag()});
+                                "pattern element contains invalid quote, body is {}", .{xp.cdr.getTag()});
                         };
 
                         if (!xp.cdr.isNil()) {
                             return interpreter.abort(EvaluationError.TypeError, xp.attr,
-                                "lambda list element contains invalid quote, tail of body is {}", .{xp.cdr.getTag()});
+                                "pattern element contains invalid quote, tail of body is {}", .{xp.cdr.getTag()});
                         }
 
                         const q = xp.car;
@@ -771,33 +770,33 @@ fn LambdaList(comptime E: type, comptime mkError: fn (*Interpreter, EvaluationEr
                             if (MiscUtils.equal(q, given)) {
                                 return null;
                             } else {
-                                return lambdaListError(interpreter, EvaluationError.TypeError, at,
+                                return patternError(interpreter, EvaluationError.TypeError, at,
                                     "expected {}, got {}", .{ q, given });
                             }
                         } else {
                             return interpreter.abort(EvaluationError.TypeError, xp.attr,
-                                "lambda list element contains invalid quote, body is {} (should be Symbol)", .{q.getTag()});
+                                "pattern element contains invalid quote, body is {} (should be Symbol)", .{q.getTag()});
                         }
                     } else if (xp.car.isExactSymbol("unquote")) {
                         xp = xp.cdr.castCons() orelse return interpreter.abort(EvaluationError.TypeError, xp.attr,
-                            "lambda list element contains invalid unquote, body is {}", .{xp.cdr.getTag()});
+                            "pattern element contains invalid unquote, body is {}", .{xp.cdr.getTag()});
 
                         const uq = try interpreter.eval(xp.car);
 
                         if (!xp.cdr.isNil()) {
                             return interpreter.abort(EvaluationError.TypeError, xp.attr,
-                                "lambda list element contains invalid unquote, tail of body is {}", .{xp.cdr.getTag()});
+                                "pattern element contains invalid unquote, tail of body is {}", .{xp.cdr.getTag()});
                         }
 
                         return runImpl(interpreter, at, bindings, uq, given);
                     } else if (xp.car.isExactSymbol(":")) {
                         xp = xp.cdr.castCons() orelse return interpreter.abort(EvaluationError.TypeError, xp.attr,
-                            "invalid lambda list, expected a value to follow `->`, got {}", .{xp.cdr.getTag()});
+                            "invalid pattern, expected a value to follow `->`, got {}", .{xp.cdr.getTag()});
                         const predE = xp.car;
 
                         if (!xp.cdr.isNil()) {
                             return interpreter.abort(EvaluationError.TypeError, xp.attr,
-                                "invalid lambda list, expected only a value to follow `:`, got {}", .{xp.cdr.getTag()});
+                                "invalid pattern, expected only a value to follow `:`, got {}", .{xp.cdr.getTag()});
                         }
 
                         const res = try interpreter.nativeInvoke(at, try interpreter.eval(predE), &[1]SExpr { given });
@@ -805,12 +804,12 @@ fn LambdaList(comptime E: type, comptime mkError: fn (*Interpreter, EvaluationEr
                         if (res.coerceNativeBool()) {
                             return null;
                         } else {
-                            return lambdaListError(interpreter, EvaluationError.RangeError, at,
+                            return patternError(interpreter, EvaluationError.RangeError, at,
                                 "predicate `{}` failed on value `{}`", .{ predE, given });
                         }
                     } else if (xp.car.isExactSymbol("->")) {
                         xp = xp.cdr.castCons() orelse return interpreter.abort(EvaluationError.TypeError, xp.attr,
-                            "invalid lambda list, expected a value to follow `->`, got {}", .{xp.cdr.getTag()});
+                            "invalid pattern, expected a value to follow `->`, got {}", .{xp.cdr.getTag()});
                         const predE = xp.car;
 
                         const args = try SExpr.Quote(try SExpr.List(at, &[_]SExpr { given }));
@@ -821,7 +820,7 @@ fn LambdaList(comptime E: type, comptime mkError: fn (*Interpreter, EvaluationEr
                             fn fun(e: *Interpreter, a: *const Source.Attr, x: SExpr) Result!SExpr {
                                 const terminator = try envLookup(try SExpr.Symbol(a, "terminator"), e.env) orelse {
                                     return e.abort(EvaluationError.InvalidContext, a,
-                                        "missing terminator in lambda list fail handler", .{});
+                                        "missing terminator in pattern fail handler", .{});
                                 };
                                 return try invoke(e, a, terminator, x);
                             }
@@ -836,18 +835,18 @@ fn LambdaList(comptime E: type, comptime mkError: fn (*Interpreter, EvaluationEr
                                 }
                             },
                             .Terminated => |_| {
-                                return lambdaListError(interpreter, EvaluationError.RangeError, at,
+                                return patternError(interpreter, EvaluationError.RangeError, at,
                                     "view pattern `{}` failed on value `{}`", .{ predE, given });
                             },
                         }
                     } else if (xp.car.isExactSymbol("?")) {
                         xp = xp.cdr.castCons() orelse return interpreter.abort(EvaluationError.TypeError, at,
-                            "invalid lambda list, expected a var to follow `?`, got {}", .{xp.cdr.getTag()});
+                            "invalid pattern, expected a var to follow `?`, got {}", .{xp.cdr.getTag()});
                         const vx = xp.car;
 
                         if (!xp.cdr.isNil()) {
                             return interpreter.abort(EvaluationError.TypeError, at,
-                                "invalid lambda list, expected only a value to follow `?`, got {}", .{xp.cdr.getTag()});
+                                "invalid pattern, expected only a value to follow `?`, got {}", .{xp.cdr.getTag()});
                         }
 
                         if (given.isNil()) {
@@ -865,21 +864,21 @@ fn LambdaList(comptime E: type, comptime mkError: fn (*Interpreter, EvaluationEr
                         }
                     } else if (xp.car.isExactSymbol("@")) {
                         xp = xp.cdr.castCons() orelse return interpreter.abort(EvaluationError.TypeError, xp.attr,
-                            "invalid lambda list, expected a var to follow `@`, got {}", .{xp.cdr.getTag()});
+                            "invalid pattern, expected a var to follow `@`, got {}", .{xp.cdr.getTag()});
                         const atSym = xp.car;
 
                         if (!atSym.isSymbol()) {
                             return interpreter.abort(EvaluationError.TypeError, xp.attr,
-                                "invalid lambda list, expected a symbol to follow `@`, got {}", .{atSym.getTag()});
+                                "invalid pattern, expected a symbol to follow `@`, got {}", .{atSym.getTag()});
                         }
 
                         xp = xp.cdr.castCons() orelse return interpreter.abort(EvaluationError.TypeError, xp.attr,
-                            "invalid lambda list, expected a value to follow symbol in `@`, got {}", .{xp.cdr.getTag()});
+                            "invalid pattern, expected a value to follow symbol in `@`, got {}", .{xp.cdr.getTag()});
                         const vx = xp.car;
 
                         if (!xp.cdr.isNil()) {
                             return interpreter.abort(EvaluationError.TypeError, xp.attr,
-                                "invalid lambda list, expected only a value to follow `@`, got {}", .{xp.cdr.getTag()});
+                                "invalid pattern, expected only a value to follow `@`, got {}", .{xp.cdr.getTag()});
                         }
 
                         if (try runImpl(interpreter, at, bindings, vx, given)) |err| {
@@ -890,7 +889,7 @@ fn LambdaList(comptime E: type, comptime mkError: fn (*Interpreter, EvaluationEr
                     } else if (xp.car.isExactSymbol("...")) {
                         xp = xp.cdr.castCons() orelse {
                             return interpreter.abort(EvaluationError.TypeError, xp.attr,
-                                "invalid lambda list, expected a symbol to follow `...`, got {}", .{xp.cdr.getTag()});
+                                "invalid pattern, expected a symbol to follow `...`, got {}", .{xp.cdr.getTag()});
                         };
                         var restSym = xp.car;
 
@@ -899,17 +898,17 @@ fn LambdaList(comptime E: type, comptime mkError: fn (*Interpreter, EvaluationEr
                                 if (restSym.castCons()) |rxp| {
                                     if (rxp.car.isExactSymbol("unquote")) {
                                         const xp2 = rxp.cdr.castCons() orelse return interpreter.abort(EvaluationError.TypeError, xp.attr,
-                                            "invalid lambda list, malformed unquote in rest parameter, got {}", .{rxp.cdr.getTag()});
+                                            "invalid pattern, malformed unquote in rest parameter, got {}", .{rxp.cdr.getTag()});
                                         restSym = try interpreter.eval(xp2.car);
 
                                         if (!xp2.cdr.isNil()) {
                                             return interpreter.abort(EvaluationError.TypeError, xp.attr,
-                                                "invalid lambda list, expected only a value to follow `,` in rest parameter unquote, got {}", .{xp2.cdr.getTag()});
+                                                "invalid pattern, expected only a value to follow `,` in rest parameter unquote, got {}", .{xp2.cdr.getTag()});
                                         }
 
                                         if (!restSym.isSymbol()) {
                                             return interpreter.abort(EvaluationError.TypeError, xp.attr,
-                                                "invalid lambda list, expected unquote inside rest parameter to evaluate to a symbol, got {}", .{restSym.getTag()});
+                                                "invalid pattern, expected unquote inside rest parameter to evaluate to a symbol, got {}", .{restSym.getTag()});
                                         }
 
                                         break :invalid false;
@@ -924,12 +923,12 @@ fn LambdaList(comptime E: type, comptime mkError: fn (*Interpreter, EvaluationEr
 
                         if (invalid) {
                             return interpreter.abort(EvaluationError.TypeError, xp.attr,
-                                "invalid lambda list, expected a symbol to follow `...`, got {}", .{restSym.getTag()});
+                                "invalid pattern, expected a symbol to follow `...`, got {}", .{restSym.getTag()});
                         }
 
                         if (!xp.cdr.isNil()) {
                             return interpreter.abort(EvaluationError.TypeError, xp.attr,
-                                "invalid lambda list, expected only a symbol to follow `...`, got {}", .{xp.cdr.getTag()});
+                                "invalid pattern, expected only a symbol to follow `...`, got {}", .{xp.cdr.getTag()});
                         }
 
                         return try bind(interpreter, at, bindings, restSym, given);
@@ -951,7 +950,7 @@ fn LambdaList(comptime E: type, comptime mkError: fn (*Interpreter, EvaluationEr
 
                             if (!xpExpected.cdr.isNil()) {
                                 return interpreter.abort(EvaluationError.TypeError, xpExpected.attr,
-                                    "invalid lambda list, expected rest parameter to end list got {}", .{xpExpected.cdr.getTag()});
+                                    "invalid pattern, expected rest parameter to end list got {}", .{xpExpected.cdr.getTag()});
                             }
 
                             return null;
@@ -970,7 +969,7 @@ fn LambdaList(comptime E: type, comptime mkError: fn (*Interpreter, EvaluationEr
                                 return err;
                             }
                         } else {
-                            return lambdaListError(interpreter, EvaluationError.NotEnoughArguments, at,
+                            return patternError(interpreter, EvaluationError.NotEnoughArguments, at,
                                 "expected more items in input list; comparing `{}` to `{}`", .{expected, given});
                         }
 
@@ -980,10 +979,10 @@ fn LambdaList(comptime E: type, comptime mkError: fn (*Interpreter, EvaluationEr
                     if (currentGiven.isNil()) {
                         return null;
                     } else if (currentGiven.isCons()) {
-                        return lambdaListError(interpreter, EvaluationError.TooManyArguments, at,
+                        return patternError(interpreter, EvaluationError.TooManyArguments, at,
                             "expected less items in input list; comparing `{}` to `{}` (leaves `{}`)", .{expected, given, currentGiven});
                     } else {
-                        return lambdaListError(interpreter, EvaluationError.TypeError, at,
+                        return patternError(interpreter, EvaluationError.TypeError, at,
                             "expected a list, got {}; comparing `{}` to `{}`", .{currentGiven.getTag(), expected, given});
                     }
                 },
@@ -994,7 +993,7 @@ fn LambdaList(comptime E: type, comptime mkError: fn (*Interpreter, EvaluationEr
                 .ExternFunction,
                 => {
                     return interpreter.abort(EvaluationError.TypeError, at,
-                        "invalid lambda list element ({} is not supported)", .{expected.getTag()});
+                        "invalid pattern element ({} is not supported)", .{expected.getTag()});
                 },
             }
         }
@@ -1030,7 +1029,7 @@ fn LambdaList(comptime E: type, comptime mkError: fn (*Interpreter, EvaluationEr
                 if (existing) |e| {
                     if (given) |g| {
                         if (!MiscUtils.equal(e, g)) {
-                            return lambdaListError(interpreter, EvaluationError.TypeError, at, "expected {}, got {}", .{ e, g });
+                            return patternError(interpreter, EvaluationError.TypeError, at, "expected {}, got {}", .{ e, g });
                         }
                     }
                 } else {
@@ -1081,12 +1080,12 @@ fn LambdaList(comptime E: type, comptime mkError: fn (*Interpreter, EvaluationEr
                     if (xp.car.isExactSymbol("quote")) {
                         xp = xp.cdr.castCons() orelse {
                             return interpreter.abort(EvaluationError.TypeError, xp.attr,
-                                "lambda list element contains invalid quote, body is {}", .{xp.cdr.getTag()});
+                                "pattern element contains invalid quote, body is {}", .{xp.cdr.getTag()});
                         };
 
                         if (!xp.cdr.isNil()) {
                             return interpreter.abort(EvaluationError.TypeError, xp.attr,
-                                "lambda list element contains invalid quote, tail of body is {}", .{xp.cdr.getTag()});
+                                "pattern element contains invalid quote, tail of body is {}", .{xp.cdr.getTag()});
                         }
 
                         const q = xp.car;
@@ -1094,63 +1093,63 @@ fn LambdaList(comptime E: type, comptime mkError: fn (*Interpreter, EvaluationEr
                             return;
                         } else {
                             return interpreter.abort(EvaluationError.TypeError, xp.attr,
-                                "lambda list element contains invalid quote, body is {} (should be symbol)", .{q.getTag()});
+                                "pattern element contains invalid quote, body is {} (should be symbol)", .{q.getTag()});
                         }
                     } else if (xp.car.isExactSymbol("unquote")) {
                         xp = xp.cdr.castCons() orelse return interpreter.abort(EvaluationError.TypeError, xp.attr,
-                            "lambda list element contains invalid unquote, body is {}", .{xp.cdr.getTag()});
+                            "pattern element contains invalid unquote, body is {}", .{xp.cdr.getTag()});
 
                         const uq = try interpreter.eval(xp.car);
 
                         if (!xp.cdr.isNil()) {
                             return interpreter.abort(EvaluationError.TypeError, xp.attr,
-                                "lambda list element contains invalid unquote, tail of body is {}", .{xp.cdr.getTag()});
+                                "pattern element contains invalid unquote, tail of body is {}", .{xp.cdr.getTag()});
                         }
 
                         return bindersImpl(interpreter, at, uq, out);
                     } else if (xp.car.isExactSymbol(":")) {
                         xp = xp.cdr.castCons() orelse return interpreter.abort(EvaluationError.TypeError, xp.attr,
-                            "invalid lambda list, expected a value to follow `:`, got {}", .{xp.cdr.getTag()});
+                            "invalid pattern, expected a value to follow `:`, got {}", .{xp.cdr.getTag()});
 
                         if (!xp.cdr.isNil()) {
                             return interpreter.abort(EvaluationError.TypeError, xp.attr,
-                                "invalid lambda list, expected only a value to follow `:`, got {}", .{xp.cdr.getTag()});
+                                "invalid pattern, expected only a value to follow `:`, got {}", .{xp.cdr.getTag()});
                         }
 
                         return;
                     } else if (xp.car.isExactSymbol("->")) {
                         xp = xp.cdr.castCons() orelse return interpreter.abort(EvaluationError.TypeError, xp.attr,
-                            "invalid lambda list, expected a value to follow `->`, got {}", .{xp.cdr.getTag()});
+                            "invalid pattern, expected a value to follow `->`, got {}", .{xp.cdr.getTag()});
 
                         return bindersImpl(interpreter, at, xp.cdr, out);
                     } else if (xp.car.isExactSymbol("?")) {
                         xp = xp.cdr.castCons() orelse return interpreter.abort(EvaluationError.TypeError, xp.attr,
-                            "invalid lambda list, expected a var to follow `?`, got {}", .{xp.cdr.getTag()});
+                            "invalid pattern, expected a var to follow `?`, got {}", .{xp.cdr.getTag()});
                         const vx = xp.car;
 
                         if (!xp.cdr.isNil()) {
                             return interpreter.abort(EvaluationError.TypeError, xp.attr,
-                                "invalid lambda list, expected only a value to follow `?`, got {}", .{xp.cdr.getTag()});
+                                "invalid pattern, expected only a value to follow `?`, got {}", .{xp.cdr.getTag()});
                         }
 
                         return bindersImpl(interpreter, at, vx, out);
                     } else if (xp.car.isExactSymbol("@")) {
                         xp = xp.cdr.castCons() orelse return interpreter.abort(EvaluationError.TypeError, xp.attr,
-                            "invalid lambda list, expected a var to follow `@`, got {}", .{xp.cdr.getTag()});
+                            "invalid pattern, expected a var to follow `@`, got {}", .{xp.cdr.getTag()});
                         const atSym = xp.car;
 
                         if (!atSym.isSymbol()) {
                             return interpreter.abort(EvaluationError.TypeError, xp.attr,
-                                "invalid lambda list, expected a symbol to follow `@`, got {}", .{atSym.getTag()});
+                                "invalid pattern, expected a symbol to follow `@`, got {}", .{atSym.getTag()});
                         }
 
                         xp = xp.cdr.castCons() orelse return interpreter.abort(EvaluationError.TypeError, at,
-                            "invalid lambda list, expected a value to follow symbol in `@`, got {}", .{xp.cdr.getTag()});
+                            "invalid pattern, expected a value to follow symbol in `@`, got {}", .{xp.cdr.getTag()});
                         const vx = xp.car;
 
                         if (!xp.cdr.isNil()) {
                             return interpreter.abort(EvaluationError.TypeError, xp.attr,
-                                "invalid lambda list, expected only a value to follow `@`, got {}", .{xp.cdr.getTag()});
+                                "invalid pattern, expected only a value to follow `@`, got {}", .{xp.cdr.getTag()});
                         }
 
                         if (!out.contains(atSym)) {
@@ -1160,7 +1159,7 @@ fn LambdaList(comptime E: type, comptime mkError: fn (*Interpreter, EvaluationEr
                         return bindersImpl(interpreter, at, vx, out);
                     } else if (xp.car.isExactSymbol("...")) {
                         xp = xp.cdr.castCons() orelse return interpreter.abort(EvaluationError.TypeError, xp.attr,
-                            "invalid lambda list, expected a symbol to follow `...`, got {}", .{xp.cdr.getTag()});
+                            "invalid pattern, expected a symbol to follow `...`, got {}", .{xp.cdr.getTag()});
                         var restSym = xp.car;
 
                         const invalid = invalid: {
@@ -1168,17 +1167,17 @@ fn LambdaList(comptime E: type, comptime mkError: fn (*Interpreter, EvaluationEr
                                 if (restSym.castCons()) |rxp| {
                                     if (rxp.car.isExactSymbol("unquote")) {
                                         const xp2 = rxp.cdr.castCons() orelse return interpreter.abort(EvaluationError.TypeError, xp.attr,
-                                            "invalid lambda list, malformed unquote in rest parameter, got {}", .{rxp.cdr.getTag()});
+                                            "invalid pattern, malformed unquote in rest parameter, got {}", .{rxp.cdr.getTag()});
                                         restSym = try interpreter.eval(xp2.car);
 
                                         if (!xp2.cdr.isNil()) {
                                             return interpreter.abort(EvaluationError.TypeError, xp.attr,
-                                                "invalid lambda list, expected only a value to follow `,` in rest parameter unquote, got {}", .{xp2.cdr.getTag()});
+                                                "invalid pattern, expected only a value to follow `,` in rest parameter unquote, got {}", .{xp2.cdr.getTag()});
                                         }
 
                                         if (!restSym.isSymbol()) {
                                             return interpreter.abort(EvaluationError.TypeError, xp.attr,
-                                                "invalid lambda list, expected unquote inside rest parameter to evaluate to a symbol, got {}", .{restSym.getTag()});
+                                                "invalid pattern, expected unquote inside rest parameter to evaluate to a symbol, got {}", .{restSym.getTag()});
                                         }
 
                                         break :invalid false;
@@ -1193,12 +1192,12 @@ fn LambdaList(comptime E: type, comptime mkError: fn (*Interpreter, EvaluationEr
 
                         if (invalid) {
                             return interpreter.abort(EvaluationError.TypeError, xp.attr,
-                                "invalid lambda list, expected a symbol to follow `...`, got {}", .{restSym.getTag()});
+                                "invalid pattern, expected a symbol to follow `...`, got {}", .{restSym.getTag()});
                         }
 
                         if (!xp.cdr.isNil()) {
                             return interpreter.abort(EvaluationError.TypeError, xp.attr,
-                                "invalid lambda list, expected only a symbol to follow `...`, got {}", .{xp.cdr.getTag()});
+                                "invalid pattern, expected only a symbol to follow `...`, got {}", .{xp.cdr.getTag()});
                         }
 
                         if (!out.contains(restSym)) {
@@ -1228,18 +1227,18 @@ fn LambdaList(comptime E: type, comptime mkError: fn (*Interpreter, EvaluationEr
                 .ExternFunction,
                 => {
                     return interpreter.abort(EvaluationError.TypeError, at,
-                        "invalid lambda list element ({} is not supported)", .{expected.getTag()});
+                        "invalid pattern element ({} is not supported)", .{expected.getTag()});
                 },
             }
         }
 
-        inline fn lambdaListAbort(interpreter: *Interpreter, err: EvaluationError, at: *const Source.Attr, comptime fmt: []const u8, args: anytype) Result!LLResult {
+        inline fn patternAbort(interpreter: *Interpreter, err: EvaluationError, at: *const Source.Attr, comptime fmt: []const u8, args: anytype) Result!LLResult {
             return LLResult{
-                .Error = (try lambdaListError(interpreter, err, at, fmt, args)).?,
+                .Error = (try patternError(interpreter, err, at, fmt, args)).?,
             };
         }
 
-        inline fn lambdaListError(interpreter: *Interpreter, err: EvaluationError, at: *const Source.Attr, comptime fmt: []const u8, args: anytype) Result!?E {
+        inline fn patternError(interpreter: *Interpreter, err: EvaluationError, at: *const Source.Attr, comptime fmt: []const u8, args: anytype) Result!?E {
             return try @call(.always_inline, mkError, .{ interpreter, err, at, fmt, args });
         }
     };
@@ -1282,10 +1281,10 @@ pub fn runFunction(interpreter: *Interpreter, at: *const Source.Attr, sFun: SExp
         .Macro => args,
     };
 
-    const frame = switch (try LambdaListRich.run(interpreter, at, fun.args, eArgs)) {
+    const frame = switch (try PatternRich.run(interpreter, at, fun.args, eArgs)) {
         .Okay => |frame| frame,
         .Error => |rich| return interpreter.abort(rich.err, rich.attr orelse at,
-            "{s}", .{rich.msg orelse "failed to bind lambda list"}),
+            "{s}", .{rich.msg orelse "failed to bind pattern"}),
     };
 
     const result = result: {
@@ -1698,24 +1697,24 @@ pub fn errorToException(interpreter: *Interpreter, at: *const Source.Attr, err: 
         "exception", &[_]SExpr{try SExpr.Symbol(at, @errorName(err))});
 }
 
-pub inline fn argIterator(interpreter: *Interpreter, shouldInterpreter: bool, args: SExpr) Result!ArgIterator {
-    return ArgIterator.init(interpreter, shouldInterpreter, args);
+pub inline fn argIterator(interpreter: *Interpreter, shouldEval: bool, args: SExpr) Result!ArgIterator {
+    return ArgIterator.init(interpreter, shouldEval, args);
 }
 
 pub const ArgIterator = struct {
     interpreter: *Interpreter,
     at: *const Source.Attr,
-    shouldInterpreter: bool,
+    shouldEval: bool,
     tail: SExpr,
     index: usize,
 
-    pub fn init(interpreter: *Interpreter, shouldInterpreter: bool, args: SExpr) Interpreter.Result!ArgIterator {
+    pub fn init(interpreter: *Interpreter, shouldEval: bool, args: SExpr) Interpreter.Result!ArgIterator {
         const at = args.getAttr();
         if (args.isNil() or args.isCons()) {
             return .{
                 .interpreter = interpreter,
                 .at = at,
-                .shouldInterpreter = shouldInterpreter,
+                .shouldEval = shouldEval,
                 .tail = args,
                 .index = 0,
             };
@@ -1736,7 +1735,7 @@ pub const ArgIterator = struct {
 
         self.tail = xp.cdr;
 
-        return if (self.shouldInterpreter) try self.interpreter.eval(xp.car) else xp.car;
+        return if (self.shouldEval) try self.interpreter.eval(xp.car) else xp.car;
     }
 
     pub fn atLeast(self: *ArgIterator) Interpreter.Result!SExpr {
@@ -2117,6 +2116,19 @@ pub fn alistBuilder(attr: *const Source.Attr, list: anytype) Result!SExpr {
     }.fun);
 }
 
+pub fn bindBuiltinEnvs(interpreter: *Interpreter, outputEnv: SExpr, builtinEnvs: Builtin.EnvSet) Result!void {
+    log.info("initializing builtin environments ...", .{});
+    var envIterator = Builtin.EnvIterator.from(builtinEnvs);
+    while (envIterator.next()) |env| {
+        interpreter.bindBuiltinEnv(outputEnv, env) catch |err| {
+            log.err("... failed to initialize builtin environment {s}", .{@tagName(env)});
+            return err;
+        };
+        log.debug("... builtin environment {s} loaded", .{@tagName(env)});
+    }
+    log.info("... builtin environments loaded", .{});
+}
+
 pub fn bindBuiltinEnv(interpreter: *Interpreter, outputEnv: SExpr, builtinEnv: Builtin.EnvName) Result!void {
     inline for (comptime std.meta.fieldNames(Builtin.EnvName)) |builtinName| {
         if (@field(Builtin.EnvName, builtinName) == builtinEnv) {
@@ -2131,4 +2143,126 @@ pub fn bindCustomEnv(interpreter: *Interpreter, outputEnv: SExpr, customEnv: any
             return extendEnvFrame(at, symbol, value, env);
         }
     }.fun);
+}
+
+// TODO: handle additional script modularization besides the module script
+pub fn modularizeEnv(attr: *const Source.Attr, envSource: SExpr) Result!SExpr {
+    @setEvalBranchQuota(2_000);
+
+    log.info("modularizing environment", .{});
+
+    const envDestination = envDest: {
+        const nil = try SExpr.Nil(attr);
+        break :envDest try SExpr.Cons(attr, nil, nil);
+    };
+
+    log.info("created destination environment", .{});
+
+    const starModulesSym = try SExpr.Symbol(attr, "*modules*");
+    const moduleSym = try SExpr.Symbol(attr, "module");
+    const importSym = try SExpr.Symbol(attr, "import");
+
+    const modulesPair: SExpr =
+        if (try Interpreter.envLookupPair(starModulesSym, envSource))
+            |x| if (x.isCons()) x else return error.NoModuleSystem
+        else return error.NoModuleSystem;
+
+    const modules = &modulesPair.forceCons().cdr;
+
+    const NameSet = struct {primary: []const u8, secondary: []const []const u8};
+
+    inline for (Builtin.EnvNames) |envName| {
+        const builtinEnv = @field(Builtin.Envs, envName);
+
+        var globalNames = [1]NameSet{ undefined } ** builtinEnv.len;
+        var exportNames = [1]NameSet{ undefined } ** builtinEnv.len;
+
+        var globalCount: usize = 0;
+        var exportCount: usize = 0;
+        inline for (builtinEnv) |item| {
+            const nameSet =
+                if (comptime TypeUtils.isString(@TypeOf(item[0]))) single: {
+                    const primary = item[0];
+                    break :single NameSet { .primary = primary, .secondary = &.{} };
+                } else if (comptime TypeUtils.isTuple(@TypeOf(item[0]))) set: {
+                    var items = [1][]const u8 {undefined} ** item[0].len;
+                    inline for (item[0], 0..) |name, i| items[i] = name;
+                    const secondary = items[0..];
+                    break :set NameSet { .primary = item[0][0], .secondary = secondary };
+                } else {
+                    @compileLog("unsupported key type", item[0]);
+                    @compileError("unsupported key type in alistBuilder");
+                };
+
+            if (nameSet.primary.len <= envName.len
+            or !std.mem.startsWith(u8, nameSet.primary, envName)
+            or nameSet.primary[envName.len] != '/') {
+                globalNames[globalCount] = nameSet;
+                globalCount += 1;
+            } else if (nameSet.primary.len > envName.len) {
+                if (try Interpreter.envLookup(try SExpr.Symbol(attr, nameSet.primary), envSource)) |_| {
+                    exportNames[exportCount] = nameSet;
+                    exportCount += 1;
+                }
+            }
+        }
+
+        if (exportCount > 0) {
+            var exportPairs = [1]SExpr {undefined} ** builtinEnv.len;
+
+            for (exportNames[0..exportCount], 0..) |exportNameSet, i| {
+                const exportSymbol = try SExpr.Symbol(attr, exportNameSet.primary[envName.len + 1..]);
+                const localSymbol = try SExpr.Symbol(attr, exportNameSet.primary);
+                exportPairs[i] = try SExpr.Cons(attr, localSymbol, exportSymbol);
+
+                for (exportNameSet.secondary) |secondaryName| {
+                    const symbol = try SExpr.Symbol(attr, secondaryName);
+                    if (try Interpreter.envLookup(symbol, envSource)) |value| {
+                        try extendEnvFrame(attr, symbol, value, envDestination);
+                    }
+                }
+            }
+
+            const newModule = try SExpr.List(attr, &.{
+                try SExpr.Symbol(attr, envName),
+                    try SExpr.Cons(attr,
+                        try SExpr.Symbol(attr, "env"),
+                        envSource,
+                    ),
+                    try SExpr.Cons(attr,
+                        try SExpr.Symbol(attr, "exports"),
+                        try SExpr.List(attr, exportPairs[0..exportCount]),
+                    ),
+            });
+
+            modules.* = try SExpr.Cons(attr, newModule, modules.*);
+        }
+
+        for (globalNames[0..globalCount]) |gNameSet| {
+            const symbol = try SExpr.Symbol(attr, gNameSet.primary);
+            if (try Interpreter.envLookup(symbol, envSource)) |value| {
+                try extendEnvFrame(attr, symbol, value, envDestination);
+            }
+
+            for (gNameSet.secondary) |secondaryName| {
+                    const secondarySymbol = try SExpr.Symbol(attr, secondaryName);
+                    if (try Interpreter.envLookup(secondarySymbol, envSource)) |value| {
+                    try extendEnvFrame(attr, secondarySymbol, value, envDestination);
+                }
+            }
+        }
+    }
+
+    const moduleMacro: SExpr =
+        try Interpreter.envLookup(moduleSym, envSource)
+        orelse return error.NoModuleSystem;
+
+    const importMacro: SExpr =
+        try Interpreter.envLookup(importSym, envSource)
+        orelse return error.NoModuleSystem;
+
+    try extendEnvFrame(attr, moduleSym, moduleMacro, envDestination);
+    try extendEnvFrame(attr, importSym, importMacro, envDestination);
+
+    return envDestination;
 }

@@ -1,6 +1,6 @@
 const std = @import("std");
 
-const Procedure = @import("Builtin:Procedure");
+const procedure = @import("Builtin:procedure");
 
 const Core = @import("Core");
 const Source = Core.Source;
@@ -103,8 +103,8 @@ pub const DefKind = enum {
 
     pub fn constructObject(self: DefKind, interpreter: *Interpreter, at: *const Source.Attr, def: SExpr) Interpreter.Result!SExpr {
         return switch (self) {
-            .Fun => Procedure.function(interpreter, at, .Lambda, def),
-            .Macro => Procedure.function(interpreter, at, .Macro, def),
+            .Fun => procedure.function(interpreter, at, .Lambda, def),
+            .Macro => procedure.function(interpreter, at, .Macro, def),
             .Var => interpreter.runProgram(def),
         };
     }

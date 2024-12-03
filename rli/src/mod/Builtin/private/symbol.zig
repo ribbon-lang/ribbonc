@@ -13,13 +13,13 @@ pub const Doc =
 ;
 
 pub const Env = .{
-    .{ "empty-symbol?", "check if a value is the empty symbol", struct {
+    .{ "symbol/empty?", "check if a value is the empty symbol", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const arg = try interpreter.eval1(args);
             return try SExpr.Bool(at, if (arg.castSymbolSlice()) |str| str.len == 0 else false);
         }
     } },
-    .{ "symbol-length", "get the number of characters in a symbol", struct {
+    .{ "symbol/length", "get the number of characters in a symbol", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const arg = try interpreter.eval1(args);
             const str = try interpreter.castSymbolSlice(at, arg);
@@ -32,7 +32,7 @@ pub const Env = .{
             return try SExpr.Int(at, @intCast(len));
         }
     } },
-    .{ "symbol-find", "within a given symbol, find the character index of another symbol, or a character; returns nil if not found", struct {
+    .{ "symbol/find", "within a given symbol, find the character index of another symbol, or a character; returns nil if not found", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const rargs = try interpreter.eval2(args);
             const haystack = try interpreter.castSymbolSlice(at, rargs[0]);
@@ -42,7 +42,7 @@ pub const Env = .{
                 else if (rargs[1].coerceNativeChar()) |c| needleBuf[0..(TextUtils.encode(c, &needleBuf)
                     catch return interpreter.abort(Interpreter.Error.TypeError, at, "bad char {}", .{c}))]
                 else {
-                    return interpreter.abort(Interpreter.Error.TypeError, at, "expected a symbol or char for symbol-intercalate separator, got {}: `{}`", .{ rargs[1].getTag(), rargs[1] });
+                    return interpreter.abort(Interpreter.Error.TypeError, at, "expected a symbol or char for symbol/intercalate separator, got {}: `{}`", .{ rargs[1].getTag(), rargs[1] });
                 };
             const pos = TextUtils.findStrCodepointIndex(haystack, needle) catch {
                 return interpreter.abort(Interpreter.Error.BadEncoding, at, "bad utf8 symbol", .{});
@@ -50,12 +50,12 @@ pub const Env = .{
                 return try SExpr.Nil(at);
             };
             if (pos > std.math.maxInt(i64)) {
-                return interpreter.abort(Interpreter.Error.RangeError, at, "symbol-find result is too large to fit in an integer", .{});
+                return interpreter.abort(Interpreter.Error.RangeError, at, "symbol/find result is too large to fit in an integer", .{});
             }
             return try SExpr.Int(at, @intCast(pos));
         }
     } },
-    .{ "symbol-concat", "given any number of symbols or characters, returns a new symbol with all of them concatenated in order", struct {
+    .{ "symbol/concat", "given any number of symbols or characters, returns a new symbol with all of them concatenated in order", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             var rargs = try interpreter.argIterator(true, args);
             var newStr = std.ArrayList(u8).init(interpreter.context.allocator);
@@ -75,7 +75,7 @@ pub const Env = .{
             return try SExpr.Symbol(at, try newStr.toOwnedSlice());
         }
     } },
-    .{ "symbol-intercalate", "given a symbol or a char, and any number of subsequent symbols or chars, returns a new symbol with all of the subsequent values concatenated in order with the first value in between concatenations", struct {
+    .{ "symbol/intercalate", "given a symbol or a char, and any number of subsequent symbols or chars, returns a new symbol with all of the subsequent values concatenated in order with the first value in between concatenations", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             var rargs = try interpreter.argIterator(true, args);
             var newStr = std.ArrayList(u8).init(interpreter.context.allocator);
@@ -86,7 +86,7 @@ pub const Env = .{
                 else if (sep.coerceNativeChar()) |c| sepBuf[0..(TextUtils.encode(c, &sepBuf)
                     catch return interpreter.abort(Interpreter.Error.TypeError, at, "bad char {}", .{c}))]
                 else {
-                    return interpreter.abort(Interpreter.Error.TypeError, at, "expected a symbol or char for symbol-intercalate separator, got {}: `{}`", .{ sep.getTag(), sep });
+                    return interpreter.abort(Interpreter.Error.TypeError, at, "expected a symbol or char for symbol/intercalate separator, got {}: `{}`", .{ sep.getTag(), sep });
                 };
             if (!rargs.hasNext()) {
                 try rargs.assertDone();
@@ -99,7 +99,7 @@ pub const Env = .{
                 else if (fst.coerceNativeChar()) |c| charBuf[0..(TextUtils.encode(c, &charBuf)
                     catch return interpreter.abort(Interpreter.Error.TypeError, at, "bad char {}", .{c}))]
                 else {
-                    return interpreter.abort(Interpreter.Error.TypeError, at, "expected a symbol or char for symbol-intercalate argument, got {}: `{}`", .{ fst.getTag(), fst });
+                    return interpreter.abort(Interpreter.Error.TypeError, at, "expected a symbol or char for symbol/intercalate argument, got {}: `{}`", .{ fst.getTag(), fst });
                 };
             try newStr.appendSlice(fstStr);
             while (try rargs.next()) |arg| {
@@ -108,7 +108,7 @@ pub const Env = .{
                     else if (arg.coerceNativeChar()) |c| charBuf[0..(TextUtils.encode(c, &charBuf)
                         catch return interpreter.abort(Interpreter.Error.TypeError, at, "bad char {}", .{c}))]
                     else {
-                        return interpreter.abort(Interpreter.Error.TypeError, at, "expected a symbol or char for symbol-intercalate argument, got {}: `{}`", .{ arg.getTag(), fst });
+                        return interpreter.abort(Interpreter.Error.TypeError, at, "expected a symbol or char for symbol/intercalate argument, got {}: `{}`", .{ arg.getTag(), fst });
                     };
                 try newStr.appendSlice(sepStr);
                 try newStr.appendSlice(str);
@@ -116,7 +116,7 @@ pub const Env = .{
             return try SExpr.Symbol(at, try newStr.toOwnedSlice());
         }
     } },
-    .{ "subsymbol", "given a symbol and two character indices, returns a new symbol containing the designated section; returns nil if out of range", struct {
+    .{ "symbol/sub", "given a symbol and two character indices, returns a new symbol containing the designated section; returns nil if out of range", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             var rargs = [3]SExpr{ undefined, undefined, undefined };
             const len = try interpreter.evalSmallList(args, 2, &rargs);

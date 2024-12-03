@@ -34,7 +34,7 @@ int main (int argc, char** argv) {
         goto end1;
     }
 
-    BB_Interpreter_bindBuiltinEnv(interpreter, BB_Interpreter_getEnv(interpreter), BB_FULL_ENV, &err);
+    BB_Interpreter_bindBuiltinEnv(interpreter, BB_Interpreter_getEnv(interpreter), BB_ARITHMETIC_ENV, &err);
     if (err != BB_OKAY) {
         fprintf(stderr, "Failed to bind built-in environment: %s\n", BB_Error_name(err));
         goto end2;

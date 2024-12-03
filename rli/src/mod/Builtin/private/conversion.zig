@@ -1,6 +1,7 @@
 const std = @import("std");
 
 const MiscUtils = @import("Utils").Misc;
+const TextUtils = @import("Utils").Text;
 
 const Core = @import("Core");
 const Source = Core.Source;
@@ -114,6 +115,42 @@ pub const Env = .{
             } else {
                 return interpreter.abort(Interpreter.Error.TypeError, at, "expected a string, got {}", .{arg.getTag()});
             }
+        }
+    } },
+    .{ "list<-string", "convert a string to a list of characters", struct {
+        pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
+            const arg = try interpreter.eval1(args);
+            const str = try interpreter.castStringSlice(at, arg);
+            var listBuf = std.ArrayList(SExpr).init(interpreter.context.allocator);
+            defer listBuf.deinit();
+            var i: usize = 0;
+            while (i < str.len) {
+                const dec = TextUtils.decode1(str[i..]) catch {
+                    return interpreter.abort(Interpreter.Error.BadEncoding, at, "bad utf8 string", .{});
+                };
+                const char = try SExpr.Char(at, dec.ch);
+                try listBuf.append(char);
+                i += dec.len;
+            }
+            return try SExpr.List(at, listBuf.items);
+        }
+    } },
+    .{ "string<-list", "convert a list of characters to a string", struct {
+        pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
+            const list = try interpreter.eval1(args);
+            var mem = std.ArrayList(u8).init(interpreter.context.allocator);
+            defer mem.deinit();
+            var chars = try interpreter.argIterator(false, list);
+            while (try chars.next()) |ch| {
+                const char = try interpreter.coerceNativeChar(at, ch);
+                var charBuf = [1]u8{0} ** 4;
+                const charSize = TextUtils.encode(char, &charBuf) catch {
+                    return interpreter.abort(Interpreter.Error.TypeError, at, "bad char {}", .{char});
+                };
+                try mem.appendSlice(charBuf[0..charSize]);
+            }
+            const newStr = try mem.toOwnedSlice();
+            return try SExpr.StringPreallocatedUnchecked(at, newStr);
         }
     } },
     .{ "stringify", "convert any value to a string representation; optionally accepts two parameters where the first may be a symbol of the set `Display`, `Attr`, `Dotted`, or `Source`, indicating the way in which to format the second value", struct {

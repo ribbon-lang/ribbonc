@@ -105,7 +105,7 @@ pub const Env = .{
         }
     } },
 
-    .{ "eval", "evaluate a given expression in the current env or an optional provided env", struct {
+    .{ "meta/eval", "evaluate a given expression in the current env or an optional provided env", struct {
         pub fn fun(interpreter: *Interpreter, _: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             var buf = [2]SExpr{ undefined, undefined };
             const len = try interpreter.evalSmallList(args, 1, &buf);
@@ -120,153 +120,16 @@ pub const Env = .{
         }
     } },
 
-    .{ "gensym", "generate a unique symbol", struct {
+    .{ "meta/gensym", "generate a unique symbol", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             try interpreter.expect0(args);
             return try SExpr.GenSymbol(at);
         }
     } },
 
-    .{ "env-keys", "get the names of all bindings in the given env", struct {
-        pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const env = try interpreter.eval1(args);
-            try interpreter.validateListOrNil(at, env);
-            const keys = try Interpreter.envKeys(env, interpreter.context.allocator);
-            defer interpreter.context.allocator.free(keys);
-            return try SExpr.List(at, keys);
-        }
-    } },
-    .{ "env-lookup", "lookup a key symbol in an environment, returning the value it binds; prompts `fail` if the key is not found", struct {
-        pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const rargs = try interpreter.eval2(args);
-            const key = rargs[0];
-            try interpreter.validateSymbol(at, key);
-            const env = rargs[1];
-            try interpreter.validateListOrNil(at, env);
-            const entry = Interpreter.envLookup(key, env) catch |err| {
-                return interpreter.abort(err, at, "bad env: {}", .{env});
-            };
-            if (entry) |v| {
-                return v;
-            } else {
-                return interpreter.nativePrompt(at, "fail", &[0]SExpr{});
-            }
-        }
-    } },
-    .{ "env-pair", "lookup a key symbol in an environment, returning the pair it binds; prompts `fail` if the key is not found", struct {
-        pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const rargs = try interpreter.eval2(args);
-            const key = rargs[0];
-            try interpreter.validateSymbol(at, key);
-            const env = rargs[1];
-            try interpreter.validateListOrNil(at, env);
-            const entry = Interpreter.envLookupPair(key, env) catch |err| {
-                return interpreter.abort(err, at, "bad env: {}", .{env});
-            };
-            if (entry) |pair| {
-                try interpreter.validatePair(pair.getAttr(), pair);
-                return pair;
-            } else {
-                return interpreter.nativePrompt(at, "fail", &[0]SExpr{});
-            }
-        }
-    } },
-    .{ "env-set!", "set the value associated with a name in an environment, returning the old value; prompts `fail` if the name is not bound", struct {
-        pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const rargs = try interpreter.eval3(args);
-            const key = rargs[0];
-            try interpreter.validateSymbol(at, key);
-            const value = rargs[1];
-            const env = rargs[2];
-            try interpreter.validateListOrNil(at, env);
-            const entry = Interpreter.envLookupPair(key, env) catch |err| {
-                return interpreter.abort(err, at, "bad env: {}", .{env});
-            };
-            if (entry) |pair| {
-                const xp = try interpreter.castPair(at, pair);
-                const oldValue = xp.cdr;
-                xp.cdr = value;
-                return oldValue;
-            } else {
-                return interpreter.nativePrompt(at, "fail", &[0]SExpr{});
-            }
-        }
-    } },
-    .{ "env-put!", "append a key-value pair to the top frame of an environment", struct {
-        pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const rargs = try interpreter.eval3(args);
-            const key = rargs[0];
-            try interpreter.validateSymbol(at, key);
-            const value = rargs[1];
-            const env = rargs[2];
-            try interpreter.validateListOrNil(at, env);
-            try Interpreter.extendEnvFrame(at, key, value, env);
-            return env;
-        }
-    } },
-    .{ "env-copy", "copy a given environment", struct {
-        pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const newEnv = try interpreter.eval1(args);
-            const outEnv = Interpreter.copyEnv(at, newEnv);
-            return outEnv;
-        }
-    } },
-    .{ "env-new", "make a new environment from a simple a-list", struct {
-        pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const frame = try interpreter.eval1(args);
-            Interpreter.validateFrame(frame) catch |err| {
-                return interpreter.abort(err, at, "bad frame: {}", .{frame});
-            };
-            const nil = try SExpr.Nil(at);
-            return try SExpr.Cons(at, frame, nil);
-        }
-    } },
-    .{ "env-get-frame", "get the environment frame at the given offset depth; prompts `fail` if the depth is out of bounds", struct {
-        pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const rargs = try interpreter.eval2(args);
-            const env = rargs[0];
-            const frameOffsetI = try interpreter.coerceNativeInt(at, rargs[1]);
-            if (frameOffsetI < 0) {
-                return interpreter.abort(Interpreter.Error.TypeError, at, "expected a non-negative number for frame offset, got {}", .{frameOffsetI});
-            }
-            const frameOffset: usize = @intCast(frameOffsetI);
-            const frame = Interpreter.getFrame(frameOffset, env) catch |err| {
-                if (err == Interpreter.Error.EnvironmentUnderflow) {
-                    return interpreter.nativePrompt(at, "fail", &[0]SExpr{});
-                }
-                return interpreter.abort(err, at, "bad env: {}", .{env});
-            };
-            return frame;
-        }
-    } },
-    .{ "env-push", "push a given environment frame into the current environment, returning the modified enviroment", struct {
-        pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const rargs = try interpreter.eval2(args);
-            var env = rargs[0];
-            const frame = rargs[1];
-            Interpreter.validateFrame(frame) catch |err| {
-                return interpreter.abort(err, at, "bad frame: {}", .{frame});
-            };
-            Interpreter.pushFrame(frame, &env) catch |err| {
-                return interpreter.abort(err, at, "bad env: {}", .{env});
-            };
-            return env;
-        }
-    } },
-    .{ "env-pop", "pop an environment frame off the current environment, returning it and the modified environment as a pair `(frame . env)`; prompts `fail` if the environment is empty", struct {
-        pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            var env = try interpreter.eval1(args);
-            const frame = Interpreter.popFrame(&env) catch |err| {
-                if (err == Interpreter.Error.EnvironmentUnderflow) {
-                    return interpreter.nativePrompt(at, "fail", &[0]SExpr{});
-                }
-                return interpreter.abort(err, at, "bad env: {}", .{env});
-            };
-            return SExpr.Cons(at, frame, env);
-        }
-    } },
 
-    .{ "swap-env", "replace the current environment with the given one, returning the old one; optionally accepts `'self` `'caller` or `'evidence` symbols indicating which environment to effect", struct {
+
+    .{ "meta/swap-env", "replace the current environment with the given one, returning the old one; optionally accepts `'self` `'caller` or `'evidence` symbols indicating which environment to effect", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             var rargs = [2]SExpr{ undefined, undefined };
             const len = try interpreter.evalSmallList(args, 1, &rargs);
@@ -292,7 +155,7 @@ pub const Env = .{
             }
         }
     } },
-    .{ "take-env", "take the current environment, leaving it empty; optionally accepts `'self` `'caller` or `'evidence` symbols indicating which environment to effect", struct {
+    .{ "meta/take-env", "take the current environment, leaving it empty; optionally accepts `'self` `'caller` or `'evidence` symbols indicating which environment to effect", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const arg = try interpreter.evalMaybe1(args);
             const newEnv = try SExpr.Nil(at);
@@ -314,7 +177,7 @@ pub const Env = .{
             return outEnv;
         }
     } },
-    .{ "get-env", "take a copy of the current environment, leaving it in place; optionally accepts `'self` `'caller` or `'evidence` symbols indicating which environment to effect", struct {
+    .{ "meta/get-env", "take a copy of the current environment, leaving it in place; optionally accepts `'self` `'caller` or `'evidence` symbols indicating which environment to effect", struct {
         pub fn fun(interpreter: *Interpreter, _: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const arg = try interpreter.evalMaybe1(args);
             if (arg) |which| {
@@ -329,7 +192,7 @@ pub const Env = .{
             return interpreter.env;
         }
     } },
-    .{ "replace-env", "replace the current environment with the given one; optionally accepts `'self` `'caller` or `'evidence` symbols indicating which environment to effect", struct {
+    .{ "meta/replace-env", "replace the current environment with the given one; optionally accepts `'self` `'caller` or `'evidence` symbols indicating which environment to effect", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             var rargs = [2]SExpr{ undefined, undefined };
             const len = try interpreter.evalSmallList(args, 1, &rargs);
@@ -351,14 +214,14 @@ pub const Env = .{
         }
     } },
 
-    .{ "get-global-evidence", "get the global evidence environment frame", struct {
+    .{ "meta/get-global-evidence", "get the global evidence environment frame", struct {
         pub fn fun(interpreter: *Interpreter, _: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             try interpreter.expect0(args);
             return interpreter.globalEvidence;
         }
     } },
 
-    .{ "set-global-evidence", "set the global evidence environment frame", struct {
+    .{ "meta/set-global-evidence", "set the global evidence environment frame", struct {
         pub fn fun(interpreter: *Interpreter, _: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const newEv = try interpreter.eval1(args);
             Interpreter.validateFrame(newEv) catch |err| {
@@ -366,6 +229,48 @@ pub const Env = .{
             };
             interpreter.globalEvidence = newEv;
             return newEv;
+        }
+    } },
+
+    .{ "ls", "shortcut for `(each (env/keys (meta/get-env)) (key . val) (print-ln key \" : \" (type/of val)))`; optionally accepts `'self` `'caller` or `'evidence` symbols indicating which environment to list", struct {
+        pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
+            var env = interpreter.env;
+
+            if (try interpreter.evalMaybe1(args)) |which| {
+                if (which.isExactSymbol("caller")) {
+                   env = interpreter.callerEnv;
+                } else if (which.isExactSymbol("evidence")) {
+                   env = interpreter.evidence;
+                } else {
+                    if (!which.isExactSymbol("self")) {
+                        return interpreter.abort(Interpreter.Error.TypeError, args.getAttr(), "expected `self` or `parent`, got {}", .{which});
+                    }
+                }
+            }
+
+
+            const writer = std.io.getStdOut().writer();
+
+            var envIt = env.iter();
+
+            while (try envIt.next()) |frame| {
+                var frameIt = frame.iter();
+                while (try frameIt.next()) |pair| {
+                    const xp = SExpr.castCons(pair) orelse return error.TypeError;
+                    const key = xp.car;
+                    const val = xp.cdr;
+                    const typeName = try SExpr.Symbol(at, if (val.castExternData()) |ext| ext.typeNameSlice() else val.getTag().toSlice());
+                    writer.print("{} : {s}\n", .{key, typeName}) catch |err| {
+                        return interpreter.errorToException(at, err);
+                    };
+                }
+            }
+
+            writer.writeByte('\n') catch |err| {
+                return interpreter.errorToException(at, err);
+            };
+
+            return try SExpr.Nil(at);
         }
     } },
 };

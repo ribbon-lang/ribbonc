@@ -1,7 +1,7 @@
 (module foo)
 
 (import test)
-(print-ln x)
+(print-ln test/x)
 
 (import test t (
     (b . a)

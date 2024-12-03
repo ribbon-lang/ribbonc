@@ -26,6 +26,27 @@ pub const SExpr = extern struct {
     pub const HashMap = HashMapOf(SExpr);
     pub const HashSet = HashMapOf(void);
 
+
+    pub const Iterator = struct {
+        list: SExpr,
+
+        pub fn next(self: *Iterator) !?SExpr {
+            if (self.list.isNil()) {
+                return null;
+            }
+
+            const xp = self.list.castCons() orelse return error.TypeError;
+            const car = xp.car;
+            self.list = xp.cdr;
+
+            return car;
+        }
+    };
+
+    pub fn iter(self: SExpr) Iterator {
+        return Iterator{ .list = self };
+    }
+
     pub const HashContext = struct {
         pub fn hash(_: @This(), key: SExpr) u32 {
             var hasher = Extern.Hasher.initFnv1a32();
@@ -654,6 +675,13 @@ pub const SExpr = extern struct {
 
         return SExpr{
             .head = Head.init(Types.Cons, cons),
+            .data = .{ .nil = .{} },
+        };
+    }
+
+    pub fn fromExistingPtr(v: anytype) SExpr {
+        return SExpr{
+            .head = Head.init(@TypeOf(v), v),
             .data = .{ .nil = .{} },
         };
     }

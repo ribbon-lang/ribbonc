@@ -1,6 +1,6 @@
 const std = @import("std");
 
-const Binding = @import("Builtin:Binding");
+const binding = @import("Builtin:binding");
 
 const MiscUtils = @import("Utils").Misc;
 
@@ -127,7 +127,7 @@ fn bindDefs(interpreter: *Interpreter, at: *const Source.Attr, defs: SExpr, comp
     while (try iter.next()) |info| {
         var res = try interpreter.expectAtLeast1(info);
 
-        const kind = try Binding.DefKind.matchSymbol(interpreter, res.head);
+        const kind = try binding.DefKind.matchSymbol(interpreter, res.head);
         if (kind != .Var) {
             res = try interpreter.expectAtLeast1(res.tail);
         }

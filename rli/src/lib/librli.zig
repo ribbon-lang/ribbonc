@@ -420,7 +420,7 @@ pub export fn BB_Interpreter_setEnv(interpreter: *BB_Interpreter, env: BB_SExpr,
     }
 }
 
-pub export fn BB_Interpreter_bindBuiltinEnv(interpreter: *BB_Interpreter, output_env: BB_SExpr, builtin_env: BB_EnvName, err_out: ?*BB_Error) void {
+pub export fn BB_Interpreter_bindBuiltinEnvs(interpreter: *BB_Interpreter, output_env: BB_SExpr, builtin_env: BB_EnvName, err_out: ?*BB_Error) void {
     _ = tryCall(err_out, BB_Interpreter.bindBuiltinEnv, .{ interpreter, output_env, builtin_env });
 }
 

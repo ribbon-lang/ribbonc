@@ -1,4 +1,7 @@
+(import io)
+(import string)
+
 (def fun test-function (msg)
-    (write-file std-out (string-intercalate " " "hello" msg "\n")))
+    (io/write-file io/std-out (string/intercalate " " "hello" msg "\n")))
 
 (test-function "world")

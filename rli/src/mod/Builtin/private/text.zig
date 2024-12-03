@@ -17,14 +17,14 @@ pub const Doc =
 ;
 
 pub const Env = .{
-    .{ "utf-category", "given a char, gives a symbol representing the unicode general category", struct {
+    .{ "text/category", "given a char, gives a symbol representing the unicode general category", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const arg = try interpreter.eval1(args);
             const char = try interpreter.coerceNativeChar(at, arg);
             return try SExpr.Symbol(at, @tagName(TextUtils.generalCategory(char)));
         }
     } },
-    .{ "utf-describe-category", "given a unicode character category symbol, returns a string explaining the value", struct {
+    .{ "text/describe-category", "given a unicode character category symbol, returns a string explaining the value", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const arg = try interpreter.eval1(args);
             const sym = try interpreter.castSymbolSlice(at, arg);
@@ -34,7 +34,7 @@ pub const Env = .{
             return try SExpr.StringPreallocatedUnchecked(at, TextUtils.describeGeneralCategory(cat));
         }
     } },
-    .{ "utf-control?", "given a string or char, checks if all characters are control characters", struct {
+    .{ "text/control?", "given a string or char, checks if all characters are control characters", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const arg = try interpreter.eval1(args);
             if (arg.castStringSlice()) |str| {
@@ -48,7 +48,7 @@ pub const Env = .{
             }
         }
     } },
-    .{ "utf-letter?", "given a string or char, checks if all characters are letter characters", struct {
+    .{ "text/letter?", "given a string or char, checks if all characters are letter characters", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const arg = try interpreter.eval1(args);
             if (arg.castStringSlice()) |str| {
@@ -62,7 +62,7 @@ pub const Env = .{
             }
         }
     } },
-    .{ "utf-mark?", "given a string or char, checks if all characters are mark characters", struct {
+    .{ "text/mark?", "given a string or char, checks if all characters are mark characters", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const arg = try interpreter.eval1(args);
             if (arg.castStringSlice()) |str| {
@@ -76,7 +76,7 @@ pub const Env = .{
             }
         }
     } },
-    .{ "utf-number?", "given a string or char, checks if all characters are number characters", struct {
+    .{ "text/number?", "given a string or char, checks if all characters are number characters", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const arg = try interpreter.eval1(args);
             if (arg.castStringSlice()) |str| {
@@ -90,7 +90,7 @@ pub const Env = .{
             }
         }
     } },
-    .{ "utf-punctuation?", "given a string or char, checks if all characters are punctuation characters", struct {
+    .{ "text/punctuation?", "given a string or char, checks if all characters are punctuation characters", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const arg = try interpreter.eval1(args);
             if (arg.castStringSlice()) |str| {
@@ -104,7 +104,7 @@ pub const Env = .{
             }
         }
     } },
-    .{ "utf-separator?", "given a string or char, checks if all characters are separator characters", struct {
+    .{ "text/separator?", "given a string or char, checks if all characters are separator characters", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const arg = try interpreter.eval1(args);
             if (arg.castStringSlice()) |str| {
@@ -118,7 +118,7 @@ pub const Env = .{
             }
         }
     } },
-    .{ "utf-symbol?", "given a string or char, checks if all characters are symbol characters", struct {
+    .{ "text/symbol?", "given a string or char, checks if all characters are symbol characters", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const arg = try interpreter.eval1(args);
             if (arg.castStringSlice()) |str| {
@@ -132,7 +132,7 @@ pub const Env = .{
             }
         }
     } },
-    .{ "utf-math?", "given a string or char, checks if all characters are math characters", struct {
+    .{ "text/math?", "given a string or char, checks if all characters are math characters", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const arg = try interpreter.eval1(args);
             if (arg.castStringSlice()) |str| {
@@ -146,7 +146,7 @@ pub const Env = .{
             }
         }
     } },
-    .{ "utf-alphabetic?", "given a string or char, checks if all characters are alphabetic characters", struct {
+    .{ "text/alphabetic?", "given a string or char, checks if all characters are alphabetic characters", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const arg = try interpreter.eval1(args);
             if (arg.castStringSlice()) |str| {
@@ -160,7 +160,7 @@ pub const Env = .{
             }
         }
     } },
-    .{ "utf-id-start?", "given a string or char, checks if all characters are id-start characters char", struct {
+    .{ "text/id-start?", "given a string or char, checks if all characters are id-start characters char", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const arg = try interpreter.eval1(args);
             if (arg.castStringSlice()) |str| {
@@ -174,7 +174,7 @@ pub const Env = .{
             }
         }
     } },
-    .{ "utf-id-continue?", "given a string or char, checks if all characters are id-continue characters char", struct {
+    .{ "text/id-continue?", "given a string or char, checks if all characters are id-continue characters char", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const arg = try interpreter.eval1(args);
             if (arg.castStringSlice()) |str| {
@@ -188,7 +188,7 @@ pub const Env = .{
             }
         }
     } },
-    .{ "utf-xid-start?", "given a string or char, checks if all characters are xid-start characters char", struct {
+    .{ "text/xid-start?", "given a string or char, checks if all characters are xid-start characters char", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const arg = try interpreter.eval1(args);
             if (arg.castStringSlice()) |str| {
@@ -202,7 +202,7 @@ pub const Env = .{
             }
         }
     } },
-    .{ "utf-xid-continue?", "given a string or char, checks if all characters are xid-continue characters char", struct {
+    .{ "text/xid-continue?", "given a string or char, checks if all characters are xid-continue characters char", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const arg = try interpreter.eval1(args);
             if (arg.castStringSlice()) |str| {
@@ -216,7 +216,7 @@ pub const Env = .{
             }
         }
     } },
-    .{ "utf-space?", "given a string or char, checks if all characters are space characters", struct {
+    .{ "text/space?", "given a string or char, checks if all characters are space characters", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const arg = try interpreter.eval1(args);
             if (arg.castStringSlice()) |str| {
@@ -230,7 +230,7 @@ pub const Env = .{
             }
         }
     } },
-    .{ "utf-hex-digit?", "given a string or char, checks if all characters are hexadecimal digit characters char", struct {
+    .{ "text/hex-digit?", "given a string or char, checks if all characters are hexadecimal digit characters char", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const arg = try interpreter.eval1(args);
             if (arg.castStringSlice()) |str| {
@@ -244,7 +244,7 @@ pub const Env = .{
             }
         }
     } },
-    .{ "utf-diacritic?", "given a string or char, checks if all characters are diacritic characters", struct {
+    .{ "text/diacritic?", "given a string or char, checks if all characters are diacritic characters", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const arg = try interpreter.eval1(args);
             if (arg.castStringSlice()) |str| {
@@ -258,7 +258,7 @@ pub const Env = .{
             }
         }
     } },
-    .{ "utf-numeric?", "given a string or char, checks if all characters are numeric characters", struct {
+    .{ "text/numeric?", "given a string or char, checks if all characters are numeric characters", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const arg = try interpreter.eval1(args);
             if (arg.castStringSlice()) |str| {
@@ -272,7 +272,7 @@ pub const Env = .{
             }
         }
     } },
-    .{ "utf-digit?", "given a string or char, checks if all characters are digit characters", struct {
+    .{ "text/digit?", "given a string or char, checks if all characters are digit characters", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const arg = try interpreter.eval1(args);
             if (arg.castStringSlice()) |str| {
@@ -286,7 +286,7 @@ pub const Env = .{
             }
         }
     } },
-    .{ "utf-decimal?", "given a string or char, checks if all characters are decimal digit characters char", struct {
+    .{ "text/decimal?", "given a string or char, checks if all characters are decimal digit characters char", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const arg = try interpreter.eval1(args);
             if (arg.castStringSlice()) |str| {
@@ -300,7 +300,7 @@ pub const Env = .{
             }
         }
     } },
-    .{ "utf-hex?", "given a string or char, checks if all characters are hexadecimal digit characters char", struct {
+    .{ "text/hex?", "given a string or char, checks if all characters are hexadecimal digit characters char", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const arg = try interpreter.eval1(args);
             if (arg.castStringSlice()) |str| {
@@ -315,19 +315,19 @@ pub const Env = .{
         }
     } },
 
-    .{ "utf-lowercase?", "given a string or char, checks if all characters are lowercase", struct {
+    .{ "text/lowercase?", "given a string or char, checks if all characters are lowercase", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const arg = try interpreter.eval1(args);
             return try SExpr.Bool(at, if (arg.castStringSlice()) |str| TextUtils.isLowerStr(str) else if (arg.coerceNativeChar()) |char| TextUtils.isLower(char) else false);
         }
     } },
-    .{ "utf-uppercase?", "given a string or char, checks if all characters are uppercase", struct {
+    .{ "text/uppercase?", "given a string or char, checks if all characters are uppercase", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const arg = try interpreter.eval1(args);
             return try SExpr.Bool(at, if (arg.castStringSlice()) |str| TextUtils.isUpperStr(str) else if (arg.coerceNativeChar()) |char| TextUtils.isUpper(char) else false);
         }
     } },
-    .{ "utf-lowercase", "given a string or char, returns a new copy with all of the characters converted to lowercase", struct {
+    .{ "text/lowercase", "given a string or char, returns a new copy with all of the characters converted to lowercase", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const arg = try interpreter.eval1(args);
             if (arg.castStringSlice()) |str| {
@@ -342,7 +342,7 @@ pub const Env = .{
             }
         }
     } },
-    .{ "utf-uppercase", "given a string or char, returns a new copy with all of the characters converted to uppercase", struct {
+    .{ "text/uppercase", "given a string or char, returns a new copy with all of the characters converted to uppercase", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const arg = try interpreter.eval1(args);
             if (arg.castStringSlice()) |str| {
@@ -357,7 +357,7 @@ pub const Env = .{
             }
         }
     } },
-    .{ "utf-casefold", "given a string or a char, returns a new copy with all characters converted with unicode case folding; note that is may require converting chars to strings", struct {
+    .{ "text/casefold", "given a string or a char, returns a new copy with all characters converted with unicode case folding; note that is may require converting chars to strings", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const arg = try interpreter.eval1(args);
             if (arg.castStringSlice()) |str| {
@@ -386,7 +386,7 @@ pub const Env = .{
             }
         }
     } },
-    .{ "utf-byte-count", "given a string or a char, returns the number of bytes required to represent it as utf-8", struct {
+    .{ "text/byte-count", "given a string or a char, returns the number of bytes required to represent it as text/8", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const arg = try interpreter.eval1(args);
             if (arg.castStringSlice()) |str| {
@@ -405,7 +405,7 @@ pub const Env = .{
             }
         }
     } },
-    .{ "utf-display-width", "given a string or a char, returns the width of the value in visual columns (approximate)", struct {
+    .{ "text/display-width", "given a string or a char, returns the width of the value in visual columns (approximate)", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const arg = try interpreter.eval1(args);
             if (arg.castStringSlice()) |str| {
@@ -421,7 +421,7 @@ pub const Env = .{
             }
         }
     } },
-    .{ "utf-case-insensitive-eq?", "compare two strings or chars using unicode case folding to ignore case", struct {
+    .{ "text/case-insensitive-eq?", "compare two strings or chars using unicode case folding to ignore case", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const eargs = try interpreter.evalListInRange(args, 2, 2);
             if (eargs[0].castStringSlice()) |str1| {

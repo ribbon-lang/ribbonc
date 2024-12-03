@@ -22,6 +22,8 @@ const log = Core.log;
 const Driver = @This();
 
 
+
+
 const EmojiTable = struct {
     Ribbon: []const u8,
     Heart: []const u8,
@@ -48,7 +50,7 @@ fn init(gpa: std.mem.Allocator, out: std.io.AnyWriter, args: []const []const u8,
 
     driver.emoji = if (Config.USE_EMOJI) Emoji else NoEmoji;
     driver.style = if (Config.USE_ANSI_STYLES) ANSI.Style else ANSI.NoStyle;
-    driver.rli = try Rli.init(gpa, out, &.{.Full}, args);
+    driver.rli = try Rli.init(gpa, out, Builtin.AllEnvs, args);
     driver.rli.readFileCallback = readFile;
     driver.read_stdin = readStdin;
 

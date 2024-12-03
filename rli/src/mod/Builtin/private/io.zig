@@ -18,7 +18,7 @@ pub const Doc =
 ;
 
 pub const Env = .{
-    .{ "open-file", "open a file at the provided path; accepts mode symbol `'r`, `'w`, or `'rw`; prompts an exception if it fails", struct {
+    .{ "io/open-file", "open a file at the provided path; accepts mode symbol `'r`, `'w`, or `'rw`; prompts an exception if it fails", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             comptime // since zig is still unstable this seems like a good sanity check...
             std.debug.assert(@intFromEnum(std.fs.File.OpenMode.read_only)  == 0
@@ -46,7 +46,7 @@ pub const Env = .{
             return try ExternFile(at, filePtr);
         }
     } },
-    .{ "read-file", "read the content of a text file to a string; if a second parameter is given it is expected to be the length in bytes to read, otherwise reads the whole file; prompts an exception if it fails", struct {
+    .{ "io/read-file", "read the content of a text file to a string; if a second parameter is given it is expected to be the length in bytes to read, otherwise reads the whole file; prompts an exception if it fails", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             var rargs = [2]SExpr{ undefined, undefined };
             const rargsLen = try interpreter.evalSmallList(args, 1, &rargs);
@@ -76,7 +76,7 @@ pub const Env = .{
             return try SExpr.StringPreallocated(at, data);
         }
     } },
-    .{ "read-ln", "read a single line of a text file to a string; prompts an exception if it fails", struct {
+    .{ "io/read-ln", "read a single line of a text file to a string; prompts an exception if it fails", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const fileObj = try interpreter.eval1(args);
             const file = try interpreter.castExternDataPtr(std.fs.File, at, fileObj);
@@ -87,7 +87,7 @@ pub const Env = .{
             return try SExpr.StringPreallocated(at, data);
         }
     } },
-    .{ "write-file", "write a string to a file; prompts an exception if it fails", struct {
+    .{ "io/write-file", "write a string to a file; prompts an exception if it fails", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const rargs = try interpreter.eval2(args);
             const file = try interpreter.castExternDataPtr(std.fs.File, at, rargs[0]);
@@ -99,7 +99,7 @@ pub const Env = .{
             return try SExpr.Nil(at);
         }
     } },
-    .{ "write-ln", "write an optional string to a file, then write a new line; prompts an exception if it fails", struct {
+    .{ "io/write-ln", "write an optional string to a file, then write a new line; prompts an exception if it fails", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             var rargs = [2]SExpr{ undefined, undefined };
             const rargsLen = try interpreter.evalSmallList(args, 1, &rargs);
@@ -170,7 +170,7 @@ pub const Env = .{
             return SExpr.Nil(at);
         }
     } },
-    .{ "file-end", "get the cursor position that marks the end of a file; prompts an exception if it fails", struct {
+    .{ "io/file-end", "get the cursor position that marks the end of a file; prompts an exception if it fails", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const fileObj = try interpreter.eval1(args);
             const file = try interpreter.castExternDataPtr(std.fs.File, at, fileObj);
@@ -183,7 +183,7 @@ pub const Env = .{
             return try SExpr.Int(at, @intCast(end));
         }
     } },
-    .{ "file-cursor", "get the current cursor position in a file; prompts an exception if it fails", struct {
+    .{ "io/file-cursor", "get the current cursor position in a file; prompts an exception if it fails", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const fileObj = try interpreter.eval1(args);
             const file = try interpreter.castExternDataPtr(std.fs.File, at, fileObj);
@@ -196,7 +196,7 @@ pub const Env = .{
             return try SExpr.Int(at, @intCast(cursor));
         }
     } },
-    .{ "file-cursor!", "set the current cursor position in a file; prompts an exception if it fails", struct {
+    .{ "io/file-cursor!", "set the current cursor position in a file; prompts an exception if it fails", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const rargs = try interpreter.eval2(args);
             const file = try interpreter.castExternDataPtr(std.fs.File, at, rargs[0]);
@@ -210,21 +210,21 @@ pub const Env = .{
             return try SExpr.Nil(at);
         }
     } },
-    .{ "std-in", "the input file constant", struct {
+    .{ "io/std-in", "the input file constant", struct {
         pub fn init(at: *const Source.Attr) Interpreter.Result!SExpr {
             const file = std.io.getStdIn();
             const filePtr = try at.context.new(file);
             return try ExternFile(at, filePtr);
         }
     } },
-    .{ "std-out", "the output file constant", struct {
+    .{ "io/std-out", "the output file constant", struct {
         pub fn init(at: *const Source.Attr) Interpreter.Result!SExpr {
             const file = std.io.getStdOut();
             const filePtr = try at.context.new(file);
             return try ExternFile(at, filePtr);
         }
     } },
-    .{ "std-err", "the error file constant", struct {
+    .{ "io/std-err", "the error file constant", struct {
         pub fn init(at: *const Source.Attr) Interpreter.Result!SExpr {
             const file = std.io.getStdErr();
             const filePtr = try at.context.new(file);

@@ -16,23 +16,24 @@ typedef enum BB_Error { BB_OKAY } BB_Error;
 typedef enum BB_EnvName {
     BB_ALIST_ENV,
     BB_ARITHMETIC_ENV,
+    BB_ATTR_ENV,
     BB_BINDING_ENV,
-    BB_CONTROL_FLOW_ENV,
+    BB_CONTROL_ENV,
     BB_CONVERSION_ENV,
     BB_EFFECT_ENV,
+    BB_ENV_ENV,
     BB_IO_ENV,
-    BB_LAMBDA_LIST_ENV,
     BB_LIST_ENV,
     BB_LOGICAL_ENV,
     BB_META_ENV,
+    BB_PAIR_ENV,
     BB_PARSER_ENV,
+    BB_PATTERN_ENV,
     BB_PROCEDURE_ENV,
-    BB_SOURCE_ENV,
     BB_STRING_ENV,
     BB_SYMBOL_ENV,
     BB_TEXT_ENV,
-    BB_TYPE_INFO_ENV,
-    BB_FULL_ENV,
+    BB_TYPE_ENV,
 } BB_EnvName;
 
 typedef enum BB_FunctionKind {
@@ -272,7 +273,7 @@ BB_SExpr BB_Interpreter_getEnv (BB_Interpreter *interpreter);
 
 void BB_Interpreter_setEnv (BB_Interpreter *interpreter, BB_SExpr env, BB_Error *err_out);
 
-void BB_Interpreter_bindBuiltinEnv (BB_Interpreter *interpreter, BB_SExpr output_env, BB_EnvName builtin_env, BB_Error *err_out);
+void BB_Interpreter_bindBuiltinEnvs (BB_Interpreter *interpreter, BB_SExpr output_env, BB_EnvName builtin_env, BB_Error *err_out);
 
 BB_Parser *BB_Parser_init (BB_Context *ctx, BB_Error *err_out);
 

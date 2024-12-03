@@ -8,8 +8,7 @@ const SExpr = Core.SExpr;
 const Interpreter = Core.Interpreter;
 
 pub const Doc =
-    \\This module provides functions for working with strings,
-    \\as well as conversions between strings and lists of chars.
+    \\This module provides functions for working with strings.
     \\
     \\The functions in this module are designed to be utf8-safe, and will
     \\generally cause a compilation error if used improperly.
@@ -24,13 +23,13 @@ pub const Doc =
 ;
 
 pub const Env = .{
-    .{ "empty-string?", "check if a value is the empty string", struct {
+    .{ "string/empty?", "check if a value is the empty string", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const arg = try interpreter.eval1(args);
             return try SExpr.Bool(at, if (arg.castStringSlice()) |str| str.len == 0 else false);
         }
     } },
-    .{ "string-length", "get the number of characters in a string", struct {
+    .{ "string/length", "get the number of characters in a string", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const arg = try interpreter.eval1(args);
             const str = try interpreter.castStringSlice(at, arg);
@@ -43,43 +42,7 @@ pub const Env = .{
             return try SExpr.Int(at, @intCast(len));
         }
     } },
-    .{ "list<-string", "convert a string to a list of characters", struct {
-        pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const arg = try interpreter.eval1(args);
-            const str = try interpreter.castStringSlice(at, arg);
-            var listBuf = std.ArrayList(SExpr).init(interpreter.context.allocator);
-            defer listBuf.deinit();
-            var i: usize = 0;
-            while (i < str.len) {
-                const dec = TextUtils.decode1(str[i..]) catch {
-                    return interpreter.abort(Interpreter.Error.BadEncoding, at, "bad utf8 string", .{});
-                };
-                const char = try SExpr.Char(at, dec.ch);
-                try listBuf.append(char);
-                i += dec.len;
-            }
-            return try SExpr.List(at, listBuf.items);
-        }
-    } },
-    .{ "string<-list", "convert a list of characters to a string", struct {
-        pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const list = try interpreter.eval1(args);
-            var mem = std.ArrayList(u8).init(interpreter.context.allocator);
-            defer mem.deinit();
-            var chars = try interpreter.argIterator(false, list);
-            while (try chars.next()) |ch| {
-                const char = try interpreter.coerceNativeChar(at, ch);
-                var charBuf = [1]u8{0} ** 4;
-                const charSize = TextUtils.encode(char, &charBuf) catch {
-                    return interpreter.abort(Interpreter.Error.TypeError, at, "bad char {}", .{char});
-                };
-                try mem.appendSlice(charBuf[0..charSize]);
-            }
-            const newStr = try mem.toOwnedSlice();
-            return try SExpr.StringPreallocatedUnchecked(at, newStr);
-        }
-    } },
-    .{ "string-find", "within a given string, find the character index of another string, or a character; returns nil if not found", struct {
+    .{ "string/find", "within a given string, find the character index of another string, or a character; returns nil if not found", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const rargs = try interpreter.eval2(args);
             const haystack = try interpreter.castStringSlice(at, rargs[0]);
@@ -89,7 +52,7 @@ pub const Env = .{
                 else if (rargs[1].coerceNativeChar()) |c| needleBuf[0..(TextUtils.encode(c, &needleBuf)
                     catch return interpreter.abort(Interpreter.Error.TypeError, at, "bad char {}", .{c}))]
                 else {
-                    return interpreter.abort(Interpreter.Error.TypeError, at, "expected a string or char for string-intercalate separator, got {}: `{}`", .{ rargs[1].getTag(), rargs[1] });
+                    return interpreter.abort(Interpreter.Error.TypeError, at, "expected a string or char for string/intercalate separator, got {}: `{}`", .{ rargs[1].getTag(), rargs[1] });
                 };
             const pos = TextUtils.findStrCodepointIndex(haystack, needle) catch {
                 return interpreter.abort(Interpreter.Error.BadEncoding, at, "bad utf8 string", .{});
@@ -97,12 +60,12 @@ pub const Env = .{
                 return try SExpr.Nil(at);
             };
             if (pos > std.math.maxInt(i64)) {
-                return interpreter.abort(Interpreter.Error.RangeError, at, "string-find result is too large to fit in an integer", .{});
+                return interpreter.abort(Interpreter.Error.RangeError, at, "string/find result is too large to fit in an integer", .{});
             }
             return try SExpr.Int(at, @intCast(pos));
         }
     } },
-    .{ "string-find-byte-offset", "within a given string, find the byte index of another string; returns nil if not found", struct {
+    .{ "string/find-byte-offset", "within a given string, find the byte index of another string; returns nil if not found", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const rargs = try interpreter.eval2(args);
             const haystack = try interpreter.castStringSlice(at, rargs[0]);
@@ -112,18 +75,18 @@ pub const Env = .{
                 else if (rargs[1].coerceNativeChar()) |c| needleBuf[0..(TextUtils.encode(c, &needleBuf)
                     catch return interpreter.abort(Interpreter.Error.TypeError, at, "bad char {}", .{c}))]
                 else {
-                    return interpreter.abort(Interpreter.Error.TypeError, at, "expected a string or char for string-intercalate separator, got {}: `{}`", .{ rargs[1].getTag(), rargs[1] });
+                    return interpreter.abort(Interpreter.Error.TypeError, at, "expected a string or char for string/intercalate separator, got {}: `{}`", .{ rargs[1].getTag(), rargs[1] });
                 };
             const pos = TextUtils.findStr(haystack, needle) orelse {
                 return try SExpr.Nil(at);
             };
             if (pos > std.math.maxInt(i64)) {
-                return interpreter.abort(Interpreter.Error.RangeError, at, "string-find-byte-offset result is too large to fit in an integer", .{});
+                return interpreter.abort(Interpreter.Error.RangeError, at, "string/find-byte-offset result is too large to fit in an integer", .{});
             }
             return try SExpr.Int(at, @intCast(pos));
         }
     } },
-    .{ "nth-char", "get the character at the given character index; returns nil if out of range", struct {
+    .{ "string/nth-char", "get the character at the given character index; returns nil if out of range", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const rargs = try interpreter.eval2(args);
             const n = try interpreter.coerceNativeInt(at, rargs[0]);
@@ -139,7 +102,7 @@ pub const Env = .{
             return try SExpr.Char(at, char);
         }
     } },
-    .{ "index<-byte-offset", "given a string, convert a byte index within it to a character index; returns nil if out of range", struct {
+    .{ "string/index<-byte-offset", "given a string, convert a byte index within it to a character index; returns nil if out of range", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const rargs = try interpreter.eval2(args);
             const str = try interpreter.castStringSlice(at, rargs[0]);
@@ -156,7 +119,7 @@ pub const Env = .{
             return try SExpr.Int(at, @intCast(index));
         }
     } },
-    .{ "byte-offset<-index", "given a string, convert a character index within it to a byte index; returns nil if out of range or mis-aligned ", struct {
+    .{ "string/byte-offset<-index", "given a string, convert a character index within it to a byte index; returns nil if out of range or mis-aligned ", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const rargs = try interpreter.eval2(args);
             const str = try interpreter.castStringSlice(at, rargs[0]);
@@ -175,7 +138,7 @@ pub const Env = .{
             return try SExpr.Int(at, @intCast(index));
         }
     } },
-    .{ "string-concat", "given any number of strings or characters, returns a new string with all of them concatenated in order", struct {
+    .{ "string/concat", "given any number of strings or characters, returns a new string with all of them concatenated in order", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             var rargs = try interpreter.argIterator(true, args);
             var newStr = std.ArrayList(u8).init(interpreter.context.allocator);
@@ -195,7 +158,7 @@ pub const Env = .{
             return try SExpr.StringPreallocatedUnchecked(at, try newStr.toOwnedSlice());
         }
     } },
-    .{ "string-intercalate", "given a string or a char, and any number of subsequent strings or chars, returns a new string with all of the subsequent values concatenated in order with the first value in between concatenations", struct {
+    .{ "string/intercalate", "given a string or a char, and any number of subsequent strings or chars, returns a new string with all of the subsequent values concatenated in order with the first value in between concatenations", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             var rargs = try interpreter.argIterator(true, args);
             var newStr = std.ArrayList(u8).init(interpreter.context.allocator);
@@ -206,7 +169,7 @@ pub const Env = .{
                 else if (sep.coerceNativeChar()) |c| sepBuf[0..(TextUtils.encode(c, &sepBuf)
                     catch return interpreter.abort(Interpreter.Error.TypeError, at, "bad char {}", .{c}))]
                 else {
-                    return interpreter.abort(Interpreter.Error.TypeError, at, "expected a string or char for string-intercalate separator, got {}: `{}`", .{ sep.getTag(), sep });
+                    return interpreter.abort(Interpreter.Error.TypeError, at, "expected a string or char for string/intercalate separator, got {}: `{}`", .{ sep.getTag(), sep });
                 };
             if (!rargs.hasNext()) {
                 try rargs.assertDone();
@@ -219,7 +182,7 @@ pub const Env = .{
                 else if (fst.coerceNativeChar()) |c| charBuf[0..(TextUtils.encode(c, &charBuf)
                     catch return interpreter.abort(Interpreter.Error.TypeError, at, "bad char {}", .{c}))]
                 else {
-                    return interpreter.abort(Interpreter.Error.TypeError, at, "expected a string or char for string-intercalate argument, got {}: `{}`", .{ fst.getTag(), fst });
+                    return interpreter.abort(Interpreter.Error.TypeError, at, "expected a string or char for string/intercalate argument, got {}: `{}`", .{ fst.getTag(), fst });
                 };
             try newStr.appendSlice(fstStr);
             while (try rargs.next()) |arg| {
@@ -228,7 +191,7 @@ pub const Env = .{
                     else if (arg.coerceNativeChar()) |c| charBuf[0..(TextUtils.encode(c, &charBuf)
                         catch return interpreter.abort(Interpreter.Error.TypeError, at, "bad char {}", .{c}))]
                     else {
-                        return interpreter.abort(Interpreter.Error.TypeError, at, "expected a string or char for string-intercalate argument, got {}: `{}`", .{ arg.getTag(), fst });
+                        return interpreter.abort(Interpreter.Error.TypeError, at, "expected a string or char for string/intercalate argument, got {}: `{}`", .{ arg.getTag(), fst });
                     };
                 try newStr.appendSlice(sepStr);
                 try newStr.appendSlice(str);
@@ -236,7 +199,7 @@ pub const Env = .{
             return try SExpr.StringPreallocatedUnchecked(at, try newStr.toOwnedSlice());
         }
     } },
-    .{ "substring", "given a string and two character indices, returns a new string containing the designated section; returns nil if out of range", struct {
+    .{ "string/sub", "given a string and two character indices, returns a new string containing the designated section; returns nil if out of range", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             var rargs = [3]SExpr{ undefined, undefined, undefined };
             const len = try interpreter.evalSmallList(args, 2, &rargs);
@@ -269,7 +232,7 @@ pub const Env = .{
             return SExpr.StringPreallocatedUnchecked(at, newStr);
         }
     } },
-    .{ "substring-byte-offset", "given a string and two byte indices, returns a new string containing the designated section; ; returns nil if out of range or mis-aligned", struct {
+    .{ "string/byte-offset-sub", "given a string and two byte indices, returns a new string containing the designated section; ; returns nil if out of range or mis-aligned", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const rargs = try interpreter.evalListInRange(args, 2, 3);
             const str = try interpreter.castStringSlice(at, rargs[0]);

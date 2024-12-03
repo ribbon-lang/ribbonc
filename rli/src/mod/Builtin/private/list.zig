@@ -8,7 +8,7 @@ const SExpr = Core.SExpr;
 const Interpreter = Core.Interpreter;
 
 pub const Doc =
-    \\This module contains functions for creating and manipulating lists and pairs.
+    \\This module contains functions for creating and manipulating lists.
     \\
 ;
 
@@ -18,50 +18,12 @@ pub const Env = .{
             return try SExpr.Nil(at);
         }
     } },
-    .{ "cons", "join a head and tail into a pair", struct {
-        pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const rArgs = try interpreter.eval2(args);
-            return try SExpr.Cons(at, rArgs[0], rArgs[1]);
-        }
-    } },
-    .{ "car", "get the head of a pair", struct {
-        pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const list = try interpreter.eval1(args);
-            return (try interpreter.castPair(at, list)).car;
-        }
-    } },
-    .{ "set-car!", "set the head of a pair; returns the old value", struct {
-        pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const rArgs = try interpreter.eval2(args);
-            const list = try interpreter.castPair(at, rArgs[0]);
-            const newCar = rArgs[1];
-            const oldCar = list.car;
-            list.car = newCar;
-            return oldCar;
-        }
-    } },
-    .{ "cdr", "get the tail of a pair", struct {
-        pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const list = try interpreter.eval1(args);
-            return (try interpreter.castPair(at, list)).cdr;
-        }
-    } },
-    .{ "set-cdr!", "set the tail of a pair; returns the old value", struct {
-        pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const rArgs = try interpreter.eval2(args);
-            const list = try interpreter.castPair(at, rArgs[0]);
-            const newCdr = rArgs[1];
-            const oldCdr = list.cdr;
-            list.cdr = newCdr;
-            return oldCdr;
-        }
-    } },
     .{ "list", "create a new list, with any number of values", struct {
         pub fn fun(interpreter: *Interpreter, _: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             return interpreter.evalListRecursive(args);
         }
     } },
-    .{ "list-length", "get the length of a list", struct {
+    .{ "list/length", "get the length of a list", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const list = try interpreter.eval1(args);
             try interpreter.validateListOrNil(at, list);
@@ -76,7 +38,7 @@ pub const Env = .{
             return SExpr.Int(at, @intCast(len));
         }
     } },
-    .{ "list-map", "apply a function to each element of a list, returning a new list of the results", struct {
+    .{ "list/map", "apply a function to each element of a list, returning a new list of the results", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const rArgs = try interpreter.eval2(args);
             const list = rArgs[0];
@@ -93,7 +55,7 @@ pub const Env = .{
             return try SExpr.List(at, out.items);
         }
     } },
-    .{ "list-each", "apply a function to each element of a list", struct {
+    .{ "list/each", "apply a function to each element of a list", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const rArgs = try interpreter.eval2(args);
             const list = rArgs[0];
@@ -107,7 +69,7 @@ pub const Env = .{
             return try SExpr.Nil(at);
         }
     } },
-    .{ "list-member?", "determine if a given value is contained in a list", struct {
+    .{ "list/member?", "determine if a given value is contained in a list", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const rArgs = try interpreter.eval2(args);
             const list = rArgs[0];

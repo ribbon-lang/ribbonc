@@ -14,27 +14,27 @@ pub const Doc =
 ;
 
 pub const Env = .{
-    .{ "attr-here", "create a source attribution referencing the call location", struct {
+    .{ "attr/here", "create a source attribution referencing the call location", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             try interpreter.expect0(args);
             return ExternAttr(at, at);
         }
     } },
-    .{ "attr-filename", "get the filename stored in an Attr", struct {
+    .{ "attr/filename", "get the filename stored in an Attr", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const arg = try interpreter.eval1(args);
             const attr: *const Source.Attr = try interpreter.castExternDataPtr(Source.Attr, at, arg);
             return try SExpr.StringPreallocated(at, attr.filename);
         }
     } },
-    .{ "attr-range", "get the range stored in an Attr", struct {
+    .{ "attr/range", "get the range stored in an Attr", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const arg = try interpreter.eval1(args);
             const attr: *const Source.Attr = try interpreter.castExternDataPtr(Source.Attr, at, arg);
             return try convertRangeToSExpr(at, attr.range);
         }
     } },
-    .{ "attr-new", "create a new Attr from a filename string and a range object", struct {
+    .{ "attr/new", "create a new Attr from a filename string and a range object", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const rargs = try interpreter.eval2(args);
             const filename = try interpreter.castStringSlice(at, rargs[0]);
@@ -47,13 +47,13 @@ pub const Env = .{
             return try ExternAttr(at, attr);
         }
     } },
-    .{ "attr-of", "extract the Attr from a value", struct {
+    .{ "attr/of", "extract the Attr from a value", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const arg = try interpreter.eval1(args);
             return try ExternAttr(at, arg.getAttr());
         }
     } },
-    .{ "attr-set!", "set the Attr of a value; returns the old Attr", struct {
+    .{ "attr/set!", "set the Attr of a value; returns the old Attr", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const rargs = try interpreter.eval2(args);
             const attr: *const Source.Attr = try interpreter.castExternDataPtr(Source.Attr, at, rargs[1]);

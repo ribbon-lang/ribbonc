@@ -36,7 +36,7 @@ pub const Doc =
     \\>   ((x y . z) (conditional-action3 x y z))
     \\>   (else (default-action)))
     \\> ```
-    \\For more information on the syntax of lambda lists, see the [`LambdaList` module](#lambdalist).
+    \\For more information on the syntax of lambda lists, see the [`Pattern` module](#pattern).
     \\
     \\`begin` allows for sequencing expressions.
     \\> ##### Example
@@ -109,7 +109,7 @@ pub const Env = .{
             return try SExpr.Nil(at);
         }
     } },
-    .{ "match", "lambda list based matching on any inputt", struct {
+    .{ "match", "pattern based matching on any inputt", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const res = try interpreter.evalAtLeast1(args);
             const scrutinee = res.head;
@@ -125,7 +125,7 @@ pub const Env = .{
                     }
                     return try interpreter.runProgram(then);
                 }
-                switch (try Interpreter.LambdaListLite.run(interpreter, llist.getAttr(), llist, scrutinee)) {
+                switch (try Interpreter.PatternLite.run(interpreter, llist.getAttr(), llist, scrutinee)) {
                     .Okay => |frame| {
                         try Interpreter.pushFrame(frame, &interpreter.env);
                         defer _ = Interpreter.popFrame(&interpreter.env) catch unreachable;
@@ -148,8 +148,10 @@ pub const Env = .{
             var out = std.ArrayList(u8).init(interpreter.context.allocator);
             defer out.deinit();
             const writer = out.writer();
+            var i: usize = 0;
             while (try rargs.next()) |next| {
                 try writer.print("{display}", .{next});
+                i += 1;
             }
             return interpreter.abort(Interpreter.Error.Panic, at, "{s}", .{try out.toOwnedSlice()});
         }
