@@ -44,7 +44,11 @@
           (mod-env
                 (or-panic-at (alist/lookup-f 'env mod)
                     (attr/of mod) "failed to get env from module `" name "`"))
-          (frame ()))
+          (frame ())
+          (final-prefix (cond
+                ((type/nil? prefix) (symbol/concat name))
+                ((eq? prefix 'no-prefix) "")
+                (else prefix))))
         (list/each mod-exports (fun (entry)
             (let ((internal-key nil)
                   (external-key nil))
@@ -63,7 +67,7 @@
                     (if import-listed-key
                         (set! frame
                             (alist/append
-                                (symbol/concat (if (type/nil? prefix) (symbol/concat name) prefix) '/' import-listed-key)
+                                (symbol/concat final-prefix '/' import-listed-key)
                                 value
                                 frame)))))))
         (alist/each frame (fun (key value)
@@ -83,8 +87,6 @@
                     (else (panic-at (attr/of entry) "expected a symbol or a pair in import list, got " (type/of entry) ": `" entry "`")))))
             nil)
         key))
-
-(def noprefix (symbol<-string "#NOPREFIX#"))
 
 (def macro import (name . args)
     (let ((env (meta/get-env 'caller)))

@@ -78,53 +78,21 @@ pub fn init(allocator: std.mem.Allocator, out: std.io.AnyWriter, builtinEnvs: Bu
         .interpreter = interpreter
     };
 
-    log.info("loading boot code ...", .{});
-    {
-        log.info("initializing primary process environment ...", .{});
-        const sArgs = makeArgs(self.context, args) catch |err| {
-            log.err("... failed to load command line arguments", .{});
-            return err;
-        };
-        log.info("... command line arguments loaded", .{});
+    log.info("initializing primary process environment ...", .{});
+    const sArgs = makeArgs(self.context, args) catch |err| {
+        log.err("... failed to load command line arguments", .{});
+        return err;
+    };
+    log.info("... command line arguments loaded", .{});
 
-        self.interpreter.bindCustomEnv(self.interpreter.env, .{
-            .{ "process-args", "a list of command line arguments to the compiler", sArgs },
-        }) catch |err| {
-            log.err("... failed to initialize primary process environment", .{});
-            return err;
-        };
-        log.info("... primary process environment loaded", .{});
-
-        log.info("initializing builtin environments ...", .{});
-        var envIterator = Builtin.EnvIterator.from(builtinEnvs);
-        while (envIterator.next()) |env| {
-            self.interpreter.bindBuiltinEnv(self.interpreter.env, env) catch |err| {
-                log.err("... failed to initialize builtin environment {s}", .{@tagName(env)});
-                return err;
-            };
-            log.debug("... builtin environment {s} loaded", .{@tagName(env)});
-        }
-        log.info("... builtin environments loaded", .{});
-
-        inline for (comptime std.meta.declarations(Builtin.Scripts)) |scriptDecl| {
-            const scriptName = scriptDecl.name;
-            log.info("running builtin script [{s}] ...", .{scriptName});
-            const script = @field(Builtin.Scripts, scriptName);
-            const result = self.runFile(scriptName, script) catch |err| {
-                log.err("... failed to bind built-in script [{s}]", .{scriptName});
-                return err;
-            };
-            log.info("... finished builtin script [{s}], result:\n{}", .{ scriptName, result });
-        }
-
-        log.info("modularizing environments ...", .{});
-        self.interpreter.env = Interpreter.modularizeEnv(self.context.attr, self.interpreter.env) catch |err| {
-            log.err("... failed to modularize environment", .{});
-            return err;
-        };
-        log.debug("... environment modularized", .{});
-    }
-
+    log.info("loading built-ins ...", .{});
+    Builtin.bind(Error, self.interpreter, self, runFile, builtinEnvs, .{
+        .{ "process-args", "a list of command line arguments to the compiler", sArgs }
+    }) catch |err| {
+        log.err("... failed to load built-ins", .{});
+        return err;
+    };
+    log.info("... built-ins loaded", .{});
 
     return self;
 }

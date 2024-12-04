@@ -232,7 +232,7 @@ pub const Decls = .{
         }
     } },
 
-    .{ "ls", "shortcut for `(each (env/keys (meta/get-env)) (key . val) (print-ln key \" : \" (type/of val)))`; optionally accepts `'self` `'caller` or `'evidence` symbols indicating which environment to list", struct {
+    .{ "meta/ls", "shortcut for `(each (env/keys (meta/get-env)) (key . val) (print-ln key \" : \" (type/of val)))`; optionally accepts `'self` `'caller` or `'evidence` symbols indicating which environment to list", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             var env = interpreter.env;
 
