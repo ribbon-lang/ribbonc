@@ -64,8 +64,8 @@ pub const Decls = .{
             _ = try bindDefs(interpreter, at, args, "global-terminator", terminator, bindGlobal);
             return SExpr.Nil(at);
         }
-        fn bindGlobal(interpreter: *Interpreter, name: SExpr, eff: SExpr) Interpreter.Result!void {
-            try Interpreter.extendFrame(name.getAttr(), name, eff, &interpreter.globalEvidence);
+        fn bindGlobal(interpreter: *Interpreter, at: *const Source.Attr, name: SExpr, eff: SExpr) Interpreter.Result!void {
+            try Interpreter.extendFrame(at, name, eff, &interpreter.globalEvidence);
         }
         fn terminator(interpreter: *Interpreter, _: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const buf = try interpreter.expect3(args);
@@ -98,8 +98,8 @@ pub const Decls = .{
                 return res;
             };
         }
-        fn bindLocal(interpreter: *Interpreter, name: SExpr, eff: SExpr) Interpreter.Result!void {
-            try Interpreter.extendEnvFrame(name.getAttr(), name, eff, interpreter.evidence);
+        fn bindLocal(interpreter: *Interpreter, at: *const Source.Attr, name: SExpr, eff: SExpr) Interpreter.Result!void {
+            try Interpreter.extendEnvFrame(at, name, eff, interpreter.evidence);
         }
     } },
     .{ "fetch", "get a dynamically bound variable or effect handler from its binding symbol", struct {
@@ -119,7 +119,7 @@ pub const Decls = .{
     } },
 };
 
-fn bindDefs(interpreter: *Interpreter, at: *const Source.Attr, defs: SExpr, comptime terminatorName: []const u8, comptime terminator: fn (*Interpreter, *const Source.Attr, SExpr) Interpreter.Result!SExpr, comptime bind: fn (*Interpreter, SExpr, SExpr) Interpreter.Result!void) Interpreter.Result!SExpr {
+fn bindDefs(interpreter: *Interpreter, at: *const Source.Attr, defs: SExpr, comptime terminatorName: []const u8, comptime terminator: fn (*Interpreter, *const Source.Attr, SExpr) Interpreter.Result!SExpr, comptime bind: fn (*Interpreter, *const Source.Attr, SExpr, SExpr) Interpreter.Result!void) Interpreter.Result!SExpr {
     const contextId = try SExpr.Int(at, @intCast(interpreter.context.genId()));
 
     var iter = try interpreter.argIterator(false, defs);
@@ -147,9 +147,9 @@ fn bindDefs(interpreter: *Interpreter, at: *const Source.Attr, defs: SExpr, comp
         interpreter.env = contextEnv;
         defer interpreter.env = originalEnv;
 
-        const obj = try kind.constructObject(interpreter, nameSymbol.getAttr(), res.tail);
+        const obj = try kind.constructObject(interpreter, at, res.tail);
 
-        try bind(interpreter, nameSymbol, obj);
+        try bind(interpreter, info.getAttr(), nameSymbol, obj);
     }
 
     return contextId;

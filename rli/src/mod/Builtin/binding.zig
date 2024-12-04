@@ -40,10 +40,10 @@ pub const Doc =
 
 pub const Decls = .{
     .{ "def", "define a new variable", struct {
-        pub fn fun(interpreter: *Interpreter, _: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            return bindDef(interpreter, args, struct {
-                fn fun(i: *Interpreter, name: SExpr, obj: SExpr) Interpreter.Result!SExpr {
-                    try Interpreter.extendEnvFrame(name.getAttr(), name, obj, i.env);
+        pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
+            return bindDef(interpreter, at, args, struct {
+                fn fun(i: *Interpreter, attr: *const Source.Attr, name: SExpr, obj: SExpr) Interpreter.Result!SExpr {
+                    try Interpreter.extendEnvFrame(attr, name, obj, i.env);
                     return obj;
                 }
             }.fun);
@@ -58,8 +58,8 @@ pub const Decls = .{
             try Interpreter.pushNewFrame(at, &interpreter.env);
             defer interpreter.env = baseEnv;
             _ = try bindDefs(interpreter, defs, struct {
-                fn fun(i: *Interpreter, name: SExpr, obj: SExpr) Interpreter.Result!SExpr {
-                    try Interpreter.extendEnvFrame(name.getAttr(), name, obj, i.env);
+                fn fun(i: *Interpreter, attr: *const Source.Attr, name: SExpr, obj: SExpr) Interpreter.Result!SExpr {
+                    try Interpreter.extendEnvFrame(attr, name, obj, i.env);
                     return obj;
                 }
             }.fun);
@@ -110,15 +110,15 @@ pub const DefKind = enum {
     }
 };
 
-pub fn bindDefs(interpreter: *Interpreter, defs: SExpr, comptime bind: fn (*Interpreter, SExpr, SExpr) Interpreter.Result!SExpr) Interpreter.Result!SExpr {
+pub fn bindDefs(interpreter: *Interpreter, defs: SExpr, comptime bind: fn (*Interpreter, *const Source.Attr, SExpr, SExpr) Interpreter.Result!SExpr) Interpreter.Result!SExpr {
     var iter = try interpreter.argIterator(false, defs);
 
     var last: SExpr = undefined;
-    while (try iter.next()) |info| last = try bindDef(interpreter, info, bind);
+    while (try iter.next()) |info| last = try bindDef(interpreter, info.getAttr(), info, bind);
     return last;
 }
 
-pub fn bindDef(interpreter: *Interpreter, info: SExpr, comptime bind: fn (*Interpreter, SExpr, SExpr) Interpreter.Result!SExpr) Interpreter.Result!SExpr {
+pub fn bindDef(interpreter: *Interpreter, at: *const Source.Attr, info: SExpr, comptime bind: fn (*Interpreter, *const Source.Attr, SExpr, SExpr) Interpreter.Result!SExpr) Interpreter.Result!SExpr {
     var res = try interpreter.expectAtLeast1(info);
 
     const kind = try DefKind.matchSymbol(interpreter, res.head);
@@ -129,7 +129,7 @@ pub fn bindDef(interpreter: *Interpreter, info: SExpr, comptime bind: fn (*Inter
     const nameSymbol = res.head;
     try interpreter.validateSymbol(nameSymbol.getAttr(), nameSymbol);
 
-    const obj = try kind.constructObject(interpreter, nameSymbol.getAttr(), res.tail);
+    const obj = try kind.constructObject(interpreter, at, res.tail);
 
-    return bind(interpreter, nameSymbol, obj);
+    return bind(interpreter, at, nameSymbol, obj);
 }

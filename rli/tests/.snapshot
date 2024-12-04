@@ -89,10 +89,13 @@ err[0]:
 ```
 
 ## pass:attr
-out[101]:
+out[202]:
 ```
-[./tests/pass/attr.bb:3:10-13]
-[./tests/pass/attr.bb:6:21-22]
+((plain . " this is foo"))
+((plain . " this is 100"))
+((documentation . "test doc") (plain . "test"))
+[./tests/pass/attr.bb:6:5-8]
+[./tests/pass/attr.bb:15:21-22]
 [foo:100:50 to 200:22]
 [foo:?-?]
 [foo]

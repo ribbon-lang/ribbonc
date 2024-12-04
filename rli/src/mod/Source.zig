@@ -139,12 +139,27 @@ pub const Pos = extern struct {
     }
 };
 
+pub const Comment = struct {
+    kind: Kind = .plain,
+    text: []const u8,
+
+    pub const Kind = enum {
+        plain,
+        documentation,
+    };
+};
+
 pub const Attr = struct {
     context: *Context,
     filename: []const u8,
     range: ?Range,
+    comments: []const Comment,
 
     const Self = @This();
+
+    pub fn clone(self: *Self) !*Self {
+        return try self.context.bindAttrExistingFile(self.filename, self.range, &.{});
+    }
 
     pub fn compare(self: Self, other: Self) Ordering {
         var res = MiscUtils.compare(self.context, other.context);

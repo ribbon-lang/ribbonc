@@ -192,7 +192,7 @@ pub const Decls = .{
             parser.setInput(str, pos);
             const out = parser.scanSExprP() catch |err| {
                 if (Parser.isParseError(err)) {
-                    const eat = try parser.mkAttr(parser.pos, parser.pos);
+                    const eat = try parser.mkAttr(parser.pos, parser.pos, &.{});
                     return interpreter.nativePrompt(at, "exception", &[_]SExpr{try SExpr.Symbol(eat, @errorName(err))});
                 } else {
                     const nerr = Interpreter.asResult(err).?;
@@ -207,11 +207,11 @@ pub const Decls = .{
                     }
                 }
             } orelse {
-                const eat = try parser.mkAttr(parser.pos, parser.pos);
+                const eat = try parser.mkAttr(parser.pos, parser.pos, &.{});
                 return interpreter.nativePrompt(at, "exception", &[_]SExpr{try SExpr.Symbol(eat, "UnstringifyEmpty")});
             };
             if (parser.notEof()) {
-                const eat = try parser.mkAttr(parser.pos, parser.pos);
+                const eat = try parser.mkAttr(parser.pos, parser.pos, &.{});
                 return interpreter.nativePrompt(at, "exception", &[_]SExpr{try SExpr.Symbol(eat, "ExpectedEof")});
             }
             return out;

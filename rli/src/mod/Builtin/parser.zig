@@ -90,7 +90,7 @@ pub const Decls = .{
             const parser = try interpreter.castExternDataPtr(Parser, at, arg);
             return parser.scanSExprP() catch |err| {
                 if (Parser.isParseError(err)) {
-                    const eat = try parser.mkAttr(parser.pos, parser.pos);
+                    const eat = try parser.mkAttr(parser.pos, parser.pos, &.{});
                     return interpreter.nativePrompt(at, "exception", &[_]SExpr{try SExpr.Symbol(eat, @errorName(err))});
                 } else {
                     const nerr = Interpreter.asResult(err).?;

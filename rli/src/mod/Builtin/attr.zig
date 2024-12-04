@@ -27,6 +27,14 @@ pub const Decls = .{
             return try SExpr.StringPreallocated(at, attr.filename);
         }
     } },
+    .{ "attr/comments", "get the comments stored in an Attr", struct {
+        pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
+            const arg = try interpreter.eval1(args);
+            const attr: *const Source.Attr = try interpreter.castExternDataPtr(Source.Attr, at, arg);
+
+            return try convertListToSExpr(interpreter, at, attr.comments, convertCommentToSExpr);
+        }
+    } },
     .{ "attr/range", "get the range stored in an Attr", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const arg = try interpreter.eval1(args);
@@ -36,13 +44,15 @@ pub const Decls = .{
     } },
     .{ "attr/new", "create a new Attr from a filename string and a range object", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const rargs = try interpreter.eval2(args);
+            const rargs = try interpreter.eval3(args);
             const filename = try interpreter.castStringSlice(at, rargs[0]);
             const range = try convertSExprToRange(interpreter, at, rargs[1]);
+            const comments = try convertSExprToList(Source.Comment, interpreter, at, rargs[2], convertSExprToComment);
             const attr = try interpreter.context.new(Source.Attr{
                 .context = interpreter.context,
                 .filename = filename,
                 .range = range,
+                .comments = comments,
             });
             return try ExternAttr(at, attr);
         }
@@ -51,6 +61,21 @@ pub const Decls = .{
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const arg = try interpreter.eval1(args);
             return try ExternAttr(at, arg.getAttr());
+        }
+    } },
+    .{ "attr/of-name", "extract the Attr from a binding in the environment", struct {
+        pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
+            const key = try interpreter.eval1(args);
+            try interpreter.validateSymbol(at, key);
+            const env = interpreter.env;
+            const entry = Interpreter.envLookupPair(key, env) catch |err| {
+                return interpreter.abort(err, at, "bad env: {}", .{env});
+            };
+            if (entry) |v| {
+                return try ExternAttr(at, v.getAttr());
+            } else {
+                return SExpr.Nil(at);
+            }
         }
     } },
     .{ "attr/set!", "set the Attr of a value; returns the old Attr", struct {
@@ -144,6 +169,55 @@ pub fn convertSExprToPos(interpreter: *Interpreter, at: *const Source.Attr, valu
         .column = @intCast(column),
         .offset = @intCast(offset),
     };
+}
+
+pub fn convertListToSExpr(interpreter: *Interpreter, at: *const Source.Attr, value: anytype, convertElement: fn (*Interpreter, *const Source.Attr, @typeInfo(@TypeOf(value)).pointer.child) Interpreter.Result!SExpr) Interpreter.Result!SExpr {
+    var tail = try SExpr.Nil(interpreter.context.attr);
+
+    for (value) |element| {
+        const v = try convertElement(interpreter, at, element);
+        tail = try SExpr.Cons(interpreter.context.attr, v, tail);
+    }
+
+    return tail;
+}
+
+pub fn convertSExprToList(comptime T: type, interpreter: *Interpreter, at: *const Source.Attr, value: SExpr, convertElement: fn (*Interpreter, *const Source.Attr, SExpr) Interpreter.Result!T) ![]T {
+    var result = std.ArrayList(T).init(interpreter.context.allocator);
+
+    var it = value.iter();
+
+    while (try it.next()) |element| {
+        const v = try convertElement(interpreter, at, element);
+        try result.append(v);
+    }
+
+    return result.toOwnedSlice();
+}
+
+pub fn convertSExprToComment(interpreter: *Interpreter, at: *const Source.Attr, value: SExpr) !Source.Comment {
+    const pair = try interpreter.castPair(at, value);
+    const kind = try convertSExprToCommentKind(interpreter, at, pair.car);
+    const text = try interpreter.castStringSlice(at, pair.cdr);
+
+    return Source.Comment { .kind = kind, .text = text };
+}
+
+pub fn convertCommentToSExpr(_: *Interpreter, at: *const Source.Attr, value: Source.Comment) !SExpr {
+    return try SExpr.Cons(at, try SExpr.Symbol(at, @tagName(value.kind)), try SExpr.StringPreallocated(at, value.text));
+}
+
+pub fn convertSExprToCommentKind(interpreter: *Interpreter, at: *const Source.Attr, value: SExpr) !Source.Comment.Kind {
+    const text = try interpreter.castStringSlice(at, value);
+
+    const kindNames = comptime std.meta.fieldNames(Source.Comment.Kind);
+    inline for (comptime kindNames) |name| {
+        if (std.mem.eql(u8, text, name)) {
+            return @field(Source.Comment.Kind, name);
+        }
+    }
+
+    return interpreter.abort(Interpreter.Error.TypeError, at, "expected a comment kind (one of {s}), got {s}", .{kindNames, text});
 }
 
 pub fn ExternAttr(at: *const Source.Attr, value: *const Source.Attr) !SExpr {

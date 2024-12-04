@@ -73,7 +73,7 @@ inline fn init(allocator: Allocator, isGc: bool) Error!*Context {
         .nil = undefined,
     };
 
-    const attr = try ptr.bindAttr("Context xxxxxxxxxxxxxxxxxx"[0 .. 8 + TextUtils.numDigits(index, 10)], null);
+    const attr = try ptr.bindAttr("Context xxxxxxxxxxxxxxxxxx"[0 .. 8 + TextUtils.numDigits(index, 10)], null, &.{});
 
     const fp = @constCast(attr.filename);
     _ = std.fmt.bufPrint(fp, "Context {d}", .{index}) catch unreachable;
@@ -158,17 +158,18 @@ pub fn resetSymbolInterner(self: *Context) void {
     self.symbolInterner.clearRetainingCapacity();
 }
 
-pub fn bindAttr(self: *Context, fileName: []const u8, range: ?Source.Range) Error!*Source.Attr {
+pub fn bindAttr(self: *Context, fileName: []const u8, range: ?Source.Range, comments: []const Source.Comment) Error!*Source.Attr {
     const fileNameAl = try self.newBuffer(u8, fileName);
 
-    return try self.bindAttrExistingFile(fileNameAl, range);
+    return try self.bindAttrExistingFile(fileNameAl, range, comments);
 }
 
-pub fn bindAttrExistingFile(self: *Context, filename: []const u8, range: ?Source.Range) Error!*Source.Attr {
+pub fn bindAttrExistingFile(self: *Context, filename: []const u8, range: ?Source.Range, comments: []const Source.Comment) Error!*Source.Attr {
     return try self.new(Source.Attr{
         .context = self,
         .filename = filename,
         .range = range,
+        .comments = comments,
     });
 }
 
@@ -184,7 +185,7 @@ test {
         var ctx = try Context.initGc();
         defer ctx.deinit();
 
-        const stdinAttr = try ctx.bindAttr("stdin", null);
+        const stdinAttr = try ctx.bindAttr("stdin", null, &.{ .{.kind = .documentation, .text = "im from stdin!"}});
 
         const S1 = try SExpr.String(ctx.attr, "stdio");
 

@@ -157,7 +157,7 @@ pub fn runFile(self: *Rli, fileName: []const u8, text: []const u8) Error!SExpr {
     try self.parser.setFileName(fileName);
     self.parser.setInput(text, null);
 
-    var result = try SExpr.Nil(try self.parser.mkAttr(null, null));
+    var result = try SExpr.Nil(try self.parser.mkAttr(null, null, &.{}));
 
     while (self.parser.notEof()) {
         if (self.parser.scanSExprP()) |sexprM| {

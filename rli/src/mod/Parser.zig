@@ -22,6 +22,8 @@ posOffset: Source.Pos,
 
 const Parser = @This();
 
+const NO_COMMENT: []const Source.Comment = &.{};
+
 pub const SyntaxError = error{ UnexpectedInput, UnexpectedEOF };
 pub const ParseError = SyntaxError || TextUtils.Error;
 pub const ParserError = ParseError || Context.Error;
@@ -171,26 +173,47 @@ pub fn nextChar(self: *Parser) ParseError!?Char {
     }
 }
 
-pub fn mkAttr(self: *Parser, start: ?Source.Pos, end: ?Source.Pos) Context.Error!*Source.Attr {
-    return self.context.bindAttrExistingFile(self.fileName, Source.Range.init(start, end).addPos(self.posOffset));
+pub fn mkAttr(self: *Parser, start: ?Source.Pos, end: ?Source.Pos, comments: []const Source.Comment) Context.Error!*Source.Attr {
+    return self.context.bindAttrExistingFile(self.fileName, Source.Range.init(start, end).addPos(self.posOffset), comments);
 }
 
-pub fn spaceP(self: *Parser) ParserError!?[]const u8 {
-    const start = self.pos;
+pub fn spaceP(self: *Parser) ParserError![]const Source.Comment {
+    var commentState: union(enum) { none, start, inside: struct { Source.Comment.Kind, u32 } } = .none;
+
+    var commentBuffer = try std.ArrayList(Source.Comment).initCapacity(self.context.allocator, 1024);
 
     while (try self.peekChar()) |char| {
-        if (TextUtils.isSpace(char)) {
-            try self.advance();
-        } else {
-            break;
+        switch (commentState) {
+            .none => if (char == ';') {
+                commentState = .start;
+                try self.advance();
+            } else if (TextUtils.isSpace(char)) {
+                try self.advance();
+            } else {
+                break;
+            },
+            .start => if (char == '!') {
+                commentState = .{ .inside = .{ .documentation, self.pos.offset + 1 } };
+                try self.advance();
+            } else if (char == '\n') {
+                commentState = .none;
+                try self.advance();
+            } else {
+                commentState = .{ .inside = .{ .plain, self.pos.offset } };
+                try self.advance();
+            },
+            .inside => |state| {
+                if (char == '\n') {
+                    commentState = .none;
+                    try commentBuffer.append(.{ .kind = state[0], .text = self.input[state[1]..self.pos.offset] });
+                }
+
+                try self.advance();
+            },
         }
     }
 
-    if (start.offset == self.pos.offset) {
-        return null;
-    }
-
-    return self.input[start.offset..self.pos.offset];
+    return try commentBuffer.toOwnedSlice();
 }
 
 pub fn digitP(self: *Parser) ParserError!?u8 {
@@ -276,8 +299,37 @@ pub fn require(self: *Parser, comptime T: type, value: ?T) ParserError!T {
 }
 
 pub fn scanP(self: *Parser, comptime T: type, callback: anytype, args: anytype) ParserError!T {
-    _ = try self.spaceP();
-    return @call(.auto, callback, .{self} ++ args);
+    const comments = try self.spaceP();
+    const Args = @TypeOf(args);
+    const argInfo = @typeInfo(Args).@"struct";
+    const argFields = argInfo.fields;
+    if (comptime argFields.len > 0 and argFields[argFields.len - 1].type == []const Source.Comment) {
+        var rest: @Type(.{ .@"struct" = std.builtin.Type.Struct {
+            .backing_integer = argInfo.backing_integer,
+            .fields = argFields[0..argFields.len - 1],
+            .decls = &.{},
+            .is_tuple = true,
+            .layout = .auto,
+        }}) = undefined;
+        for (0..args.len - 1) |i| {
+            rest[i] = args[i];
+        }
+        return @call(.auto, callback, .{self} ++ rest ++ .{try self.comcat(&.{comments, args[args.len - 1]})});
+    } else {
+        const Fn = @TypeOf(callback);
+        const fnInfo = @typeInfo(Fn).@"fn";
+        const params = fnInfo.params;
+        if (comptime params.len > 0 and params[params.len - 1].type == []const Source.Comment) {
+            return @call(.auto, callback, .{self} ++ args ++ .{comments});
+        } else {
+            return @call(.auto, callback, .{self} ++ args);
+        }
+    }
+}
+
+pub fn commentScanP(self: *Parser, comptime T: type, callback: anytype, args: anytype) ParserError!T {
+    const comments = try self.spaceP();
+    return @call(.auto, callback, .{self} ++ args ++ .{comments});
 }
 
 pub fn totalP(self: *Parser, comptime T: type, callback: anytype, args: anytype) ParserError!T {
@@ -313,13 +365,13 @@ pub fn requireScanP(self: *Parser, comptime T: type, callback: anytype, args: an
 }
 
 pub fn requireScanOrEofP(self: *Parser, comptime T: type, callback: anytype, args: anytype) ParserError!?T {
-    _ = try self.spaceP();
+    const comments = try self.spaceP();
 
     if (self.isEof()) {
         return null;
     }
 
-    return try @call(.auto, callback, .{self} ++ args) orelse return SyntaxError.UnexpectedInput;
+    return try @call(.auto, callback, .{self} ++ args ++ .{comments}) orelse return SyntaxError.UnexpectedInput;
 }
 
 pub fn nextIsSentinel(self: *Parser) ParserError!bool {
@@ -343,14 +395,22 @@ pub inline fn scanSExprP(self: *Parser) ParserError!?SExpr {
     return self.requireScanOrEofP(SExpr, sexprP, .{});
 }
 
-pub fn sexprP(self: *Parser) ParserError!?SExpr {
-    return try self.atomP() orelse try self.listP() orelse try self.quoteP() orelse try self.quasiP() orelse try self.unquoteP();
+pub fn sexprP(self: *Parser, comments: []const Source.Comment) ParserError!?SExpr {
+    return try self.atomP(comments)
+    orelse try self.listP(comments)
+    orelse try self.quoteP(comments)
+    orelse try self.quasiP(comments)
+    orelse try self.unquoteP(comments);
 }
 
-pub fn atomP(self: *Parser) ParserError!?SExpr {
+pub fn atomP(self: *Parser, comments: []const Source.Comment) ParserError!?SExpr {
     const start = self.pos;
 
-    const atom = try self.floatP() orelse try self.intP() orelse try self.charP() orelse try self.stringP() orelse try self.symbolP();
+    const atom = try self.floatP(comments)
+          orelse try self.intP(comments)
+          orelse try self.charP(comments)
+          orelse try self.stringP(comments)
+          orelse try self.symbolP(comments);
 
     if (try self.nextIsSentinel()) {
         return atom;
@@ -359,7 +419,7 @@ pub fn atomP(self: *Parser) ParserError!?SExpr {
     }
 }
 
-pub fn listP(self: *Parser) ParserError!?SExpr {
+pub fn listP(self: *Parser, comments: []const Source.Comment) ParserError!?SExpr {
     const start = self.pos;
 
     if (!try self.expectCharP('(')) {
@@ -371,25 +431,26 @@ pub fn listP(self: *Parser) ParserError!?SExpr {
     defer self.sexprBuffer.shrinkAndFree(sexprBufferBase);
 
     while (self.notEof()) {
-        _ = try self.spaceP();
+        const extraComments1 = try self.spaceP();
 
         if (self.sexprBuffer.items.len - sexprBufferBase > 0 and try self.expectCharP('.')) {
-            const restItem = try self.requireScanP(SExpr, Parser.sexprP, .{});
+            const restItem = try self.requireScanP(SExpr, Parser.sexprP, .{extraComments1});
 
-            try self.requireCondScanP(Parser.expectCharP, .{')'});
+            const extraComments2 = try self.spaceP();
+            try self.requireCondP(Parser.expectCharP, .{')'});
 
-            const attr = try self.mkAttr(start, self.pos);
+            const attr = try self.mkAttr(start, self.pos, try self.comcat(&.{comments, extraComments2}));
 
             return try SExpr.ListTail(attr, self.sexprBuffer.items[sexprBufferBase..], restItem);
         }
 
         if (try self.expectCharP(')')) {
-            const attr = try self.mkAttr(start, self.pos);
+            const attr = try self.mkAttr(start, self.pos, try self.comcat(&.{comments, extraComments1}));
 
             return try SExpr.List(attr, self.sexprBuffer.items[sexprBufferBase..]);
         }
 
-        const item = try self.requireScanP(SExpr, Parser.sexprP, .{});
+        const item = try self.requireScanP(SExpr, Parser.sexprP, .{extraComments1});
 
         try self.sexprBuffer.append(item);
     }
@@ -397,7 +458,11 @@ pub fn listP(self: *Parser) ParserError!?SExpr {
     return SyntaxError.UnexpectedEOF;
 }
 
-pub fn unquoteP(self: *Parser) ParserError!?SExpr {
+fn comcat (self: *Parser, comments: []const []const Source.Comment) ![]const Source.Comment {
+    return std.mem.concat(self.context.allocator, Source.Comment, comments);
+}
+
+pub fn unquoteP(self: *Parser, comments: []const Source.Comment) ParserError!?SExpr {
     const start = self.pos;
 
     if (!try self.expectCharP(',')) {
@@ -412,48 +477,48 @@ pub fn unquoteP(self: *Parser) ParserError!?SExpr {
         }
     };
 
-    const item = try self.requireP(SExpr, Parser.sexprP, .{});
+    const item = try self.requireP(SExpr, Parser.sexprP, .{comments});
 
-    const attr = try self.mkAttr(start, self.pos);
+    const attr = try self.mkAttr(start, self.pos, &.{});
 
-    const quoteSym = try SExpr.Symbol(attr, symText);
+    const quoteSym = try SExpr.Symbol(try attr.clone(), symText);
 
     return try SExpr.List(attr, &[_]SExpr{ quoteSym, item });
 }
 
-pub fn quasiP(self: *Parser) ParserError!?SExpr {
+pub fn quasiP(self: *Parser, comments: []const Source.Comment) ParserError!?SExpr {
     const start = self.pos;
 
     if (!try self.expectCharP('`')) {
         return null;
     }
 
-    const item = try self.requireP(SExpr, Parser.sexprP, .{});
+    const item = try self.requireP(SExpr, Parser.sexprP, .{NO_COMMENT});
 
-    const attr = try self.mkAttr(start, self.pos);
+    const attr = try self.mkAttr(start, self.pos, comments);
 
-    const quoteSym = try SExpr.Symbol(attr, "quasiquote");
+    const quoteSym = try SExpr.Symbol(try attr.clone(), "quasiquote");
 
     return try SExpr.List(attr, &[_]SExpr{ quoteSym, item });
 }
 
-pub fn quoteP(self: *Parser) ParserError!?SExpr {
+pub fn quoteP(self: *Parser, comments: []const Source.Comment) ParserError!?SExpr {
     const start = self.pos;
 
     if (!try self.expectStringP("'")) {
         return null;
     }
 
-    const item = try self.requireP(SExpr, Parser.sexprP, .{});
+    const item = try self.requireP(SExpr, Parser.sexprP, .{NO_COMMENT});
 
-    const attr = try self.mkAttr(start, self.pos);
+    const attr = try self.mkAttr(start, self.pos, comments);
 
-    const quoteSym = try SExpr.Symbol(attr, "quote");
+    const quoteSym = try SExpr.Symbol(try attr.clone(), "quote");
 
     return try SExpr.List(attr, &[_]SExpr{ quoteSym, item });
 }
 
-pub fn intP(self: *Parser) ParserError!?SExpr {
+pub fn intP(self: *Parser, comments: []const Source.Comment) ParserError!?SExpr {
     const start = self.pos;
 
     var int: i64 = 0;
@@ -471,12 +536,12 @@ pub fn intP(self: *Parser) ParserError!?SExpr {
         return self.reset(start);
     }
 
-    const attr = try self.mkAttr(start, self.pos);
+    const attr = try self.mkAttr(start, self.pos, comments);
 
     return try SExpr.Int(attr, int * sign);
 }
 
-pub fn floatP(self: *Parser) ParserError!?SExpr {
+pub fn floatP(self: *Parser, comments: []const Source.Comment) ParserError!?SExpr {
     const start = self.pos;
 
     var int: f64 = 0;
@@ -523,12 +588,12 @@ pub fn floatP(self: *Parser) ParserError!?SExpr {
         return self.reset(start);
     }
 
-    const attr = try self.mkAttr(start, self.pos);
+    const attr = try self.mkAttr(start, self.pos, comments);
 
     return try SExpr.Float(attr, (int + frac) * sign * std.math.pow(f64, 10.0, exp));
 }
 
-pub fn symbolP(self: *Parser) ParserError!?SExpr {
+pub fn symbolP(self: *Parser, comments: []const Source.Comment) ParserError!?SExpr {
     const start = self.pos;
 
     while (try self.peekChar()) |char| {
@@ -563,7 +628,7 @@ pub fn symbolP(self: *Parser) ParserError!?SExpr {
         return null;
     }
 
-    const attr = try self.mkAttr(start, self.pos);
+    const attr = try self.mkAttr(start, self.pos, comments);
 
     return try SExpr.Symbol(attr, sub);
 }
@@ -594,7 +659,7 @@ pub fn escapeP(self: *Parser) ParserError!?Char {
     return self.reset(start);
 }
 
-pub fn charP(self: *Parser) ParserError!?SExpr {
+pub fn charP(self: *Parser, comments: []const Source.Comment) ParserError!?SExpr {
     const start = self.pos;
 
     if (!try self.expectCharP('\'')) {
@@ -620,12 +685,12 @@ pub fn charP(self: *Parser) ParserError!?SExpr {
         return self.reset(start);
     }
 
-    const attr = try self.mkAttr(start, self.pos);
+    const attr = try self.mkAttr(start, self.pos, comments);
 
     return try SExpr.Char(attr, char);
 }
 
-pub fn stringP(self: *Parser) ParserError!?SExpr {
+pub fn stringP(self: *Parser, comments: []const Source.Comment) ParserError!?SExpr {
     const start = self.pos;
 
     if (!try self.expectCharP('"')) {
@@ -641,7 +706,7 @@ pub fn stringP(self: *Parser) ParserError!?SExpr {
         if (char == '"') {
             try self.advance();
 
-            const attr = try self.mkAttr(start, self.pos);
+            const attr = try self.mkAttr(start, self.pos, comments);
 
             return try SExpr.String(attr, self.textBuffer.items[textBufferBase..]);
         }
