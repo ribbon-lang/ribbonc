@@ -1,9 +1,0 @@
-include
-scripts
-tools
-build.zig
-build.zig.zon
-NOTES.md
-README.md
-stdin
-zig-out

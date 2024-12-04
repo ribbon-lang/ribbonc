@@ -170,17 +170,6 @@ err[0]:
 
 ```
 
-## pass:lambda-list
-out[18]:
-```
-((b . 2) (a . 1))
-
-```
-err[0]:
-```
-
-```
-
 ## pass:ll-eff
 out[0]:
 ```
@@ -330,32 +319,6 @@ err[0]:
 out[13]:
 ```
 hello world 
-
-```
-err[0]:
-```
-
-```
-
-## x86_64-linux-gnu-ctest
-out[26]:
-```
-(+ 1 2 3)Linux
-
-Result: 6
-
-```
-err[0]:
-```
-
-```
-
-## x86_64-windows-gnu-ctest
-out[31]:
-```
-(+ 1 2 3)Windows
-
-Result: 6
 
 ```
 err[0]:
