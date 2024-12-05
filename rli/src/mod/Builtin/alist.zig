@@ -13,7 +13,7 @@ pub const Doc =
 pub const Decls = .{
     .{ "alist/pair", "lookup a key symbol in an association list, returning the pair it binds; prompts `fail` if the key is not found", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const rArgs = try interpreter.eval2(args);
+            const rArgs = try interpreter.evalN(2, args);
             const key = rArgs[0];
             try interpreter.validateSymbol(at, key);
             const alist = rArgs[1];
@@ -30,7 +30,7 @@ pub const Decls = .{
     } },
     .{ "alist/lookup-f", "lookup a key symbol in an association list, returning its associated value; prompts `fail` if the key is not found", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const rArgs = try interpreter.eval2(args);
+            const rArgs = try interpreter.evalN(2, args);
             const key = rArgs[0];
             try interpreter.validateSymbol(at, key);
             const alist = rArgs[1];
@@ -48,7 +48,7 @@ pub const Decls = .{
     } },
     .{ "alist/lookup", "lookup a key symbol in an association list, returning its associated value; returns `nil` if the key is not found", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const rArgs = try interpreter.eval2(args);
+            const rArgs = try interpreter.evalN(2, args);
             const key = rArgs[0];
             try interpreter.validateSymbol(at, key);
             const alist = rArgs[1];
@@ -66,7 +66,7 @@ pub const Decls = .{
     } },
     .{ "alist/member?", "check if a key symbol is present in an association list", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const rArgs = try interpreter.eval2(args);
+            const rArgs = try interpreter.evalN(2, args);
             const key = rArgs[0];
             try interpreter.validateSymbol(at, key);
             const alist = rArgs[1];
@@ -79,7 +79,7 @@ pub const Decls = .{
     } },
     .{ "alist/append", "append a key-value pair to an association list", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const rArgs = try interpreter.eval3(args);
+            const rArgs = try interpreter.evalN(3, args);
             const key = rArgs[0];
             try interpreter.validateSymbol(at, key);
             const value = rArgs[1];
@@ -90,7 +90,7 @@ pub const Decls = .{
     } },
     .{ "alist/set!", "set the value of an existing key-value pair in an association list, returning the old value; prompts `fail` if the key is not found", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const rArgs = try interpreter.eval3(args);
+            const rArgs = try interpreter.evalN(3, args);
             const key = rArgs[0];
             try interpreter.validateSymbol(at, key);
             const value = rArgs[1];
@@ -111,7 +111,7 @@ pub const Decls = .{
     } },
     .{ "alist/each", "calls a function with each key-value pair in an association list", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const rArgs = try interpreter.eval2(args);
+            const rArgs = try interpreter.evalN(2, args);
             const alist = rArgs[0];
             const callback = rArgs[1];
             try interpreter.validateCallable(at, callback);
@@ -125,7 +125,7 @@ pub const Decls = .{
     } },
     .{ "alist/keys", "get the keys of a given association list", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const frame = try interpreter.eval1(args);
+            const frame = (try interpreter.evalN(1, args))[0];
             const keys = Interpreter.alistKeys(frame) catch |err| {
                 return interpreter.abort(err, at, "expected an association list, got {}: `{}`", .{ frame.getTag(), frame });
             };

@@ -78,7 +78,7 @@ pub const Decls = .{
     } },
     .{ "io/read-ln", "read a single line of a text file to a string; prompts an exception if it fails", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const fileObj = try interpreter.eval1(args);
+            const fileObj = (try interpreter.evalN(1, args))[0];
             const file = try interpreter.castExternDataPtr(std.fs.File, at, fileObj);
             const reader = file.reader();
             const data = reader.readUntilDelimiterAlloc(interpreter.context.allocator, '\n', std.math.maxInt(i64)) catch |err| {
@@ -89,7 +89,7 @@ pub const Decls = .{
     } },
     .{ "io/write-file", "write a string to a file; prompts an exception if it fails", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const rargs = try interpreter.eval2(args);
+            const rargs = try interpreter.evalN(2, args);
             const file = try interpreter.castExternDataPtr(std.fs.File, at, rargs[0]);
             const data = try interpreter.castStringSlice(at, rargs[1]);
             const writer = file.writer();
@@ -172,7 +172,7 @@ pub const Decls = .{
     } },
     .{ "io/file-end", "get the cursor position that marks the end of a file; prompts an exception if it fails", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const fileObj = try interpreter.eval1(args);
+            const fileObj = (try interpreter.evalN(1, args))[0];
             const file = try interpreter.castExternDataPtr(std.fs.File, at, fileObj);
             const end = file.getEndPos() catch |err| {
                 return interpreter.errorToException(at, err);
@@ -185,7 +185,7 @@ pub const Decls = .{
     } },
     .{ "io/file-cursor", "get the current cursor position in a file; prompts an exception if it fails", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const fileObj = try interpreter.eval1(args);
+            const fileObj = (try interpreter.evalN(1, args))[0];
             const file = try interpreter.castExternDataPtr(std.fs.File, at, fileObj);
             const cursor = file.getPos() catch |err| {
                 return interpreter.errorToException(at, err);
@@ -198,7 +198,7 @@ pub const Decls = .{
     } },
     .{ "io/file-cursor!", "set the current cursor position in a file; prompts an exception if it fails", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const rargs = try interpreter.eval2(args);
+            const rargs = try interpreter.evalN(2, args);
             const file = try interpreter.castExternDataPtr(std.fs.File, at, rargs[0]);
             const cursor = try interpreter.castInt(at, rargs[1]);
             if (cursor < 0) {

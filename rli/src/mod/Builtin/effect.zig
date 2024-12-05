@@ -68,7 +68,7 @@ pub const Decls = .{
             try Interpreter.extendFrame(at, name, eff, &interpreter.globalEvidence);
         }
         fn terminator(interpreter: *Interpreter, _: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const buf = try interpreter.expect3(args);
+            const buf = try interpreter.expectN(3, args);
             const ctxId = buf[0];
             const promptName = buf[1];
             const value = try interpreter.eval(buf[2]);
@@ -104,15 +104,15 @@ pub const Decls = .{
     } },
     .{ "fetch", "get a dynamically bound variable or effect handler from its binding symbol", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const sym = try interpreter.expect1(args);
+            const sym = (try interpreter.expectN(1, args))[0];
             try interpreter.validateSymbol(at, sym);
             return interpreter.liftFetch(at, sym);
         }
     } },
     .{ "prompt", "defer execution to a named effect handler; `(prompt sym args...)` is equivalent to `((fetch sym) args...)`", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const res = try interpreter.expectAtLeast1(args);
-            const promptVal = res.head;
+            const res = try interpreter.expectAtLeastN(1, args);
+            const promptVal = res.head[0];
             try interpreter.validateSymbol(at, promptVal);
             return try interpreter.liftPrompt(at, promptVal, res.tail);
         }
@@ -125,14 +125,14 @@ fn bindDefs(interpreter: *Interpreter, at: *const Source.Attr, defs: SExpr, comp
     var iter = try interpreter.argIterator(false, defs);
 
     while (try iter.next()) |info| {
-        var res = try interpreter.expectAtLeast1(info);
+        var res = try interpreter.expectAtLeastN(1, info);
 
-        const kind = try binding.DefKind.matchSymbol(interpreter, res.head);
+        const kind = try binding.DefKind.matchSymbol(interpreter, res.head[0]);
         if (kind != .Var) {
-            res = try interpreter.expectAtLeast1(res.tail);
+            res = try interpreter.expectAtLeastN(1, res.tail);
         }
 
-        const nameSymbol = res.head;
+        const nameSymbol = res.head[0];
         try interpreter.validateSymbol(nameSymbol.getAttr(), nameSymbol);
 
         const originalEnv = interpreter.env;

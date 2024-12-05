@@ -15,13 +15,13 @@ pub const Doc =
 pub const Decls = .{
     .{ "symbol/empty?", "check if a value is the empty symbol", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const arg = try interpreter.eval1(args);
+            const arg = (try interpreter.evalN(1, args))[0];
             return try SExpr.Bool(at, if (arg.castSymbolSlice()) |str| str.len == 0 else false);
         }
     } },
     .{ "symbol/length", "get the number of characters in a symbol", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const arg = try interpreter.eval1(args);
+            const arg = (try interpreter.evalN(1, args))[0];
             const str = try interpreter.castSymbolSlice(at, arg);
             const len = TextUtils.codepointCount(str) catch {
                 return interpreter.abort(Interpreter.Error.BadEncoding, at, "bad utf8 symbol", .{});
@@ -34,7 +34,7 @@ pub const Decls = .{
     } },
     .{ "symbol/find", "within a given symbol, find the character index of another symbol, or a character; returns nil if not found", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const rargs = try interpreter.eval2(args);
+            const rargs = try interpreter.evalN(2, args);
             const haystack = try interpreter.castSymbolSlice(at, rargs[0]);
             var needleBuf = [4]u8{ 0, 0, 0, 0 };
             const needle =

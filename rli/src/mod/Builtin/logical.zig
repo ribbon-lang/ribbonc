@@ -173,7 +173,7 @@ pub const Decls = .{
 
     .{ .{ "not", "!" }, "logical not, performs truthy conversion", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const arg = try interpreter.eval1(args);
+            const arg = (try interpreter.evalN(1, args))[0];
             return try SExpr.Bool(at, !arg.coerceNativeBool());
         }
     } },
@@ -211,7 +211,7 @@ pub const Decls = .{
     } },
     .{ "truthy?", "performs truthy conversion", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const arg = try interpreter.eval1(args);
+            const arg = (try interpreter.evalN(1, args))[0];
             return try SExpr.Bool(at, arg.coerceNativeBool());
         }
     } },

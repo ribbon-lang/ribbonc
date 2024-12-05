@@ -143,6 +143,32 @@ pub fn default(comptime T: type) T {
     }
 }
 
+pub fn VectorFromArray(comptime T: type) type {
+    const Info = @typeInfo(T).array;
+    return @Type(.{ .vector = Info });
+}
+
+pub fn vectorFromArray(array: anytype) VectorFromArray(@TypeOf(array)) {
+    var vector: VectorFromArray(@TypeOf(array)) = undefined;
+    for (0..array.len) |i| {
+        vector[i] = array[i];
+    }
+    return vector;
+}
+
+pub fn ArrayFromVector(comptime T: type) type {
+    const Info = @typeInfo(T).vector;
+    return @Type(.{ .array = Info });
+}
+
+pub fn arrayFromVector(vector: anytype) ArrayFromVector(@TypeOf(vector)) {
+    var array: ArrayFromVector(@TypeOf(vector)) = undefined;
+    for (0..vector.len) |i| {
+        array[i] = vector[i];
+    }
+    return array;
+}
+
 pub inline fn alignmentDelta(baseAddress: anytype, alignment: @TypeOf(baseAddress)) @TypeOf(baseAddress) {
     return (alignment - (baseAddress % alignment)) % alignment;
 }

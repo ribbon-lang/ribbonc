@@ -25,7 +25,7 @@ pub const Decls = .{
     } },
     .{ "list/length", "get the length of a list", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const list = try interpreter.eval1(args);
+            const list = (try interpreter.evalN(1, args))[0];
             try interpreter.validateListOrNil(at, list);
             var iter = try interpreter.argIterator(false, list);
             var len: usize = 0;
@@ -40,7 +40,7 @@ pub const Decls = .{
     } },
     .{ "list/map", "apply a function to each element of a list, returning a new list of the results", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const rArgs = try interpreter.eval2(args);
+            const rArgs = try interpreter.evalN(2, args);
             const list = rArgs[0];
             const func = rArgs[1];
             try interpreter.validateListOrNil(at, list);
@@ -57,7 +57,7 @@ pub const Decls = .{
     } },
     .{ "list/each", "apply a function to each element of a list", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const rArgs = try interpreter.eval2(args);
+            const rArgs = try interpreter.evalN(2, args);
             const list = rArgs[0];
             const func = rArgs[1];
             try interpreter.validateListOrNil(at, list);
@@ -71,7 +71,7 @@ pub const Decls = .{
     } },
     .{ "list/member?", "determine if a given value is contained in a list", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const rArgs = try interpreter.eval2(args);
+            const rArgs = try interpreter.evalN(2, args);
             const list = rArgs[0];
             const value = rArgs[1];
             try interpreter.validateListOrNil(at, list);

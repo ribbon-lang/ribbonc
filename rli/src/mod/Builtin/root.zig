@@ -11,7 +11,6 @@ const log = std.log.scoped(.rli);
 
 const MetaModule = @This();
 
-pub const Envs = GenEnvs;
 
 pub const AllEnvs: EnvSet = allEnvs: {
     var set: EnvSet = undefined;
@@ -21,7 +20,7 @@ pub const AllEnvs: EnvSet = allEnvs: {
     break :allEnvs set;
 };
 
-const GenEnvs = struct {
+pub const Envs = struct {
     pub const alist = @import("alist.zig");
     pub const arithmetic = @import("arithmetic.zig");
     pub const attr = @import("attr.zig");
@@ -103,7 +102,7 @@ pub const EnvName = envName: {
     var envIndex: comptime_int = 0;
     var envFields = [1]std.builtin.Type.EnumField{undefined} ** MAX_ENVS;
 
-    for (@typeInfo(GenEnvs).@"struct".decls) |decl| {
+    for (@typeInfo(Envs).@"struct".decls) |decl| {
         const envName = decl.name;
         envFields[envIndex] = std.builtin.Type.EnumField{ .name = envName, .value = envIndex };
         envIndex += 1;

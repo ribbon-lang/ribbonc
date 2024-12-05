@@ -39,14 +39,14 @@ pub const Decls = .{
     } },
     .{ "apply", "apply a function to a list of arguments", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const rArgs = try interpreter.eval2(args);
+            const rArgs = try interpreter.evalN(2, args);
             return try interpreter.nativeInvoke(at, rArgs[0], rArgs[1]);
         }
     } },
 };
 
 pub fn function(interpreter: *Interpreter, at: *const Source.Attr, kind: SExpr.Types.Function.Kind, args: SExpr) Interpreter.Result!SExpr {
-    const rArgs = try interpreter.expectAtLeast1(args);
-    try Interpreter.PatternRich.validate(interpreter, rArgs.head);
-    return try SExpr.Function(at, kind, rArgs.head, interpreter.env, rArgs.tail);
+    const rArgs = try interpreter.expectAtLeastN(1, args);
+    try Interpreter.PatternRich.validate(interpreter, rArgs.head[0]);
+    return try SExpr.Function(at, kind, rArgs.head[0], interpreter.env, rArgs.tail);
 }

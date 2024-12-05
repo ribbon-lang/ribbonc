@@ -197,25 +197,25 @@ pub const Decls = .{
 
     .{ "nan?", "check if input is not a number", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const arg = try interpreter.eval1(args);
+            const arg = (try interpreter.evalN(1, args))[0];
             return try SExpr.Bool(at, if (arg.isFloat()) std.math.isNan(arg.forceFloat()) else !arg.isInt());
         }
     } },
     .{ "inf?", "check if input is a floating point infinity", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const arg = try interpreter.eval1(args);
+            const arg = (try interpreter.evalN(1, args))[0];
             return try SExpr.Bool(at, if (arg.isFloat()) std.math.isInf(arg.forceFloat()) else false);
         }
     } },
     .{ "-inf?", "check if input is a negative floating point infinity", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const arg = try interpreter.eval1(args);
+            const arg = (try interpreter.evalN(1, args))[0];
             return try SExpr.Bool(at, if (arg.isFloat()) std.math.isNegativeInf(arg.forceFloat()) else false);
         }
     } },
     .{ "+inf?", "check if input is a positive floating point infinity", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const arg = try interpreter.eval1(args);
+            const arg = (try interpreter.evalN(1, args))[0];
             return try SExpr.Bool(at, if (arg.isFloat()) std.math.isPositiveInf(arg.forceFloat()) else false);
         }
     } },
@@ -248,7 +248,7 @@ pub const Decls = .{
 
     .{ "floor", "round a floating point number down", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const arg = try interpreter.eval1(args);
+            const arg = (try interpreter.evalN(1, args))[0];
             if (arg.isInt()) {
                 return try SExpr.Float(at, @floatFromInt(arg.forceInt()));
             } else if (arg.isFloat()) {
@@ -260,7 +260,7 @@ pub const Decls = .{
     } },
     .{ "ceil", "round a floating point number up", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const arg = try interpreter.eval1(args);
+            const arg = (try interpreter.evalN(1, args))[0];
             if (arg.isInt()) {
                 return try SExpr.Float(at, @floatFromInt(arg.forceInt()));
             } else if (arg.isFloat()) {
@@ -272,7 +272,7 @@ pub const Decls = .{
     } },
     .{ "round", "round a floating point number", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const arg = try interpreter.eval1(args);
+            const arg = (try interpreter.evalN(1, args))[0];
             if (arg.isInt()) {
                 return try SExpr.Float(at, @floatFromInt(arg.forceInt()));
             } else if (arg.isFloat()) {
@@ -284,7 +284,7 @@ pub const Decls = .{
     } },
     .{ "frac", "take the fractional part of a floating point number", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const arg = try interpreter.eval1(args);
+            const arg = (try interpreter.evalN(1, args))[0];
             if (arg.isInt()) {
                 return try SExpr.Float(at, @floatFromInt(arg.forceInt()));
             } else if (arg.isFloat()) {

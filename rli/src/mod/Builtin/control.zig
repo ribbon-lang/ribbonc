@@ -67,9 +67,9 @@ pub const Decls = .{
     } },
     .{ "when", "single-option conditional branch, taken if the condition is true", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const rargs = try interpreter.evalAtLeast1(args);
-            const cond = rargs.head;
-            const then = rargs.tail;
+            const eArgs = try interpreter.evalAtLeastN(1, args);
+            const cond = eArgs.head[0];
+            const then = eArgs.tail;
             if (cond.coerceNativeBool()) {
                 return try interpreter.runProgram(then);
             } else {
@@ -79,9 +79,9 @@ pub const Decls = .{
     } },
     .{ "unless", "single-option conditional branch, taken if the condition is false", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const rargs = try interpreter.evalAtLeast1(args);
-            const cond = rargs.head;
-            const then = rargs.tail;
+            const eArgs = try interpreter.evalAtLeastN(1, args);
+            const cond = eArgs.head[0];
+            const then = eArgs.tail;
             if (!cond.coerceNativeBool()) {
                 return try interpreter.runProgram(then);
             } else {
@@ -93,8 +93,8 @@ pub const Decls = .{
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             var eargs = try interpreter.argIterator(false, args);
             while (try eargs.next()) |seg| {
-                const buf = try interpreter.expectAtLeast1(seg);
-                const cond = buf.head;
+                const buf = try interpreter.expectAtLeastN(1, seg);
+                const cond = buf.head[0];
                 const then = buf.tail;
                 const condval = if (cond.isExactSymbol("else")) {
                     if (eargs.hasNext()) {
@@ -111,13 +111,13 @@ pub const Decls = .{
     } },
     .{ "match", "pattern based matching on any inputt", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const res = try interpreter.evalAtLeast1(args);
-            const scrutinee = res.head;
+            const res = try interpreter.evalAtLeastN(1, args);
+            const scrutinee = res.head[0];
             const cases = res.tail;
             var eargs = try interpreter.argIterator(false, cases);
             while (try eargs.next()) |x| {
-                const case = try interpreter.expectAtLeast1(x);
-                const llist = case.head;
+                const case = try interpreter.expectAtLeastN(1, x);
+                const llist = case.head[0];
                 const then = case.tail;
                 if (llist.isExactSymbol("else")) {
                     if (eargs.hasNext()) {
@@ -144,12 +144,12 @@ pub const Decls = .{
     } },
     .{ "panic", "runs `format` on the values provided and then triggers a panic with the resulting string", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            var rargs = try interpreter.argIterator(true, args);
+            var eArgs = try interpreter.argIterator(true, args);
             var out = std.ArrayList(u8).init(interpreter.context.allocator);
             defer out.deinit();
             const writer = out.writer();
             var i: usize = 0;
-            while (try rargs.next()) |next| {
+            while (try eArgs.next()) |next| {
                 try writer.print("{display}", .{next});
                 i += 1;
             }
@@ -158,13 +158,13 @@ pub const Decls = .{
     } },
     .{ "panic-at", "uses the first argument as the source attribution for the panic; runs `format` on subsequent values provided and then triggers a panic with the resulting string", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            var rargs = try interpreter.argIterator(true, args);
-            const fst = try rargs.atLeast();
+            var eArgs = try interpreter.argIterator(true, args);
+            const fst = try eArgs.atLeast();
             const eat = try interpreter.castExternDataPtr(Source.Attr, at, fst);
             var out = std.ArrayList(u8).init(interpreter.context.allocator);
             defer out.deinit();
             const writer = out.writer();
-            while (try rargs.next()) |next| {
+            while (try eArgs.next()) |next| {
                 try writer.print("{display}", .{next});
             }
             return interpreter.abort(Interpreter.Error.Panic, eat, "{s}", .{try out.toOwnedSlice()});
@@ -172,7 +172,7 @@ pub const Decls = .{
     } },
     .{ "throw", "prompts `exception` with the value provided; this is a shortcut for `(prompt exception arg)`", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const msg = try interpreter.eval1(args);
+            const msg = (try interpreter.evalN(1, args))[0];
             return interpreter.nativePrompt(at, "exception", &[1]SExpr{msg});
         }
     } },
@@ -183,12 +183,12 @@ pub const Decls = .{
     } },
     .{ "assert", "asserts that a condition is true; if it is not, triggers a panic with the subsequent arguments, or with the condition itself if none were provided", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const rargs = try interpreter.evalAtLeast1(args);
-            const cond = rargs.head;
+            const eArgs = try interpreter.evalAtLeastN(1, args);
+            const cond = eArgs.head[0];
             if (cond.coerceNativeBool()) {
                 return try SExpr.Nil(at);
             } else {
-                var it = try interpreter.argIterator(true, rargs.tail);
+                var it = try interpreter.argIterator(true, eArgs.tail);
                 if (!it.hasNext()) {
                     try it.assertDone();
                     return interpreter.abort(Interpreter.Error.Panic, at, "assert failed: {display}", .{args});
@@ -206,7 +206,7 @@ pub const Decls = .{
     } },
     .{ "assert-eq", "asserts that the first two values provided are equal, using structural equality on objects; if they are not, triggers a panic with any subsequent values provided, or with the condition if none were", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const eargs = try interpreter.expectAtLeast2(args);
+            const eargs = try interpreter.expectAtLeastN(2, args);
             const a = try interpreter.eval(eargs.head[0]);
             const b = try interpreter.eval(eargs.head[1]);
             if (MiscUtils.equal(a, b)) {
@@ -232,7 +232,7 @@ pub const Decls = .{
     } },
     .{ "assert-eq-addr", "asserts that the first two values provided are equal, using address equality on objects; if they are not, triggers a panic with any subsequent values provided, or with the condition if none were", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const eargs = try interpreter.expectAtLeast2(args);
+            const eargs = try interpreter.expectAtLeastN(2, args);
             const a = try interpreter.eval(eargs.head[0]);
             const b = try interpreter.eval(eargs.head[1]);
             if (MiscUtils.equalAddress(a, b)) {
@@ -258,10 +258,10 @@ pub const Decls = .{
     } },
     .{ "assert-at", "asserts that a condition is true; if it is not, triggers a panic with the subsequent arguments, or with the condition itself if none were provided", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const rargs0 = try interpreter.evalAtLeast1(args);
-            const eat = try interpreter.castExternDataPtr(Source.Attr, at, rargs0.head);
-            const eCondInput = try interpreter.expectAtLeast1(rargs0.tail);
-            const cond = try interpreter.eval(eCondInput.head);
+            const eArgs0 = try interpreter.evalAtLeastN(1, args);
+            const eat = try interpreter.castExternDataPtr(Source.Attr, at, eArgs0.head[0]);
+            const eCondInput = try interpreter.expectAtLeastN(1, eArgs0.tail);
+            const cond = try interpreter.eval(eCondInput.head[0]);
             const tail = eCondInput.tail;
             if (cond.coerceNativeBool()) {
                 return try SExpr.Nil(at);
@@ -269,7 +269,7 @@ pub const Decls = .{
                 var it = try interpreter.argIterator(true, tail);
                 if (!it.hasNext()) {
                     try it.assertDone();
-                    return interpreter.abort(Interpreter.Error.Panic, eat, "assert failed: {}", .{eCondInput.head});
+                    return interpreter.abort(Interpreter.Error.Panic, eat, "assert failed: {}", .{eCondInput.head[0]});
                 } else {
                     var out = std.ArrayList(u8).init(interpreter.context.allocator);
                     defer out.deinit();
@@ -284,9 +284,9 @@ pub const Decls = .{
     } },
     .{ "assert-eq-at", "asserts that the first two values provided are equal, using structural equality on objects; if they are not, triggers a panic with any subsequent values provided, or with the equality inputs if none were", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const rargs0 = try interpreter.evalAtLeast1(args);
-            const eat = try interpreter.castExternDataPtr(Source.Attr, at, rargs0.head);
-            const eEqInputs = try interpreter.expectAtLeast2(rargs0.tail);
+            const eArgs0 = try interpreter.evalAtLeastN(1, args);
+            const eat = try interpreter.castExternDataPtr(Source.Attr, at, eArgs0.head[0]);
+            const eEqInputs = try interpreter.expectAtLeastN(2, eArgs0.tail);
             const rEqInputs = [2]SExpr{ try interpreter.eval(eEqInputs.head[0]), try interpreter.eval(eEqInputs.head[1]) };
             const tail = eEqInputs.tail;
             if (MiscUtils.equal(rEqInputs[0], rEqInputs[1])) {
@@ -310,9 +310,9 @@ pub const Decls = .{
     } },
     .{ "assert-eq-addr-at", "asserts, using the location provided as the first argument, that the next two values provided are equal, using address equality on objects; if they are not, triggers a panic with any subsequent values provided, or with the equality inputs if none were", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const rargs0 = try interpreter.evalAtLeast1(args);
-            const eat = try interpreter.castExternDataPtr(Source.Attr, at, rargs0.head);
-            const eEqInputs = try interpreter.expectAtLeast2(rargs0.tail);
+            const eArgs0 = try interpreter.evalAtLeastN(1, args);
+            const eat = try interpreter.castExternDataPtr(Source.Attr, at, eArgs0.head[0]);
+            const eEqInputs = try interpreter.expectAtLeastN(2, eArgs0.tail);
             const rEqInputs = [2]SExpr{ try interpreter.eval(eEqInputs.head[0]), try interpreter.eval(eEqInputs.head[1]) };
             const tail = eEqInputs.tail;
             if (MiscUtils.equalAddress(rEqInputs[0], rEqInputs[1])) {
@@ -380,7 +380,7 @@ pub const Decls = .{
     } },
     .{ "f-assert", "asserts that a condition is true; if it is not, prompts `fail`", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const cond = try interpreter.eval1(args);
+            const cond = (try interpreter.evalN(1, args))[0];
             if (cond.coerceNativeBool()) {
                 return try SExpr.Nil(at);
             } else {
@@ -390,7 +390,7 @@ pub const Decls = .{
     } },
     .{ "f-assert-eq", "asserts that the two values provided are equal, using structural equality on objects; if they are not, prompts `fail`", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const buf = try interpreter.eval2(args);
+            const buf = try interpreter.evalN(2, args);
             const a = buf[0];
             const b = buf[1];
             if (MiscUtils.equal(a, b)) {
@@ -402,7 +402,7 @@ pub const Decls = .{
     } },
     .{ "f-assert-eq-addr", "asserts that the two values provided are equal, using address equality on objects; if they are not, prompts `fail`", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const buf = try interpreter.eval2(args);
+            const buf = try interpreter.evalN(2, args);
             const a = buf[0];
             const b = buf[1];
             if (MiscUtils.equalAddress(a, b)) {

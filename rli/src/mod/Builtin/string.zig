@@ -25,13 +25,13 @@ pub const Doc =
 pub const Decls = .{
     .{ "string/empty?", "check if a value is the empty string", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const arg = try interpreter.eval1(args);
+            const arg = (try interpreter.evalN(1, args))[0];
             return try SExpr.Bool(at, if (arg.castStringSlice()) |str| str.len == 0 else false);
         }
     } },
     .{ "string/length", "get the number of characters in a string", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const arg = try interpreter.eval1(args);
+            const arg = (try interpreter.evalN(1, args))[0];
             const str = try interpreter.castStringSlice(at, arg);
             const len = TextUtils.codepointCount(str) catch {
                 return interpreter.abort(Interpreter.Error.BadEncoding, at, "bad utf8 string", .{});
@@ -44,7 +44,7 @@ pub const Decls = .{
     } },
     .{ "string/find", "within a given string, find the character index of another string, or a character; returns nil if not found", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const rargs = try interpreter.eval2(args);
+            const rargs = try interpreter.evalN(2, args);
             const haystack = try interpreter.castStringSlice(at, rargs[0]);
             var needleBuf = [4]u8{ 0, 0, 0, 0 };
             const needle =
@@ -67,7 +67,7 @@ pub const Decls = .{
     } },
     .{ "string/find-byte-offset", "within a given string, find the byte index of another string; returns nil if not found", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const rargs = try interpreter.eval2(args);
+            const rargs = try interpreter.evalN(2, args);
             const haystack = try interpreter.castStringSlice(at, rargs[0]);
             var needleBuf = [4]u8{ 0, 0, 0, 0 };
             const needle =
@@ -88,7 +88,7 @@ pub const Decls = .{
     } },
     .{ "string/nth-char", "get the character at the given character index; returns nil if out of range", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const rargs = try interpreter.eval2(args);
+            const rargs = try interpreter.evalN(2, args);
             const n = try interpreter.coerceNativeInt(at, rargs[0]);
             if (n < 0) {
                 return interpreter.abort(Interpreter.Error.RangeError, at, "expected a non-negative integer, got {}", .{n});
@@ -104,7 +104,7 @@ pub const Decls = .{
     } },
     .{ "string/index<-byte-offset", "given a string, convert a byte index within it to a character index; returns nil if out of range", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const rargs = try interpreter.eval2(args);
+            const rargs = try interpreter.evalN(2, args);
             const str = try interpreter.castStringSlice(at, rargs[0]);
             const offset = try interpreter.coerceNativeInt(at, rargs[1]);
             if (offset < 0) {
@@ -121,7 +121,7 @@ pub const Decls = .{
     } },
     .{ "string/byte-offset<-index", "given a string, convert a character index within it to a byte index; returns nil if out of range or mis-aligned ", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const rargs = try interpreter.eval2(args);
+            const rargs = try interpreter.evalN(2, args);
             const str = try interpreter.castStringSlice(at, rargs[0]);
             const n = try interpreter.coerceNativeInt(at, rargs[1]);
             if (n < 0) {

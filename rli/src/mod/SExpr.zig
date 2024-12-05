@@ -1260,4 +1260,219 @@ pub const SExpr = extern struct {
             Tag.ExternFunction => return MiscUtils.hashWith(hasher, self.forcePtr(Types.ExternFunction)),
         }
     }
+
+
+    pub fn from(at: *const Source.Attr, value: anytype) Interpreter.Error!SExpr {
+        const T = @TypeOf(value);
+
+        if (std.meta.hasMethod(T, "toSExpr")) {
+            return value.toSExpr(at);
+        }
+
+        switch (T) {
+            void, Unit => return Nil(at),
+            bool => return Bool(at, value),
+            i64 => return Int(at, value),
+            f64 => return Float(at, value),
+            *bool => return Bool(at, value.*),
+            *i64 => return Int(at, value.*),
+            *f64 => return Float(at, value.*),
+            TextUtils.Char => return Char(at, value),
+            []const u8 => return String(at, value),
+            SExpr => return value,
+            *Types.Cons, *Types.Function, *Types.String, *Types.Symbol, *Types.ExternData, *Types.ExternFunction => return fromExistingPtr(value),
+            Types.ExternFunction.Proc => return ExternFunction(at, "extern", value),
+            Types.Builtin.Proc => return Builtin(at, "extern", value),
+            else => switch (@typeInfo(T)) {
+                .null, .undefined => return Nil(at),
+                .optional => if (value) |v| return from(at, v) else return Nil(at),
+                .error_set => return Cons(at, try Symbol(at, "error"), try Int(at, @intFromError(value))),
+                .error_union => if (value) |v| return from(at, v) else |e| return from(e),
+                .int => return Int(at, @intCast(value)),
+                .float => return Float(at, @floatCast(value)),
+                .vector => fromBuffer(at, &MiscUtils.arrayFromVector(value)),
+                .array => fromBuffer(at, &value),
+                .pointer => |info| switch (comptime info.size) {
+                    .One, .Many, .C => return ExternData(T, at, @ptrCast(value), null),
+                    .Slice => return fromBuffer(info.child, at, value),
+                },
+                .@"fn" => return wrapFn(at, "extern", value),
+                .@"struct" => |info| {
+                    var table = try SExpr.Nil(at);
+                    inline for (info.fields) |field| {
+                        const pair = try SExpr.Cons(at, try Symbol(at, field.name), try from(at, @field(value, field.name)));
+                        table = try SExpr.Cons(at, pair, table);
+                    }
+                    return table;
+                },
+                .@"union" => |info| if (info.tag_type) |TT| {
+                    return SExpr.Cons(at, try from(at, @as(TT, value)), try from(at, @field(value, @tagName(value))));
+                } else @compileError("cannot convert union without tag type to SExpr"),
+                .@"enum", .enum_literal => return try SExpr.Symbol(at, @tagName(value)),
+                else => @compileError("cannot convert `" ++ @typeName(T) ++ "` to SExpr"),
+            }
+        }
+    }
+
+    fn fromBuffer(comptime T: type, at: *const Source.Attr, value: []const T) Interpreter.Error!SExpr {
+        var tail = try Nil(at);
+        for (0..value.len) |i| {
+            const j = value.len - i - 1;
+            tail = try Cons(at, try from(at, value[j]), tail);
+        }
+        return tail;
+    }
+
+    fn wrapFn(at: *const Source.Attr, name: []const u8, value: anytype) Interpreter.Error!SExpr {
+        const T = @TypeOf(value);
+        const info = @typeInfo(T).@"fn";
+
+        return Builtin(at, name, struct {
+            fn wrapper(interpreter: *Interpreter, attr: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
+                const eArgs = interpreter.evalN(info.params.len, args);
+                const zArgs: std.meta.ArgsTuple(T) = undefined;
+
+                for (info.params, 0..) |param, i| {
+                    zArgs[i] = try eArgs[i].to(param.type);
+                }
+
+                const result = @call(.auto, value, zArgs);
+
+                return SExpr.from(attr, result);
+            }
+        }.wrapper);
+    }
+
+    pub fn toError(self: SExpr, comptime E: type) (Interpreter.Error || E) {
+        const symbol = self.castSymbolSlice() orelse return error.TypeError;
+
+        inline for (@typeInfo(E).error_set.?) |err| {
+            if (std.mem.eql(u8, symbol, err.name)) {
+                return @field(E, err.name);
+            }
+        }
+
+        return error.TypeError;
+    }
+
+    pub fn to(self: *const SExpr, comptime T: type) Interpreter.Error!T {
+        if (std.meta.hasFn(T, "fromSExpr")) {
+            return T.fromSExpr(self);
+        }
+
+        const tinfo = @typeInfo(T);
+        if (tinfo == .pointer and tinfo.pointer.size == .One
+        and std.meta.hasFn(tinfo.pointer.child, "fromSExpr")) {
+            return T.fromSExpr(self);
+        }
+
+        switch (T) {
+            void => { _ = self.castNil(); return; },
+            Unit => { _ = self.castNil(); return .{}; },
+            bool => return self.castBool() orelse error.TypeError,
+            i64 => return self.castInt() orelse error.TypeError,
+            f64 => return self.castFloat() orelse error.TypeError,
+            *bool => return if (self.isBool()) &self.data.boolean else return error.TypeError,
+            *i64 => return if (self.isInt()) &self.data.integral else return error.TypeError,
+            *f64 => return if (self.isFloat()) &self.data.floating else return error.TypeError,
+            TextUtils.Char => return self.castChar() orelse error.TypeError,
+            []const u8 => return self.castStringSlice() orelse error.TypeError,
+            SExpr => return self.*,
+            *Types.Cons => return self.castCons() orelse error.TypeError,
+            *Types.Function => return self.castFunction() orelse error.TypeError,
+            *Types.Builtin => return self.castBuiltin() orelse error.TypeError,
+            *Types.Symbol => return self.castSymbol() orelse error.TypeError,
+            *Types.String => return self.castString() orelse error.TypeError,
+            *Types.ExternData => return self.castExternData() orelse error.TypeError,
+            *Types.ExternFunction => return self.castExternFunction() orelse error.TypeError,
+            Types.ExternFunction.Proc => return self.castExternFunctionProc() orelse error.TypeError,
+            Types.Builtin.Proc => return (self.castBuiltin() orelse return error.TypeError).getProc(),
+            else => switch (@typeInfo(T)) {
+                .null => return null,
+                .optional => |info| if (self.isNil()) return null else return try self.to(info.payload),
+                .error_set => return @errorFromInt(self.castInt() orelse return error.TypeError),
+                .error_union => {
+                    if (self.castCons()) |cons| {
+                        if (cons.car.isExactSymbol("error")) {
+                            return @errorFromInt(cons.cdr.castInt() orelse return error.TypeError);
+                        }
+                    }
+                    return try self.to(T);
+                },
+                .int => return @intCast(self.castInt() orelse return error.TypeError),
+                .float => return @floatCast(self.castFloat() orelse return error.TypeError),
+                .vector => return MiscUtils.vectorFromArray(try toArray(self, T)),
+                .array => return try toArray(self, T),
+                .pointer => |info| switch (info.size) {
+                    .One, .Many, .C => return @ptrCast(self.castExternDataPtr() orelse return error.TypeError),
+                    .Slice => return try toBuffer(self, T),
+                },
+                .@"fn" => return @ptrCast(self.castExternFunctionProc() orelse return error.TypeError),
+                .@"struct" => |info| {
+                    var result: T = undefined;
+                    for (info.fields) |field| {
+                        @field(result, field.name) = try (try self.getField(field.name) orelse return error.TypeError).to(field.type);
+                    }
+                    return result;
+                },
+                .@"union" => |info| if (info.tag_type) |_| {
+                    const pair = try self.castCons() orelse return error.TypeError;
+                    const sym = try pair.car.castSymbolSlice() orelse return error.TypeError;
+                    inline for (info.fields) |field| {
+                        if (std.mem.eql(u8, field.name, sym)) {
+                            return @unionInit(T, field.name, try pair.cdr.to(field.type));
+                        }
+                    }
+                } else @compileError("cannot convert union without tag type from SExpr"),
+                .@"enum" => |info| {
+                    const str = self.castStringSlice() orelse return error.TypeError;
+                    inline for (info.fields) |field| {
+                        if (std.mem.eql(u8, str, field.name)) {
+                            return @field(T, field.name);
+                        }
+                    }
+                    return error.TypeError;
+                },
+                else => @compileError("cannot convert SExpr to `" ++ @typeName(T) ++ "`"),
+            }
+        }
+    }
+
+    fn toArray(self: *const SExpr, comptime N: usize, comptime T: type) Interpreter.Result![N]T {
+        var it = self.iter();
+        var result: [N]T = undefined;
+        for (0..N) |i| {
+            result[i] = ((try it.next()) orelse return error.TypeError).to(T);
+        }
+        return result;
+    }
+
+    fn toBuffer(self: *const SExpr, comptime T: type) Interpreter.Result![]T {
+        var buffer = std.ArrayList(T).init(self.getContext().allocator);
+        var it = self.iter();
+        while (try it.next()) |elem| {
+            try buffer.append(try elem.to(T));
+        }
+        return buffer.toOwnedSlice();
+    }
+
+    fn getField(self: *const SExpr, name: []const u8) Interpreter.Result!?SExpr {
+        var it = self.iter();
+        while (try it.next()) |elem| {
+            if (elem.castCons()) |cons| {
+                if (cons.car.isExactSymbol(name)) {
+                    return cons.cdr;
+                }
+            }
+        }
+        return null;
+    }
+
+    fn getIndex(self: *const SExpr, index: usize) Interpreter.Result!?SExpr {
+        var it = self.iter();
+        for (0..index) |_| {
+            try it.next() orelse return null;
+        }
+        return it.next();
+    }
 };

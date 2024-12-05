@@ -13,7 +13,7 @@ pub const Doc =
 pub const Decls = .{
     .{ "env/keys", "get the names of all bindings in the given env", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const env = try interpreter.eval1(args);
+            const env = (try interpreter.evalN(1, args))[0];
             try interpreter.validateListOrNil(at, env);
             const keys = try Interpreter.envKeys(env, interpreter.context.allocator);
             defer interpreter.context.allocator.free(keys);
@@ -22,7 +22,7 @@ pub const Decls = .{
     } },
     .{ "env/lookup-f", "lookup a key symbol in an environment, returning the value it binds; prompts `fail` if the key is not found", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const rargs = try interpreter.eval2(args);
+            const rargs = try interpreter.evalN(2, args);
             const key = rargs[0];
             try interpreter.validateSymbol(at, key);
             const env = rargs[1];
@@ -41,7 +41,7 @@ pub const Decls = .{
     } },
     .{ "env/lookup", "lookup a key symbol in an environment, returning the value it binds; returns `nil` if the key is not found", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const rargs = try interpreter.eval2(args);
+            const rargs = try interpreter.evalN(2, args);
             const key = rargs[0];
             try interpreter.validateSymbol(at, key);
             const env = rargs[1];
@@ -58,7 +58,7 @@ pub const Decls = .{
     } },
     .{ "env/pair", "lookup a key symbol in an environment, returning the pair it binds; prompts `fail` if the key is not found", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const rargs = try interpreter.eval2(args);
+            const rargs = try interpreter.evalN(2, args);
             const key = rargs[0];
             try interpreter.validateSymbol(at, key);
             const env = rargs[1];
@@ -76,7 +76,7 @@ pub const Decls = .{
     } },
     .{ "env/set!", "set the value associated with a name in an environment, returning the old value; prompts `fail` if the name is not bound", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const rargs = try interpreter.eval3(args);
+            const rargs = try interpreter.evalN(3, args);
             const key = rargs[0];
             try interpreter.validateSymbol(at, key);
             const value = rargs[1];
@@ -97,7 +97,7 @@ pub const Decls = .{
     } },
     .{ "env/put!", "append a key-value pair to the top frame of an environment", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const rargs = try interpreter.eval3(args);
+            const rargs = try interpreter.evalN(3, args);
             const key = rargs[0];
             try interpreter.validateSymbol(at, key);
             const value = rargs[1];
@@ -109,14 +109,14 @@ pub const Decls = .{
     } },
     .{ "env/copy", "copy a given environment", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const newEnv = try interpreter.eval1(args);
+            const newEnv = (try interpreter.evalN(1, args))[0];
             const outEnv = Interpreter.copyEnv(at, newEnv);
             return outEnv;
         }
     } },
     .{ "env/new", "make a new environment from a simple a-list", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const frame = try interpreter.eval1(args);
+            const frame = (try interpreter.evalN(1, args))[0];
             Interpreter.validateFrame(frame) catch |err| {
                 return interpreter.abort(err, at, "bad frame: {}", .{frame});
             };
@@ -126,7 +126,7 @@ pub const Decls = .{
     } },
     .{ "env/get-frame", "get the environment frame at the given offset depth; prompts `fail` if the depth is out of bounds", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const rargs = try interpreter.eval2(args);
+            const rargs = try interpreter.evalN(2, args);
             const env = rargs[0];
             const frameOffsetI = try interpreter.coerceNativeInt(at, rargs[1]);
             if (frameOffsetI < 0) {
@@ -144,7 +144,7 @@ pub const Decls = .{
     } },
     .{ "env/push", "push a given environment frame into the current environment, returning the modified enviroment", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const rargs = try interpreter.eval2(args);
+            const rargs = try interpreter.evalN(2, args);
             var env = rargs[0];
             const frame = rargs[1];
             Interpreter.validateFrame(frame) catch |err| {
@@ -158,7 +158,7 @@ pub const Decls = .{
     } },
     .{ "env/pop", "pop an environment frame off the current environment, returning it and the modified environment as a pair `(frame . env)`; prompts `fail` if the environment is empty", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            var env = try interpreter.eval1(args);
+            var env = (try interpreter.evalN(1, args))[0];
             const frame = Interpreter.popFrame(&env) catch |err| {
                 if (err == Interpreter.Error.EnvironmentUnderflow) {
                     return interpreter.nativePrompt(at, "fail", &[0]SExpr{});

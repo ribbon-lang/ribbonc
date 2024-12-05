@@ -16,7 +16,7 @@ pub const Doc =
 pub const Decls = .{
     .{ "quasiquote", "a quote accepting `unquote` and `unquote-splicing` in its body", struct {
         pub fn fun(interpreter: *Interpreter, _: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const esc = try interpreter.expect1(args);
+            const esc = (try interpreter.expectN(1, args))[0];
             const res = try impl(interpreter, esc);
             if (res.mode != .Value) {
                 return interpreter.abort(Interpreter.Error.TypeError, esc.getAttr(), "expected a value, got {s}", .{res.mode});
@@ -95,13 +95,13 @@ pub const Decls = .{
             return Value(try SExpr.List(sexpr.getAttr(), newList.items));
         }
         fn unquote(interpreter: *Interpreter, _: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const arg = try interpreter.expect1(args);
+            const arg = (try interpreter.expectN(1, args))[0];
             return interpreter.eval(arg);
         }
     } },
     .{ "quote", "makes a given input into its literal equivalent by skipping an evaluation step", struct {
         pub fn fun(interpreter: *Interpreter, _: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            return interpreter.expect1(args);
+            return (try interpreter.expectN(1, args))[0];
         }
     } },
 
@@ -223,7 +223,7 @@ pub const Decls = .{
 
     .{ "meta/set-global-evidence", "set the global evidence environment frame", struct {
         pub fn fun(interpreter: *Interpreter, _: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const newEv = try interpreter.eval1(args);
+            const newEv = (try interpreter.evalN(1, args))[0];
             Interpreter.validateFrame(newEv) catch |err| {
                 return interpreter.abort(err, args.getAttr(), "bad frame: {}", .{newEv});
             };

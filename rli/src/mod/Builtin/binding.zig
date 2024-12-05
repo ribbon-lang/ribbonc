@@ -51,8 +51,8 @@ pub const Decls = .{
     } },
     .{ "let", "create local value bindings", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const res = try interpreter.expectAtLeast1(args);
-            const defs = res.head;
+            const res = try interpreter.expectAtLeastN(1, args);
+            const defs = res.head[0];
             const body = res.tail;
             const baseEnv = interpreter.env;
             try Interpreter.pushNewFrame(at, &interpreter.env);
@@ -68,14 +68,14 @@ pub const Decls = .{
     } },
     .{ "bound?", "check if a given symbol is bound in the current env", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const symbol = try interpreter.expect1(args);
+            const symbol = (try interpreter.expectN(1, args))[0];
             try interpreter.validateSymbol(at, symbol);
             return try SExpr.Bool(at, try Interpreter.envLookupPair(symbol, interpreter.env) != null);
         }
     } },
     .{ "set!", "set the value of a symbol in the current env. symbol must already be bound. returns old value", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const buf = try interpreter.expect2(args);
+            const buf = try interpreter.expectN(2, args);
             const symbol = buf[0];
             try interpreter.validateSymbol(at, symbol);
             const value = try interpreter.eval(buf[1]);
@@ -119,14 +119,14 @@ pub fn bindDefs(interpreter: *Interpreter, defs: SExpr, comptime bind: fn (*Inte
 }
 
 pub fn bindDef(interpreter: *Interpreter, at: *const Source.Attr, info: SExpr, comptime bind: fn (*Interpreter, *const Source.Attr, SExpr, SExpr) Interpreter.Result!SExpr) Interpreter.Result!SExpr {
-    var res = try interpreter.expectAtLeast1(info);
+    var res = try interpreter.expectAtLeastN(1, info);
 
-    const kind = try DefKind.matchSymbol(interpreter, res.head);
+    const kind = try DefKind.matchSymbol(interpreter, res.head[0]);
     if (kind != .Var) {
-        res = try interpreter.expectAtLeast1(res.tail);
+        res = try interpreter.expectAtLeastN(1, res.tail);
     }
 
-    const nameSymbol = res.head;
+    const nameSymbol = res.head[0];
     try interpreter.validateSymbol(nameSymbol.getAttr(), nameSymbol);
 
     const obj = try kind.constructObject(interpreter, at, res.tail);

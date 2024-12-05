@@ -1,17 +1,19 @@
 const std = @import("std");
 
 const MiscUtils = @import("Utils").Misc;
-
 const TypeUtils = @import("Utils").Type;
 const TextUtils = @import("Utils").Text;
+const ExternUtils = @import("Utils").Extern;
 const Char = TextUtils.Char;
 
 const Rli = @import("root.zig");
 const Source = Rli.Source;
 const Context = Rli.Context;
+const Interpreter = Rli.Interpreter;
 const SExpr = Rli.SExpr;
 
 context: *Context,
+interpreter: *Interpreter,
 sexprBuffer: std.ArrayList(SExpr),
 textBuffer: std.ArrayList(u8),
 fileName: []const u8,
@@ -23,6 +25,8 @@ posOffset: Source.Pos,
 const Parser = @This();
 
 const NO_COMMENT: []const Source.Comment = &.{};
+
+pub const ReaderError = Interpreter.Error || SyntaxError;
 
 pub const SyntaxError = error{ UnexpectedInput, UnexpectedEOF };
 pub const ParseError = SyntaxError || TextUtils.Error;
@@ -44,7 +48,9 @@ pub fn asParseError(err: anyerror) ?ParseError {
     return TypeUtils.narrowErrorSet(ParseError, err);
 }
 
-pub fn init(context: *Context) Context.Error!*Parser {
+pub fn init(interpreter: *Interpreter) Context.Error!*Parser {
+    const context = interpreter.context;
+
     const sexprBuffer = std.ArrayList(SExpr).init(context.allocator);
 
     const textBuffer = try std.ArrayList(u8).initCapacity(context.allocator, 1024);
@@ -55,6 +61,7 @@ pub fn init(context: *Context) Context.Error!*Parser {
 
     ptr.* = Parser{
         .context = context,
+        .interpreter = interpreter,
         .sexprBuffer = sexprBuffer,
         .textBuffer = textBuffer,
         .fileName = "unknown",
@@ -86,6 +93,32 @@ pub fn deinit(self: *Parser) void {
     self.sexprBuffer.deinit();
     self.textBuffer.deinit();
     self.context.allocator.destroy(self);
+}
+
+const ParserVTable = SExpr.Types.ExternData.VTable(Parser){
+    .compare = struct {
+        fn fun(self: *const Parser, other: *const Parser) callconv(.C) MiscUtils.Ordering {
+            return MiscUtils.compare(self.*, other.*);
+        }
+    }.fun,
+    .hashWith = struct {
+        fn fun(self: *const Parser, hasher: *ExternUtils.Hasher) callconv(.C) void {
+            MiscUtils.hashWith(hasher, @intFromPtr(self));
+        }
+    }.fun,
+    .finalizer = struct {
+        fn fun(self: *Parser) callconv(.C) void {
+            self.deinit();
+        }
+    }.fun,
+};
+
+pub fn toSExpr(parser: *Parser, at: *const Source.Attr) !SExpr {
+    return SExpr.ExternData(Parser, at, parser, &ParserVTable);
+}
+
+pub fn fromSExpr(sexpr: SExpr) !*Parser {
+    return sexpr.castExternDataExactPtr(Parser) orelse error.TypeError;
 }
 
 pub fn setFileName(self: *Parser, fileName: []const u8) Context.Error!void {
@@ -290,7 +323,7 @@ pub fn failed(self: *Parser) ParserError {
     }
 }
 
-pub fn require(self: *Parser, comptime T: type, value: ?T) ParserError!T {
+pub fn require(self: *Parser, comptime T: type, value: ?T) !T {
     if (value) |v| {
         return v;
     } else {
@@ -298,7 +331,7 @@ pub fn require(self: *Parser, comptime T: type, value: ?T) ParserError!T {
     }
 }
 
-pub fn scanP(self: *Parser, comptime T: type, callback: anytype, args: anytype) ParserError!T {
+pub fn scanP(self: *Parser, comptime T: type, callback: anytype, args: anytype) !T {
     const comments = try self.spaceP();
     const Args = @TypeOf(args);
     const argInfo = @typeInfo(Args).@"struct";
@@ -327,12 +360,12 @@ pub fn scanP(self: *Parser, comptime T: type, callback: anytype, args: anytype) 
     }
 }
 
-pub fn commentScanP(self: *Parser, comptime T: type, callback: anytype, args: anytype) ParserError!T {
+pub fn commentScanP(self: *Parser, comptime T: type, callback: anytype, args: anytype) !T {
     const comments = try self.spaceP();
     return @call(.auto, callback, .{self} ++ args ++ .{comments});
 }
 
-pub fn totalP(self: *Parser, comptime T: type, callback: anytype, args: anytype) ParserError!T {
+pub fn totalP(self: *Parser, comptime T: type, callback: anytype, args: anytype) !T {
     const result = try self.scanP(?T, callback, args) orelse {
         return SyntaxError.UnexpectedInput;
     };
@@ -340,38 +373,62 @@ pub fn totalP(self: *Parser, comptime T: type, callback: anytype, args: anytype)
     return result;
 }
 
-pub fn requireP(self: *Parser, comptime T: type, callback: anytype, args: anytype) ParserError!T {
+pub fn requireP(self: *Parser, comptime T: type, callback: anytype, args: anytype) !T {
     return try @call(.auto, callback, .{self} ++ args) orelse {
         return self.failed();
     };
 }
 
-pub fn requireCondP(self: *Parser, callback: anytype, args: anytype) ParserError!void {
+pub fn requireCondP(self: *Parser, callback: anytype, args: anytype) !void {
     if (!try @call(.auto, callback, .{self} ++ args)) {
         return self.failed();
     }
 }
 
-pub fn requireCondScanP(self: *Parser, callback: anytype, args: anytype) ParserError!void {
+pub fn requireCondScanP(self: *Parser, callback: anytype, args: anytype) !void {
     if (!try self.scanP(bool, callback, args)) {
         return self.failed();
     }
 }
 
-pub fn requireScanP(self: *Parser, comptime T: type, callback: anytype, args: anytype) ParserError!T {
+pub fn requireScanP(self: *Parser, comptime T: type, callback: anytype, args: anytype) !T {
     return try self.scanP(?T, callback, args) orelse {
         return self.failed();
     };
 }
 
-pub fn requireScanOrEofP(self: *Parser, comptime T: type, callback: anytype, args: anytype) ParserError!?T {
+pub fn requireScanOrEofP(self: *Parser, comptime T: type, callback: anytype, args: anytype) !?T {
     const comments = try self.spaceP();
 
     if (self.isEof()) {
         return null;
     }
 
-    return try @call(.auto, callback, .{self} ++ args ++ .{comments}) orelse return SyntaxError.UnexpectedInput;
+    const Args = @TypeOf(args);
+    const argInfo = @typeInfo(Args).@"struct";
+    const argFields = argInfo.fields;
+    if (comptime argFields.len > 0 and argFields[argFields.len - 1].type == []const Source.Comment) {
+        var rest: @Type(.{ .@"struct" = std.builtin.Type.Struct {
+            .backing_integer = argInfo.backing_integer,
+            .fields = argFields[0..argFields.len - 1],
+            .decls = &.{},
+            .is_tuple = true,
+            .layout = .auto,
+        }}) = undefined;
+        for (0..args.len - 1) |i| {
+            rest[i] = args[i];
+        }
+        return @call(.auto, callback, .{self} ++ rest ++ .{try self.comcat(&.{comments, args[args.len - 1]})});
+    } else {
+        const Fn = @TypeOf(callback);
+        const fnInfo = @typeInfo(Fn).@"fn";
+        const params = fnInfo.params;
+        if (comptime params.len > 0 and params[params.len - 1].type == []const Source.Comment) {
+            return @call(.auto, callback, .{self} ++ args ++ .{comments});
+        } else {
+            return @call(.auto, callback, .{self} ++ args);
+        }
+    }
 }
 
 pub fn nextIsSentinel(self: *Parser) ParserError!bool {
@@ -391,16 +448,29 @@ pub fn eofP(self: *Parser) ParserError!void {
     }
 }
 
-pub inline fn scanSExprP(self: *Parser) ParserError!?SExpr {
-    return self.requireScanOrEofP(SExpr, sexprP, .{});
+pub inline fn scanSExprP(self: *Parser) ReaderError!?SExpr {
+    return self.requireScanOrEofP(SExpr, sexprP, .{NO_COMMENT});
 }
 
-pub fn sexprP(self: *Parser, comments: []const Source.Comment) ParserError!?SExpr {
-    return try self.atomP(comments)
+pub fn sexprP(self: *Parser, comments: []const Source.Comment) ReaderError!?SExpr {
+    return try self.readerP(comments)
+    orelse try self.atomP(comments)
     orelse try self.listP(comments)
     orelse try self.quoteP(comments)
     orelse try self.quasiP(comments)
     orelse try self.unquoteP(comments);
+}
+
+pub fn readerP(self: *Parser, comments: []const Source.Comment) ReaderError!?SExpr {
+    const start = self.pos;
+
+    if (!try self.expectCharP('#')) {
+        return null;
+    }
+
+    const name = try self.requireP(SExpr, Parser.symbolP, .{NO_COMMENT});
+
+    return self.interpreter.readerCall(self, name, start, comments);
 }
 
 pub fn atomP(self: *Parser, comments: []const Source.Comment) ParserError!?SExpr {
@@ -419,7 +489,7 @@ pub fn atomP(self: *Parser, comments: []const Source.Comment) ParserError!?SExpr
     }
 }
 
-pub fn listP(self: *Parser, comments: []const Source.Comment) ParserError!?SExpr {
+pub fn listP(self: *Parser, comments: []const Source.Comment) ReaderError!?SExpr {
     const start = self.pos;
 
     if (!try self.expectCharP('(')) {
@@ -462,7 +532,7 @@ fn comcat (self: *Parser, comments: []const []const Source.Comment) ![]const Sou
     return std.mem.concat(self.context.allocator, Source.Comment, comments);
 }
 
-pub fn unquoteP(self: *Parser, comments: []const Source.Comment) ParserError!?SExpr {
+pub fn unquoteP(self: *Parser, comments: []const Source.Comment) ReaderError!?SExpr {
     const start = self.pos;
 
     if (!try self.expectCharP(',')) {
@@ -486,7 +556,7 @@ pub fn unquoteP(self: *Parser, comments: []const Source.Comment) ParserError!?SE
     return try SExpr.List(attr, &[_]SExpr{ quoteSym, item });
 }
 
-pub fn quasiP(self: *Parser, comments: []const Source.Comment) ParserError!?SExpr {
+pub fn quasiP(self: *Parser, comments: []const Source.Comment) ReaderError!?SExpr {
     const start = self.pos;
 
     if (!try self.expectCharP('`')) {
@@ -502,7 +572,7 @@ pub fn quasiP(self: *Parser, comments: []const Source.Comment) ParserError!?SExp
     return try SExpr.List(attr, &[_]SExpr{ quoteSym, item });
 }
 
-pub fn quoteP(self: *Parser, comments: []const Source.Comment) ParserError!?SExpr {
+pub fn quoteP(self: *Parser, comments: []const Source.Comment) ReaderError!?SExpr {
     const start = self.pos;
 
     if (!try self.expectStringP("'")) {
@@ -742,7 +812,10 @@ test {
     defer ctx.deinit();
 
     {
-        var parser = try Parser.init(ctx);
+        const interpreter = try Interpreter.init(ctx);
+        defer interpreter.deinit();
+
+        var parser = try Parser.init(interpreter);
         defer parser.deinit();
 
         try parser.setFileName("stdin");

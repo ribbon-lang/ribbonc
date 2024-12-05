@@ -44,18 +44,6 @@ pub fn init(allocator: std.mem.Allocator, out: std.io.AnyWriter, builtinEnvs: Bu
     };
     errdefer context.deinit();
 
-    log.info("initializing parser ...", .{});
-    var parser = parser: {
-        if (Parser.init(context)) |ptr| {
-            log.info("... parser ready", .{});
-            break :parser ptr;
-        } else |err| {
-            log.err("... failed to initialize parser", .{});
-            return err;
-        }
-    };
-    errdefer parser.deinit();
-
     log.info("initializing interpreter ...", .{});
     var interpreter = interpreter: {
         if (Interpreter.init(context)) |ptr| {
@@ -67,6 +55,18 @@ pub fn init(allocator: std.mem.Allocator, out: std.io.AnyWriter, builtinEnvs: Bu
         }
     };
     errdefer interpreter.deinit();
+
+    log.info("initializing parser ...", .{});
+    var parser = parser: {
+        if (Parser.init(interpreter)) |ptr| {
+            log.info("... parser ready", .{});
+            break :parser ptr;
+        } else |err| {
+            log.err("... failed to initialize parser", .{});
+            return err;
+        }
+    };
+    errdefer parser.deinit();
 
     const self = try allocator.create(Rli);
 

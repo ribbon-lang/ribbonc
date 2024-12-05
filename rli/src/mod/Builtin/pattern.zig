@@ -84,7 +84,7 @@ pub const Doc =
 pub const Decls = .{
     .{ "pattern/validate", "given a pattern, returns a boolean indicating whether it is valid", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const llist = try interpreter.eval1(args);
+            const llist = (try interpreter.evalN(1, args))[0];
             if (Interpreter.PatternRich.validate(interpreter, llist)) |_| {
                 return try SExpr.Bool(at, true);
             } else |_| {
@@ -94,7 +94,7 @@ pub const Decls = .{
     } },
     .{ "pattern/binders", "given a pattern, returns a list of the symbols that will be bound if it is successfully run on an input", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const llist = try interpreter.eval1(args);
+            const llist = (try interpreter.evalN(1, args))[0];
             const binders = try Interpreter.PatternLite.binders(interpreter, at, llist);
             defer interpreter.context.allocator.free(binders);
             return SExpr.List(at, binders);
@@ -102,7 +102,7 @@ pub const Decls = .{
     } },
     .{ "pattern/run-f", "given a pattern and an input, returns an env frame binding the symbols of the list to the values of the input, or prompts fail", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const buf = try interpreter.expect2(args);
+            const buf = try interpreter.expectN(2, args);
             const llist = buf[0];
             const largs = try interpreter.eval(buf[1]);
             const result = try Interpreter.PatternLite.run(interpreter, at, llist, largs);
@@ -114,7 +114,7 @@ pub const Decls = .{
     } },
     .{ "pattern/run-e", "given a pattern and an input, returns an env frame binding the symbols of the list to the values of the input, or prompts an exception on failure", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const buf = try interpreter.expect2(args);
+            const buf = try interpreter.expectN(2, args);
             const llist = buf[0];
             const largs = try interpreter.eval(buf[1]);
             const result = try Interpreter.PatternRich.run(interpreter, at, llist, largs);
@@ -129,7 +129,7 @@ pub const Decls = .{
     } },
     .{ "pattern/run", "given a pattern and an input, returns an env frame binding the symbols of the list to the values of the input, or causes a compile time error on failure", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const buf = try interpreter.expect2(args);
+            const buf = try interpreter.expectN(2, args);
             const llist = buf[0];
             const largs = try interpreter.eval(buf[1]);
             const result = try Interpreter.PatternRich.run(interpreter, at, llist, largs);

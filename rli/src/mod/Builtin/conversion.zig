@@ -18,7 +18,7 @@ pub const Doc =
 pub const Decls = .{
     .{ "bool<-int", "convert an integer to a boolean", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const arg = try interpreter.eval1(args);
+            const arg = (try interpreter.evalN(1, args))[0];
             if (arg.isInt()) {
                 return try SExpr.Bool(at, arg.forceInt() != 0);
             } else if (arg.isBool()) {
@@ -30,7 +30,7 @@ pub const Decls = .{
     } },
     .{ "int<-bool", "convert a boolean to an integer", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const arg = try interpreter.eval1(args);
+            const arg = (try interpreter.evalN(1, args))[0];
             if (arg.isBool()) {
                 return try SExpr.Int(at, @intFromBool(arg.forceBool()));
             } else if (arg.isInt()) {
@@ -42,7 +42,7 @@ pub const Decls = .{
     } },
     .{ "int<-char", "convert a character to an integer", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const arg = try interpreter.eval1(args);
+            const arg = (try interpreter.evalN(1, args))[0];
             if (arg.isChar()) {
                 return try SExpr.Int(at, arg.forceChar());
             } else if (arg.isInt()) {
@@ -54,7 +54,7 @@ pub const Decls = .{
     } },
     .{ "char<-int", "convert an integer to a character", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const arg = try interpreter.eval1(args);
+            const arg = (try interpreter.evalN(1, args))[0];
             if (arg.isInt()) {
                 const i = arg.forceInt();
                 if (i >= 0 and i <= 0x10FFFF) {
@@ -71,7 +71,7 @@ pub const Decls = .{
     } },
     .{ "int<-float", "convert a float to an integer", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const arg = try interpreter.eval1(args);
+            const arg = (try interpreter.evalN(1, args))[0];
             if (arg.isFloat()) {
                 return try SExpr.Int(at, @intFromFloat(arg.forceFloat()));
             } else if (arg.isInt()) {
@@ -83,7 +83,7 @@ pub const Decls = .{
     } },
     .{ "float<-int", "convert an integer to a float", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const arg = try interpreter.eval1(args);
+            const arg = (try interpreter.evalN(1, args))[0];
             if (arg.isInt()) {
                 return try SExpr.Float(at, @floatFromInt(arg.forceInt()));
             } else if (arg.isFloat()) {
@@ -95,7 +95,7 @@ pub const Decls = .{
     } },
     .{ "string<-symbol", "convert a symbol to a string", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const arg = try interpreter.eval1(args);
+            const arg = (try interpreter.evalN(1, args))[0];
             if (arg.isSymbol()) {
                 return try SExpr.String(at, arg.forceSymbol().toSlice());
             } else if (arg.isString()) {
@@ -107,7 +107,7 @@ pub const Decls = .{
     } },
     .{ "symbol<-string", "convert a string to a symbol", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const arg = try interpreter.eval1(args);
+            const arg = (try interpreter.evalN(1, args))[0];
             if (arg.isString()) {
                 return try SExpr.Symbol(at, arg.forceString().toSlice());
             } else if (arg.isSymbol()) {
@@ -119,7 +119,7 @@ pub const Decls = .{
     } },
     .{ "list<-string", "convert a string to a list of characters", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const arg = try interpreter.eval1(args);
+            const arg = (try interpreter.evalN(1, args))[0];
             const str = try interpreter.castStringSlice(at, arg);
             var listBuf = std.ArrayList(SExpr).init(interpreter.context.allocator);
             defer listBuf.deinit();
@@ -137,7 +137,7 @@ pub const Decls = .{
     } },
     .{ "string<-list", "convert a list of characters to a string", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const list = try interpreter.eval1(args);
+            const list = (try interpreter.evalN(1, args))[0];
             var mem = std.ArrayList(u8).init(interpreter.context.allocator);
             defer mem.deinit();
             var chars = try interpreter.argIterator(false, list);
@@ -177,10 +177,10 @@ pub const Decls = .{
     } },
     .{ "unstringify", "convert a string representation to a value", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const arg = try interpreter.eval1(args);
+            const arg = (try interpreter.evalN(1, args))[0];
             const str = try interpreter.castStringSlice(at, arg);
             const attr = arg.getAttr();
-            const parser = try Parser.init(interpreter.context);
+            const parser = try Parser.init(interpreter);
             defer parser.deinit();
             const pos =
                 if (attr.range) |r| (if (r.start) |s| s else null) else null;
