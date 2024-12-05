@@ -19,9 +19,9 @@ out[0]:
 ```
 err[165]:
 ```
-! Evaluation error at [./tests/fail/empty-parse.bb:3:1 to 5:38]: Panic
+! Evaluation error at [./tests/fail/empty-parse.bb:3:1 to 4:33]: Panic
 	global prompt `fail` terminated with:
-		[./tests/fail/empty-parse.bb:5:20-35]: uncaught fail
+		[./tests/fail/empty-parse.bb:4:16-31]: uncaught fail
 
 ```
 
@@ -44,10 +44,10 @@ out[0]:
 ```
 
 ```
-err[111]:
+err[119]:
 ```
-! Evaluation error at [./tests/fail/unhandled.bb:1:1-17]: Missing dynamic binding
-	unhandled fetch `exception`
+! Evaluation error at [module:20:5-57]: Panic
+	uncaught exception: [./tests/fail/unhandled.bb:1:14-14]UnstringifyEmpty
 
 ```
 
@@ -56,11 +56,10 @@ out[0]:
 ```
 
 ```
-err[177]:
+err[182]:
 ```
-! Evaluation error at [./tests/fail/unstringify.bb:3:1 to 5:64]: Panic
-	global prompt `exception` terminated with:
-		[./tests/fail/unstringify.bb:5:20-61]: uncaught ExpectedEof
+! Evaluation error at [./tests/fail/unstringify.bb:4:5 to 5:63]: Type error
+	expected a Symbol, got Cons: `(fun exception (e) (terminate (string/concat "uncaught " (stringify e))))`
 
 ```
 
@@ -163,6 +162,18 @@ err[0]:
 
 ```
 
+## pass:env-basics
+out[13]:
+```
+bar
+env-done
+
+```
+err[0]:
+```
+
+```
+
 ## pass:equality-types
 out[0]:
 ```
@@ -230,7 +241,7 @@ err[0]:
 ```
 
 ## pass:module-system
-out[17]:
+out[30]:
 ```
 1
 2
@@ -238,6 +249,8 @@ out[17]:
 100
 100
 11
+bar
+env-done
 
 ```
 err[0]:

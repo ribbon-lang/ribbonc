@@ -2,16 +2,22 @@
     (test
         (env
             ,@(env/new '((a . 1)
-                            (b . 2)
-                            (c . 3))))
+                         (b . 2)
+                         (c . 3))))
         (exports
             (a . x) b c))))
 
 (def definition-sym (symbol<-string "#MODULE-DEFINITION#"))
 
-(def macro or-else (f x) `(with ((fun fail () ,x)) ,f))
-(def macro or-panic (f . msg) `(or-else ,f (panic ,@msg)))
-(def macro or-panic-at (f attr . msg) `(or-else ,f (panic-at ,attr ,@msg)))
+(def macro or-else (body fail-handler) `(with ((fun fail () ,fail-handler)) ,body))
+(def macro or-panic (body . msg) `(or-else ,body (panic ,@msg)))
+(def macro or-panic-at (body attr . msg) `(or-else ,body (panic-at ,attr ,@msg)))
+
+(with-global fun fail ()
+    (panic "uncaught fail"))
+
+(with-global fun exception (value)
+    (panic "uncaught exception: " (attr/of value) value))
 
 (def fun symbol-pair (... args)
     (match args
@@ -29,21 +35,26 @@
           (exports (alist/pair 'exports mod)))
         (pair/set-cdr! exports (pair/cons name (pair/cdr exports)))))
 
+(def fun module/new (env exports)
+    `(,(pair/cons 'env env)
+      ,(pair/cons 'exports exports)))
+
 (def fun build-import (env name prefix import-list)
     (assert-at (attr/of name) (type/symbol? name)
-        "expected a symbol for imported module name")
+        "expected a symbol for imported module name, got " (type/of name) ": `" name "`")
     (assert-at (attr/of prefix) (or (type/nil? prefix) (type/symbol? prefix))
         "expected a symbol for imported module prefix")
     (assert-at (attr/of import-list) (or (type/nil? import-list) (type/pair? import-list))
         "expected a list for imported module import list")
-    (let ((mod (or-panic-at (alist/lookup-f name *modules*)
-            (attr/of name) mod "module `" name "` not found"))
+    (let ((mod
+            (or-panic-at (alist/lookup-f name *modules*)
+                (attr/of name) mod "module `" name "` not found"))
           (mod-exports
-                (or-panic-at (alist/lookup-f 'exports mod)
-                    (attr/of mod) "failed to get exports from module `" name "`"))
+            (or-panic-at (alist/lookup-f 'exports mod)
+                (attr/of mod) "failed to get exports from module `" name "`"))
           (mod-env
-                (or-panic-at (alist/lookup-f 'env mod)
-                    (attr/of mod) "failed to get env from module `" name "`"))
+            (or-panic-at (alist/lookup-f 'env mod)
+                (attr/of mod) "failed to get env from module `" name "`"))
           (frame ())
           (final-prefix (cond
                 ((type/nil? prefix) (symbol/concat name))
@@ -88,12 +99,35 @@
             nil)
         key))
 
+(def *file-cache* ())
+
+(def fun read-module (current-file filename)
+    (let ((abs-path (io/resolve-path (io/dirname current-file) filename))
+          (mod-name (io/stem filename)))
+        (assert (type/string? mod-name)
+            "expected a string for module path, got " (type/of mod-name) ": `" mod-name "`")
+        (set! mod-name (symbol<-string mod-name))
+        (or-else (alist/lookup-f abs-path *file-cache*)
+            (begin
+                (assert-at (attr/of filename) (not (alist/member? mod-name *modules*))
+                    "module `" mod-name "` already exists")
+                (let ((data (io/run-file abs-path)))
+                    (set! *file-cache* (alist/append abs-path mod-name *file-cache*))
+                    (when (not (alist/member? mod-name *modules*))
+                        ; FIXME: this should be a warning
+                        ; (print-ln "import file [" abs-path "] did not define a module named `" mod-name "`; binding return value")
+                        (set! *modules* (alist/append mod-name (module/new (env/new data) (alist/keys data)) *modules*)))
+                    mod-name)))))
+
 (def macro import (name . args)
+    (when (type/string? name)
+        (let ((my-file-name (attr/filename (attr/of name))))
+            (set! name (read-module my-file-name name))))
     (let ((env (meta/get-env 'caller)))
         (match args
             ((prefix import-list) (build-import env name prefix import-list))
             (((@ x (: type/symbol?))) (build-import env name x nil))
-            (((@ x (: pair?))) (build-import env name nil x))
+            (((@ x (: type/pair?))) (build-import env name nil x))
             ((x) (panic-at (attr/of x)
                 "expected a module name and an optional prefix, followed by an optional import list"))
             (() (build-import env name nil nil))
@@ -122,12 +156,8 @@
                 `(def ,name ,@body))))
 
     (macro (name)
-        (let ((env
-                (meta/get-env 'caller))
-              (mod
-                `(,name
-                    ,(pair/cons 'env env)
-                    (exports . ()))))
+        (let ((env (meta/get-env 'caller))
+              (mod (module/new env ())))
             (assert (type/symbol? name)
                 "expected a symbol for module name, got " (type/of name) ": `" name "`")
             (assert (not (alist/member? name *modules*))
@@ -135,7 +165,7 @@
             (assert (not (list/member? (env/keys env) definition-sym))
                 "file " (attr/filename (attr/of name)) " already has a module definition")
             (attr/set! mod (attr/of name))
-            (set! *modules* (pair/cons mod *modules*))
+            (set! *modules* (alist/append name mod *modules*))
             (env/put! 'export export env)
             (env/put! 'import import env)
             `(def ,definition-sym ,`(,'quote ,name)))))

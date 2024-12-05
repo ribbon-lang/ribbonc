@@ -1,8 +1,8 @@
-(with-global
-    (fun exception (e)
-         (print-ln "exception: " e))
-    (fun fail ()
-         (print-ln "fail")))
+(with-global fun exception (e)
+    (print-ln "exception: " e))
+
+(with-global fun fail ()
+    (print-ln "fail"))
 
 (prompt exception 'test)
 (prompt fail)

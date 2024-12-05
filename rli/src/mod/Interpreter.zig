@@ -15,6 +15,7 @@ const Source = Rli.Source;
 const log = Rli.log;
 
 
+cwd: std.fs.Dir,
 context: *Context,
 errorCause: ?[]const u8,
 attr: ?*const Source.Attr,
@@ -22,7 +23,7 @@ env: SExpr,
 callerEnv: SExpr,
 evidence: SExpr,
 globalEvidence: SExpr,
-callDepth: usize = 0,
+callStack: std.ArrayList(*const Source.Attr),
 terminationData: ?TerminationData = null,
 
 const TerminationData = struct {
@@ -34,7 +35,7 @@ const Interpreter = @This();
 
 pub const Result = Signal || Error;
 pub const Signal = error{Terminate};
-pub const Error = TextUtils.Error || Context.Error || EvaluationError;
+pub const Error = TextUtils.Error || Context.Error || EvaluationError || Parser.SyntaxError;
 pub const EvaluationError = error{
     Panic,
     NotEvaluatable,
@@ -191,17 +192,22 @@ pub const RichError = struct {
             EvaluationError.NoModuleSystem => return writer.print("No module system", .{}),
 
             TextUtils.Error.BadEncoding => return writer.print("Bad text encoding", .{}),
+
             Context.Error.OutOfMemory => return writer.print("Out of memory", .{}),
+
+            Parser.SyntaxError.UnexpectedEOF => return writer.print("Syntax error: unexpected eof", .{}),
+            Parser.SyntaxError.UnexpectedInput => return writer.print("Syntax error: unexpected input", .{}),
         }
     }
 };
 
-pub fn init(context: *Context) Error!*Interpreter {
+pub fn init(context: *Context, cwd: std.fs.Dir) Error!*Interpreter {
     const nil = try SExpr.Nil(context.attr);
 
     const ptr = try context.allocator.create(Interpreter);
 
     ptr.* = Interpreter{
+        .cwd = cwd,
         .context = context,
         .errorCause = null,
         .attr = null,
@@ -209,6 +215,7 @@ pub fn init(context: *Context) Error!*Interpreter {
         .callerEnv = nil,
         .evidence = try SExpr.List(context.attr, &[1]SExpr{try SExpr.List(context.attr, &[0]SExpr{})}),
         .globalEvidence = nil,
+        .callStack = std.ArrayList(*const Source.Attr).init(context.allocator),
     };
 
     return ptr;
@@ -238,7 +245,7 @@ pub fn restore(interpreter: *Interpreter, envs: SavedEvaluationEnvs) void {
 
     interpreter.attr = null;
 
-    interpreter.callDepth = 0;
+    interpreter.callStack.clearRetainingCapacity();
 }
 
 pub fn exit(interpreter: *Interpreter, err: Error, attr: *const Source.Attr) Error {
@@ -281,6 +288,19 @@ pub fn envLookup(symbol: SExpr, env: SExpr) Error!?SExpr {
     } else {
         return EvaluationError.TypeError;
     }
+}
+
+pub fn envBase(env: SExpr) Error!SExpr {
+    var frameIter = env.iter();
+    var lastList = frameIter.list;
+
+    while (try frameIter.next()) |_| {
+        if (frameIter.isDone()) break else {
+            lastList = frameIter.list;
+        }
+    }
+
+    return lastList;
 }
 
 pub fn envKeys(env: SExpr, allocator: std.mem.Allocator) Error![]SExpr {
@@ -347,7 +367,7 @@ pub fn alistKeysToSet(frame: SExpr, keyset: *SExpr.HashSet) Error!void {
     }
 }
 
-pub fn alistLookup(symbol: SExpr, frame: SExpr) Error!?SExpr {
+pub fn alistLookup(key: SExpr, frame: SExpr) Error!?SExpr {
     var current = frame;
 
     while (!current.isNil()) {
@@ -360,7 +380,7 @@ pub fn alistLookup(symbol: SExpr, frame: SExpr) Error!?SExpr {
             return EvaluationError.TypeError;
         };
 
-        if (MiscUtils.equal(bindingXp.car, symbol)) {
+        if (MiscUtils.equal(bindingXp.car, key)) {
             return binding;
         }
 
@@ -609,11 +629,13 @@ pub fn liftFetch(interpreter: *Interpreter, at: *const Source.Attr, name: SExpr)
         return interpreter.abort(EvaluationError.MissingDynamic, at,
             "unhandled fetch `{}`", .{name});
     };
+
     return binding;
 }
 
 pub fn liftPrompt(interpreter: *Interpreter, at: *const Source.Attr, name: SExpr, args: SExpr) Result!SExpr {
     const handler = try liftFetch(interpreter, at, name);
+
     return interpreter.invoke(at, handler, args);
 }
 
@@ -1303,13 +1325,16 @@ pub fn envFromHashMap(at: *const Source.Attr, map: *const SExpr.HashMapOf(?SExpr
 }
 
 pub fn runFunction(interpreter: *Interpreter, at: *const Source.Attr, sFun: SExpr, args: SExpr) Result!SExpr {
-    Rli.log.debug("call depth {}\n", .{interpreter.callDepth});
-    if (interpreter.callDepth > Config.MAX_DEPTH) {
+    log.debug("call depth {}\n", .{interpreter.callStack.items.len});
+    if (interpreter.callStack.items.len > Config.MAX_DEPTH) {
+        for (interpreter.callStack.items) |item| {
+            log.err("{}", .{item});
+        }
         return interpreter.exit(Error.CallStackOverflow, at);
     }
 
-    interpreter.callDepth += 1;
-    defer interpreter.callDepth -= 1;
+    try interpreter.callStack.append(at);
+    defer _ = interpreter.callStack.pop();
 
     const fun = sFun.forceFunction();
 

@@ -31,7 +31,7 @@ userdata: *anyopaque = undefined,
 
 pub const Error = Parser.SyntaxError || Interpreter.Result || MiscUtils.IOError;
 
-pub fn init(allocator: std.mem.Allocator, out: std.io.AnyWriter, builtinEnvs: Builtin.EnvSet, args: []const []const u8) Error!*Rli {
+pub fn init(allocator: std.mem.Allocator, cwd: std.fs.Dir, out: std.io.AnyWriter, builtinEnvs: Builtin.EnvSet, args: []const []const u8) Error!*Rli {
     log.info("initializing context ...", .{});
     var context = context: {
         if (Context.initGc()) |ptr| {
@@ -46,7 +46,7 @@ pub fn init(allocator: std.mem.Allocator, out: std.io.AnyWriter, builtinEnvs: Bu
 
     log.info("initializing interpreter ...", .{});
     var interpreter = interpreter: {
-        if (Interpreter.init(context)) |ptr| {
+        if (Interpreter.init(context, cwd)) |ptr| {
             log.info("... interpreter ready", .{});
             break :interpreter ptr;
         } else |err| {

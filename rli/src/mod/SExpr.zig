@@ -41,6 +41,19 @@ pub const SExpr = extern struct {
 
             return car;
         }
+
+        pub fn peek(self: *Iterator) ?SExpr {
+            if (self.list.isNil()) {
+                return null;
+            }
+
+            const xp = self.list.castCons() orelse return null;
+            return xp.car;
+        }
+
+        pub fn isDone(self: *Iterator) bool {
+            return self.list.isNil();
+        }
     };
 
     pub fn iter(self: SExpr) Iterator {

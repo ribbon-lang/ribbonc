@@ -812,7 +812,7 @@ test {
     defer ctx.deinit();
 
     {
-        const interpreter = try Interpreter.init(ctx);
+        const interpreter = try Interpreter.init(ctx, std.fs.cwd());
         defer interpreter.deinit();
 
         var parser = try Parser.init(interpreter);

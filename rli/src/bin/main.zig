@@ -392,7 +392,7 @@ fn init(allocator: std.mem.Allocator, out: std.io.AnyWriter, args: []const []con
 
     driver.emoji = if (Config.USE_EMOJI) Emoji else NoEmoji;
     driver.style = if (Config.USE_ANSI_STYLES) ANSI.Style else ANSI.NoStyle;
-    driver.rli = try Rli.init(allocator, out, Builtin.AllEnvs, args);
+    driver.rli = try Rli.init(allocator, std.fs.cwd(), out, Builtin.AllEnvs, args);
     driver.rli.readFileCallback = readFile;
     driver.read_stdin = readStdin;
 

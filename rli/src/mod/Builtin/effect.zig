@@ -8,6 +8,7 @@ const Rli = @import("../root.zig");
 const Source = Rli.Source;
 const SExpr = Rli.SExpr;
 const Interpreter = Rli.Interpreter;
+const log = Rli.log;
 
 pub const Doc =
     \\This module provides an api to trigger and handle
@@ -20,7 +21,7 @@ pub const Doc =
     \\by a keyword at the head of the binding:
     \\> ```lisp
     \\> (with ((kind name def)...) body...)
-    \\> (with-global (kind name def)...)
+    \\> (with-global kind name def)
     \\> ```
     \\> Where `kind` is one of:
     \\> + `fun` for lambda-like effect handlers
@@ -59,9 +60,10 @@ pub const Doc =
 
 
 pub const Decls = .{
-    .{ "with-global", "provide one or more named *top-level* effect handlers to serve as a last resort; note that the `terminate` which is provided to handlers bound this way will terminate the interpreter", struct {
+    .{ "with-global", "provide a named *top-level* effect handler to serve as a last resort; note that the `terminate` which is provided to handlers bound this way will terminate the interpreter", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            _ = try bindDefs(interpreter, at, args, "global-terminator", terminator, bindGlobal);
+            const contextId = try genContextId(interpreter, at);
+            try bindDef(interpreter, at, contextId, args, "global-terminator", terminator, bindGlobal);
             return SExpr.Nil(at);
         }
         fn bindGlobal(interpreter: *Interpreter, at: *const Source.Attr, name: SExpr, eff: SExpr) Interpreter.Result!void {
@@ -120,37 +122,45 @@ pub const Decls = .{
 };
 
 fn bindDefs(interpreter: *Interpreter, at: *const Source.Attr, defs: SExpr, comptime terminatorName: []const u8, comptime terminator: fn (*Interpreter, *const Source.Attr, SExpr) Interpreter.Result!SExpr, comptime bind: fn (*Interpreter, *const Source.Attr, SExpr, SExpr) Interpreter.Result!void) Interpreter.Result!SExpr {
-    const contextId = try SExpr.Int(at, @intCast(interpreter.context.genId()));
+    const contextId = try genContextId(interpreter, at);
 
     var iter = try interpreter.argIterator(false, defs);
 
     while (try iter.next()) |info| {
-        var res = try interpreter.expectAtLeastN(1, info);
-
-        const kind = try binding.DefKind.matchSymbol(interpreter, res.head[0]);
-        if (kind != .Var) {
-            res = try interpreter.expectAtLeastN(1, res.tail);
-        }
-
-        const nameSymbol = res.head[0];
-        try interpreter.validateSymbol(nameSymbol.getAttr(), nameSymbol);
-
-        const originalEnv = interpreter.env;
-        var contextEnv = originalEnv;
-
-        try Interpreter.pushNewFrame(at, &contextEnv);
-
-        const terminateSym = try SExpr.Symbol(at, "terminate");
-        const terminate = try Interpreter.wrapTerminator(interpreter, at, contextId, nameSymbol, terminatorName, terminator);
-        try Interpreter.extendEnvFrame(at, terminateSym, terminate, contextEnv);
-
-        interpreter.env = contextEnv;
-        defer interpreter.env = originalEnv;
-
-        const obj = try kind.constructObject(interpreter, at, res.tail);
-
-        try bind(interpreter, info.getAttr(), nameSymbol, obj);
+        try bindDef(interpreter, info.getAttr(), contextId, info, terminatorName, terminator, bind);
     }
 
     return contextId;
+}
+
+fn bindDef(interpreter: *Interpreter, at: *const Source.Attr, contextId: SExpr, info: SExpr, comptime terminatorName: []const u8, comptime terminator: fn (*Interpreter, *const Source.Attr, SExpr) Interpreter.Result!SExpr, comptime bind: fn (*Interpreter, *const Source.Attr, SExpr, SExpr) Interpreter.Result!void) Interpreter.Result!void {
+    var res = try interpreter.expectAtLeastN(1, info);
+
+    const kind = try binding.DefKind.matchSymbol(interpreter, res.head[0]);
+    if (kind != .Var) {
+        res = try interpreter.expectAtLeastN(1, res.tail);
+    }
+
+    const nameSymbol = res.head[0];
+    try interpreter.validateSymbol(nameSymbol.getAttr(), nameSymbol);
+
+    const originalEnv = interpreter.env;
+    var contextEnv = originalEnv;
+
+    try Interpreter.pushNewFrame(at, &contextEnv);
+
+    const terminateSym = try SExpr.Symbol(at, "terminate");
+    const terminate = try Interpreter.wrapTerminator(interpreter, at, contextId, nameSymbol, terminatorName, terminator);
+    try Interpreter.extendEnvFrame(at, terminateSym, terminate, contextEnv);
+
+    interpreter.env = contextEnv;
+    defer interpreter.env = originalEnv;
+
+    const obj = try kind.constructObject(interpreter, at, res.tail);
+
+    try bind(interpreter, info.getAttr(), nameSymbol, obj);
+}
+
+fn genContextId(interpreter: *Interpreter, at: *const Source.Attr) !SExpr {
+    return SExpr.Int(at, @intCast(interpreter.context.genId()));
 }

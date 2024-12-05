@@ -7,6 +7,8 @@ const Rli = @import("../root.zig");
 const Source = Rli.Source;
 const SExpr = Rli.SExpr;
 const Interpreter = Rli.Interpreter;
+const Parser = Rli.Parser;
+const log = Rli.log;
 
 pub const Doc =
     \\This module provides functions for interacting with the file system.
@@ -229,6 +231,108 @@ pub const Decls = .{
             const file = std.io.getStdErr();
             const filePtr = try at.context.new(file);
             return try ExternFile(at, filePtr);
+        }
+    } },
+
+    .{ "io/dirname", "takes a path string and returns the directory portion of it; may be the empty string", struct {
+        pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
+            const eArgs = try interpreter.evalN(1, args);
+            const path = try interpreter.castStringSlice(at, eArgs[0]);
+            const dir = std.fs.path.dirname(path);
+            return SExpr.String(at, dir orelse "");
+        }
+    } },
+
+    .{ "io/basename", "takes a path string and returns the file name portion of it including the extension; may be the empty string", struct {
+        pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
+            const eArgs = try interpreter.evalN(1, args);
+            const path = try interpreter.castStringSlice(at, eArgs[0]);
+            const base = std.fs.path.basename(path);
+            return SExpr.String(at, base);
+        }
+    } },
+
+    .{ "io/stem", "takes a path string and returns the file name portion of it excluding the extension; may be the empty string", struct {
+        pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
+            const eArgs = try interpreter.evalN(1, args);
+            const path = try interpreter.castStringSlice(at, eArgs[0]);
+            const base = std.fs.path.stem(path);
+            return SExpr.String(at, base);
+        }
+    } },
+
+    .{ "io/resolve-path", "takes two path strings; resolves the second to an absolute path, using the first as the base for any relative components; prompts an exception if it fails", struct {
+        pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
+            const eArgs = try interpreter.evalN(2, args);
+            const base = try interpreter.castStringSlice(at, eArgs[0]);
+            const path = try interpreter.castStringSlice(at, eArgs[1]);
+
+            // this failing isn't an exception because it should always work
+            const workingAbs = interpreter.cwd.realpathAlloc(interpreter.context.allocator, ".") catch @panic("failed to get working directory");
+
+            const baseDir = interpreter.cwd.openDir(base, .{}) catch |err| return interpreter.errorToException(at, err);
+
+            const baseAbs = baseDir.realpathAlloc(interpreter.context.allocator, ".") catch |err| return interpreter.errorToException(at, err);
+            if (!std.mem.startsWith(u8, baseAbs, workingAbs)) return interpreter.errorToException(at, error.FileNotFound);
+
+            const baseRel = if (baseAbs.len == workingAbs.len) baseAbs else baseAbs[workingAbs.len..];
+
+            const pathAbs = baseDir.realpathAlloc(interpreter.context.allocator, path) catch |err| return interpreter.errorToException(at, err);
+            if (!std.mem.startsWith(u8, pathAbs, baseAbs)) return interpreter.errorToException(at, error.FileNotFound);
+
+            var pathRel = pathAbs[baseAbs.len - baseRel.len..];
+            if (pathRel[0] == std.fs.path.sep) pathRel = pathRel[1..];
+
+            log.debug("io/resolve-path:\n  {s} :: {s}\n  {s} :: {s}", .{baseAbs, baseRel, pathAbs, pathRel});
+
+            return SExpr.String(at, pathRel);
+        }
+    } },
+
+    .{ "io/run-file", "load and run a text file as an rli script, returning the value; prompts an exception if the file can't be read", struct {
+        pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
+            const eArgs = try interpreter.evalN(1, args);
+            const path = try interpreter.castStringSlice(at, eArgs[0]);
+            const file = openFile(path, .read_only) catch |err| {
+                return interpreter.errorToException(at, err);
+            };
+            defer file.close();
+            const reader = file.reader();
+            const data = reader.readAllAlloc(interpreter.context.allocator, std.math.maxInt(i64)) catch |err| {
+                return interpreter.errorToException(at, err);
+            };
+
+            const termData = interpreter.terminationData;
+            defer interpreter.terminationData = termData;
+            interpreter.terminationData = null;
+
+            const env = interpreter.env;
+            defer interpreter.env = env;
+            interpreter.env = try Interpreter.envBase(interpreter.env);
+            try Interpreter.pushNewFrame(interpreter.context.attr, &interpreter.env);
+
+            const evidence = interpreter.evidence;
+            defer interpreter.evidence = evidence;
+            interpreter.evidence = try SExpr.Nil(interpreter.context.attr);
+
+
+            const parser = try Parser.init(interpreter);
+            defer parser.deinit();
+
+            try parser.setFileName(path);
+            parser.setInput(data, null);
+
+            var result = try SExpr.Nil(try parser.mkAttr(null, null, &.{}));
+
+            log.debug("running file: {s}", .{path});
+
+            while (parser.notEof()) {
+                if (try parser.scanSExprP()) |sexpr| {
+                    result = try interpreter.eval(sexpr);
+                } else break;
+            }
+
+            return result;
         }
     } },
 };

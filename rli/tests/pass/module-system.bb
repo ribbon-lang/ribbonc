@@ -19,3 +19,6 @@
 (print-ln f/a)
 (print-ln f/y)
 (f/bar 10)
+
+(import "./env-basics.bb")
+(assert (not (bound? env-check)))

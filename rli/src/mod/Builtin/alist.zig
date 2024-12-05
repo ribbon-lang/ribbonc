@@ -15,7 +15,6 @@ pub const Decls = .{
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const rArgs = try interpreter.evalN(2, args);
             const key = rArgs[0];
-            try interpreter.validateSymbol(at, key);
             const alist = rArgs[1];
             try interpreter.validateListOrNil(at, alist);
             const pair = Interpreter.alistLookup(key, alist) catch |err| {
@@ -28,11 +27,10 @@ pub const Decls = .{
             }
         }
     } },
-    .{ "alist/lookup-f", "lookup a key symbol in an association list, returning its associated value; prompts `fail` if the key is not found", struct {
+    .{ "alist/lookup-f", "lookup a key in an association list, returning its associated value; prompts `fail` if the key is not found", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const rArgs = try interpreter.evalN(2, args);
             const key = rArgs[0];
-            try interpreter.validateSymbol(at, key);
             const alist = rArgs[1];
             try interpreter.validateListOrNil(at, alist);
             const pair = Interpreter.alistLookup(key, alist) catch |err| {
@@ -46,11 +44,10 @@ pub const Decls = .{
             }
         }
     } },
-    .{ "alist/lookup", "lookup a key symbol in an association list, returning its associated value; returns `nil` if the key is not found", struct {
+    .{ "alist/lookup", "lookup a key in an association list, returning its associated value; returns `nil` if the key is not found", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const rArgs = try interpreter.evalN(2, args);
             const key = rArgs[0];
-            try interpreter.validateSymbol(at, key);
             const alist = rArgs[1];
             try interpreter.validateListOrNil(at, alist);
             const pair = Interpreter.alistLookup(key, alist) catch |err| {
@@ -64,11 +61,10 @@ pub const Decls = .{
             }
         }
     } },
-    .{ "alist/member?", "check if a key symbol is present in an association list", struct {
+    .{ "alist/member?", "check if a key is present in an association list", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const rArgs = try interpreter.evalN(2, args);
             const key = rArgs[0];
-            try interpreter.validateSymbol(at, key);
             const alist = rArgs[1];
             try interpreter.validateListOrNil(at, alist);
             const pair = Interpreter.alistLookup(key, alist) catch |err| {
@@ -81,7 +77,6 @@ pub const Decls = .{
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const rArgs = try interpreter.evalN(3, args);
             const key = rArgs[0];
-            try interpreter.validateSymbol(at, key);
             const value = rArgs[1];
             const alist = rArgs[2];
             try interpreter.validateListOrNil(at, alist);
@@ -92,7 +87,6 @@ pub const Decls = .{
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const rArgs = try interpreter.evalN(3, args);
             const key = rArgs[0];
-            try interpreter.validateSymbol(at, key);
             const value = rArgs[1];
             const alist = rArgs[2];
             try interpreter.validateListOrNil(at, alist);
