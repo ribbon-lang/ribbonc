@@ -266,6 +266,18 @@ err[0]:
 
 ```
 
+## pass:reader
+out[161]:
+```
+(my-reader ((offset . 204) (column . 4) (line . 9)) (((text . " test comment") (kind . plain)) ((text . " test doc") (kind . documentation))))
+test pass through
+
+```
+err[0]:
+```
+
+```
+
 ## pass:simple-parse
 out[26]:
 ```

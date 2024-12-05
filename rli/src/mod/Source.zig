@@ -157,7 +157,7 @@ pub const Attr = struct {
 
     const Self = @This();
 
-    pub fn clone(self: *Self) !*Self {
+    pub fn clone(self: *const Self) !*Self {
         return try self.context.bindAttrExistingFile(self.filename, self.range, &.{});
     }
 

@@ -55,38 +55,37 @@ pub const EvaluationError = error{
 };
 
 pub fn readerCall(interpreter: *Interpreter, parser: *Parser, readerName: SExpr, start: Source.Pos, comments: []const Source.Comment) (Error || Parser.SyntaxError)!?SExpr {
-    const reader = try envLookup(readerName, interpreter.env);
     const at = readerName.getAttr();
 
-    if (reader) |r| {
-        try interpreter.validateCallable(at, r);
+    var out: NativeWithOut = undefined;
+    const body = try SExpr.List(at, &.{
+        readerName,
+        try SExpr.Quote(try parser.toSExpr(at)),
+        try SExpr.Quote(try SExpr.from(at, start)),
+        try SExpr.Quote(try SExpr.from(at, comments)),
+    });
 
-        var out: NativeWithOut = undefined;
-        const body = try SExpr.List(at, &[_]SExpr{
-            r,
-            try parser.toSExpr(at),
-            try SExpr.from(at, start),
-            try SExpr.from(at, comments),
-        });
-
-        interpreter.nativeWith(readerName.getAttr(), body, &out, struct {
-            fn exception (e: *Interpreter, a: *const Source.Attr, args: SExpr) Result!SExpr {
-                return try invoke(e, a, (try envLookup(try SExpr.Symbol(a, "terminator"), e.env)).?, args);
-            }
-
-            fn fail (e: *Interpreter, a: *const Source.Attr, args: SExpr) Result!SExpr {
-                return try invoke(e, a, (try envLookup(try SExpr.Symbol(a, "terminator"), e.env)).?, args);
-            }
-        }) catch |res| {
-            if (res == Signal.Terminate) {
-                return EvaluationError.UnexpectedTerminate;
-            }
-        };
-
-        switch (out) {
-            .Evaluated => return out.Evaluated,
-            .Terminated => return out.Terminated.toError(Parser.SyntaxError),
+    interpreter.nativeWith(readerName.getAttr(), body, &out, struct {
+        fn exception (e: *Interpreter, a: *const Source.Attr, args: SExpr) Result!SExpr {
+            return try invoke(e, a, (try envLookup(try SExpr.Symbol(a, "terminator"), e.env)).?, args);
         }
+
+        fn fail (e: *Interpreter, a: *const Source.Attr, args: SExpr) Result!SExpr {
+            return try invoke(e, a, (try envLookup(try SExpr.Symbol(a, "terminator"), e.env)).?, args);
+        }
+    }) catch |res| {
+        if (res == Signal.Terminate) {
+            return EvaluationError.UnexpectedTerminate;
+        } else if (Interpreter.asError(res)) |r| {
+            return r;
+        } else if (Parser.asSyntaxError(res)) |r| {
+            return r;
+        } else unreachable;
+    };
+
+    switch (out) {
+        .Evaluated => return out.Evaluated,
+        .Terminated => return out.Terminated.toError(Parser.SyntaxError),
     }
 
     return error.UnboundSymbol;

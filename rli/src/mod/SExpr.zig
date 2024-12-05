@@ -640,7 +640,7 @@ pub const SExpr = extern struct {
 
 
     pub fn Quote(sexpr: SExpr) !SExpr {
-        const at = sexpr.getAttr();
+        const at = try sexpr.getAttr().clone();
         return try List(at, &[_]SExpr{ try Symbol(at, "quote"), sexpr });
     }
 

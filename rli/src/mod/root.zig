@@ -181,7 +181,7 @@ pub fn runFile(self: *Rli, fileName: []const u8, text: []const u8) Error!SExpr {
                 try self.expectedOutput("! Syntax error at [{s}:{}]", .{ fileName, self.parser.pos });
                 return err;
             } else {
-                log.err("unexpected error in file [{s}]: {}", .{ fileName, err });
+                log.err("[{s}]: {}", .{ fileName, err });
                 return err;
             }
         }
