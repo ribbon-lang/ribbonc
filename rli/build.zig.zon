@@ -16,9 +16,6 @@
         "build.zig",
         "build.zig.zon",
         "src",
-        "tools",
-        "scripts",
-        "LICENSE",
         "README.md",
     },
 }

@@ -139,7 +139,7 @@ fn cliTest(b: *Build, snapshotHelper: *Snapshot.Helper, forceNew: bool, bin: *Bu
     const kindName = @tagName(kind);
 
     const kindPath = b.fmt("tests/{s}", .{kindName});
-    const kindDir = try std.fs.cwd().makeOpenPath(kindPath, .{ .iterate = true });
+    const kindDir = b.build_root.handle.openDir(kindPath, .{ .iterate = true }) catch return;
 
     var iter = kindDir.iterate();
 
