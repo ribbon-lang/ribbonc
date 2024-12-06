@@ -1,0 +1,16 @@
+.{
+    .name = "ribbon",
+    .version = "0.0.0",
+    .dependencies = .{
+        .Rli = .{ .path = "packages/rli/" },
+        .Utils = .{ .path = "packages/utils/" },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+        "packages",
+        "README.md",
+        "LICENSE",
+    },
+}

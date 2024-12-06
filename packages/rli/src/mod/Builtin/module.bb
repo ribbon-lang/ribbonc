@@ -7,7 +7,7 @@
         (exports
             (a . x) b c))))
 
-(def definition-sym (symbol<-string "#MODULE-DEFINITION#"))
+(def *file-cache* ())
 
 (def macro or-else (body fail-handler) `(with ((fun fail () ,fail-handler)) ,body))
 (def macro or-panic (body . msg) `(or-else ,body (panic ,@msg)))
@@ -26,14 +26,6 @@
             (f-assert (type/symbol? b))
             (list a b))
         (else stop)))
-
-(def fun bind-export (name env)
-    (let ((mod-name
-            (or-panic-at (env/lookup definition-sym env) (attr/of name)
-                "export must be called within a module (use `(module name)` to declare the current file as a module)"))
-          (mod (alist/lookup mod-name *modules*))
-          (exports (alist/pair 'exports mod)))
-        (pair/set-cdr! exports (pair/cons name (pair/cdr exports)))))
 
 (def fun module/new (env exports)
     `(,(pair/cons 'env env)
@@ -99,8 +91,6 @@
             nil)
         key))
 
-(def *file-cache* ())
-
 (def fun read-module (current-file filename)
     (let ((abs-path (io/resolve-path (io/dirname current-file) filename))
           (mod-name (io/stem filename)))
@@ -134,38 +124,45 @@
             (else (panic-at (attr/of args)
                 "expected a module name and an optional prefix, followed by an optional import list")))))
 
-(def module
+(def macro module (mod-name)
+    (assert (type/symbol? mod-name)
+        "expected a symbol for module name, got " (type/of mod-name) ": `" mod-name "`")
+    (assert (not (alist/member? mod-name *modules*))
+        "module `" mod-name "` already exists")
+    (assert (not (alist/member? (attr/filename (attr/of mod-name)) *file-cache*))
+        "file " (attr/filename (attr/of mod-name)) " already has a module definition")
+
+    (def env (meta/get-env 'caller))
+
+    (def mod (module/new env ()))
+
+    (attr/set! mod (attr/of mod-name))
+    (set! *modules* (alist/append mod-name mod *modules*))
+
+    (def fun bind-export (name)
+        (let ((mod (alist/lookup mod-name *modules*))
+              (exports (alist/pair 'exports mod)))
+            (pair/set-cdr! exports (pair/cons name (pair/cdr exports)))))
+
     (def macro export (... args)
         (match args
             (('macro name . body)
-                (bind-export name (meta/get-env 'caller))
+                (bind-export name)
                 `(def macro ,name ,@body))
             (('fun name . body)
-                (bind-export name (meta/get-env 'caller))
+                (bind-export name)
                 `(def fun ,name ,@body))
             (('as . rest)
-                (let ((env (meta/get-env 'caller)))
-                    (list/each rest (fun (arg)
-                        (match arg
-                            ((: type/symbol?) (bind-export arg env))
-                            ((-> symbol-pair original alias) (bind-export (pair/cons original alias) env))
-                            (else (panic-at (attr/of arg)
-                                "expected a symbol or a pair of symbols in export list, got " (type/of arg) ": `" arg "`")))))))
+                (list/each rest (fun (arg)
+                    (match arg
+                        ((: type/symbol?) (bind-export arg))
+                        ((-> symbol-pair original alias) (bind-export (pair/cons original alias)))
+                        (else (panic-at (attr/of arg)
+                            "expected a symbol or a pair of symbols in export list, got " (type/of arg) ": `" arg "`"))))))
             ((name . body)
-                (bind-export name (meta/get-env 'caller))
+                (bind-export name)
                 `(def ,name ,@body))))
 
-    (macro (name)
-        (let ((env (meta/get-env 'caller))
-              (mod (module/new env ())))
-            (assert (type/symbol? name)
-                "expected a symbol for module name, got " (type/of name) ": `" name "`")
-            (assert (not (alist/member? name *modules*))
-                "module `" name "` already exists")
-            (assert (not (list/member? (env/keys env) definition-sym))
-                "file " (attr/filename (attr/of name)) " already has a module definition")
-            (attr/set! mod (attr/of name))
-            (set! *modules* (alist/append name mod *modules*))
-            (env/put! 'export export env)
-            (env/put! 'import import env)
-            `(def ,definition-sym ,`(,'quote ,name)))))
+    (env/put! 'export export env)
+
+    'nil)

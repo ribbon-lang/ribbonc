@@ -127,6 +127,9 @@ pub fn bindDef(interpreter: *Interpreter, at: *const Source.Attr, info: SExpr, c
     }
 
     const nameSymbol = res.head[0];
+
+    // Rli.log.debug("binding {} : {}", .{ nameSymbol, kind});
+
     try interpreter.validateSymbol(nameSymbol.getAttr(), nameSymbol);
 
     const obj = try kind.constructObject(interpreter, at, res.tail);

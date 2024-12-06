@@ -127,4 +127,17 @@ pub const Decls = .{
             return try SExpr.List(at, keys);
         }
     } },
+    .{ "alist/remove", "remove a key-value pair from an association list, returning a new list; prompts `fail` if the key is not found", struct {
+        pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
+            const rArgs = try interpreter.evalN(2, args);
+            const key = rArgs[0];
+            const alist = rArgs[1];
+            try interpreter.validateListOrNil(at, alist);
+            if (try Interpreter.alistRemove(key, alist)) |newList| {
+                return newList;
+            } else {
+                return interpreter.nativePrompt(at, "fail", &[0]SExpr{});
+            }
+        }
+    } },
 };

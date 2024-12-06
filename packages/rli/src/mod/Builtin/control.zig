@@ -91,13 +91,13 @@ pub const Decls = .{
     } },
     .{ "cond", "multi-option conditional branch", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            var eargs = try interpreter.argIterator(false, args);
-            while (try eargs.next()) |seg| {
+            var eArgs = try interpreter.argIterator(false, args);
+            while (try eArgs.next()) |seg| {
                 const buf = try interpreter.expectAtLeastN(1, seg);
                 const cond = buf.head[0];
                 const then = buf.tail;
                 const condval = if (cond.isExactSymbol("else")) {
-                    if (eargs.hasNext()) {
+                    if (eArgs.hasNext()) {
                         return interpreter.abort(Interpreter.Error.TooManyArguments, at, "expected else to be the last cond clause", .{});
                     }
                     return try interpreter.runProgram(then);
@@ -114,24 +114,28 @@ pub const Decls = .{
             const res = try interpreter.evalAtLeastN(1, args);
             const scrutinee = res.head[0];
             const cases = res.tail;
-            var eargs = try interpreter.argIterator(false, cases);
-            while (try eargs.next()) |x| {
+            var eArgs = try interpreter.argIterator(false, cases);
+            while (try eArgs.next()) |x| {
                 const case = try interpreter.expectAtLeastN(1, x);
-                const llist = case.head[0];
+                const lList = case.head[0];
                 const then = case.tail;
-                if (llist.isExactSymbol("else")) {
-                    if (eargs.hasNext()) {
+                if (lList.isExactSymbol("else")) {
+                    if (eArgs.hasNext()) {
                         return interpreter.abort(Interpreter.Error.TooManyArguments, at, "expected else to be the last match case", .{});
                     }
                     return try interpreter.runProgram(then);
                 }
-                switch (try Interpreter.PatternLite.run(interpreter, llist.getAttr(), llist, scrutinee)) {
+                // Rli.log.debug("Running llist {} on {}", .{lList, scrutinee});
+                switch (try Interpreter.PatternLite.run(interpreter, lList.getAttr(), lList, scrutinee)) {
                     .Okay => |frame| {
+                        // Rli.log.debug("llist Okay", .{});
                         try Interpreter.pushFrame(frame, &interpreter.env);
                         defer _ = Interpreter.popFrame(&interpreter.env) catch unreachable;
                         return try interpreter.runProgram(then);
                     },
-                    else => {},
+                    else => {
+                        // Rli.log.debug("llist Fail", .{});
+                    },
                 }
             }
             return SExpr.Nil(at);
@@ -142,6 +146,7 @@ pub const Decls = .{
             return try interpreter.runProgram(args);
         }
     } },
+
     .{ "panic", "runs `format` on the values provided and then triggers a panic with the resulting string", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             var eArgs = try interpreter.argIterator(true, args);
@@ -206,18 +211,18 @@ pub const Decls = .{
     } },
     .{ "assert-eq", "asserts that the first two values provided are equal, using structural equality on objects; if they are not, triggers a panic with any subsequent values provided, or with the condition if none were", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const eargs = try interpreter.expectAtLeastN(2, args);
-            const a = try interpreter.eval(eargs.head[0]);
-            const b = try interpreter.eval(eargs.head[1]);
+            const eArgs = try interpreter.expectAtLeastN(2, args);
+            const a = try interpreter.eval(eArgs.head[0]);
+            const b = try interpreter.eval(eArgs.head[1]);
             if (MiscUtils.equal(a, b)) {
                 return try SExpr.Nil(at);
             } else {
-                var it = try interpreter.argIterator(true, eargs.tail);
+                var it = try interpreter.argIterator(true, eArgs.tail);
                 if (!it.hasNext()) {
                     try it.assertDone();
                     return interpreter.abort(Interpreter.Error.Panic, at,
                         "assert-eq failed:\n\ta: {} = {}\n\tb: {} = {}",
-                        .{eargs.head[0], a, eargs.head[1], b});
+                        .{eArgs.head[0], a, eArgs.head[1], b});
                 } else {
                     var out = std.ArrayList(u8).init(interpreter.context.allocator);
                     defer out.deinit();
@@ -232,18 +237,18 @@ pub const Decls = .{
     } },
     .{ "assert-eq-addr", "asserts that the first two values provided are equal, using address equality on objects; if they are not, triggers a panic with any subsequent values provided, or with the condition if none were", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const eargs = try interpreter.expectAtLeastN(2, args);
-            const a = try interpreter.eval(eargs.head[0]);
-            const b = try interpreter.eval(eargs.head[1]);
+            const eArgs = try interpreter.expectAtLeastN(2, args);
+            const a = try interpreter.eval(eArgs.head[0]);
+            const b = try interpreter.eval(eArgs.head[1]);
             if (MiscUtils.equalAddress(a, b)) {
                 return try SExpr.Nil(at);
             } else {
-                var it = try interpreter.argIterator(true, eargs.tail);
+                var it = try interpreter.argIterator(true, eArgs.tail);
                 if (!it.hasNext()) {
                     try it.assertDone();
                     return interpreter.abort(Interpreter.Error.Panic, at,
                         "assert-eq-addr failed:\n\ta: {} = {}\n\tb: {} = {}",
-                        .{eargs.head[0], a, eargs.head[1], b});
+                        .{eArgs.head[0], a, eArgs.head[1], b});
                 } else {
                     var out = std.ArrayList(u8).init(interpreter.context.allocator);
                     defer out.deinit();

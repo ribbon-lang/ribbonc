@@ -678,7 +678,7 @@ pub fn readFiles(driver: *Driver, files: []const []const u8) Error!void {
         };
         defer driver.rli.allocator.free(src);
 
-        _ = try driver.rli.runFile("stdin", src);
+        _ = try driver.rli.runFile(true, "stdin", src);
     }
 }
 

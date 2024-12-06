@@ -367,8 +367,33 @@ pub fn alistKeysToSet(frame: SExpr, keyset: *SExpr.HashSet) Error!void {
     }
 }
 
-pub fn alistLookup(key: SExpr, frame: SExpr) Error!?SExpr {
-    var current = frame;
+pub fn alistRemove(key: SExpr, alist: SExpr) Error!?SExpr {
+    if (alist.isNil()) {
+        return null;
+    }
+
+    if (alist.castCons()) |xp| {
+        const binding = xp.car;
+        const rest = xp.cdr;
+
+        const bindingXp = binding.castCons() orelse {
+            Rli.log.err("alistLookup: expected binding to be a cons, got {}: `{}` in alist `{}`", .{ binding.getTag(), binding, alist });
+            return EvaluationError.TypeError;
+        };
+
+        if (MiscUtils.equal(bindingXp.car, key)) {
+            return rest;
+        } else {
+            const newRest = try alistRemove(key, rest) orelse return null;
+            return try SExpr.Cons(alist.getAttr(), binding, newRest);
+        }
+    } else {
+        return EvaluationError.TypeError;
+    }
+}
+
+pub fn alistLookup(key: SExpr, alist: SExpr) Error!?SExpr {
+    var current = alist;
 
     while (!current.isNil()) {
         const xp = current.castCons() orelse return EvaluationError.TypeError;
@@ -376,7 +401,7 @@ pub fn alistLookup(key: SExpr, frame: SExpr) Error!?SExpr {
         const rest = xp.cdr;
 
         const bindingXp = binding.castCons() orelse {
-            Rli.log.err("alistLookup: expected binding to be a cons, got {}: `{}` in frame `{}`", .{ binding.getTag(), binding, frame });
+            Rli.log.err("alistLookup: expected binding to be a cons, got {}: `{}` in alist `{}`", .{ binding.getTag(), binding, alist });
             return EvaluationError.TypeError;
         };
 
@@ -794,6 +819,7 @@ fn Pattern(comptime E: type, comptime mkError: fn (*Interpreter, EvaluationError
         }
 
         fn runImpl(interpreter: *Interpreter, at: *const Source.Attr, bindings: *SExpr.HashMapOf(?SExpr), expected: SExpr, given: SExpr) Result!?E {
+            // log.debug("running pattern {} on {}", .{expected, given});
             switch (expected.getTag()) {
                 .Nil,
                 .Bool,
@@ -815,190 +841,19 @@ fn Pattern(comptime E: type, comptime mkError: fn (*Interpreter, EvaluationError
                 },
 
                 .Cons => {
-                    var xp = expected.forceCons();
-                    if (xp.car.isExactSymbol("quote")) {
-                        xp = xp.cdr.castCons() orelse {
-                            return interpreter.abort(EvaluationError.TypeError, xp.attr,
-                                "pattern element contains invalid quote, body is {}", .{xp.cdr.getTag()});
-                        };
-
-                        if (!xp.cdr.isNil()) {
-                            return interpreter.abort(EvaluationError.TypeError, xp.attr,
-                                "pattern element contains invalid quote, tail of body is {}", .{xp.cdr.getTag()});
-                        }
-
-                        const q = xp.car;
-                        if (q.isSymbol()) {
-                            if (MiscUtils.equal(q, given)) {
-                                return null;
-                            } else {
-                                return patternError(interpreter, EvaluationError.TypeError, at,
-                                    "expected {}, got {}", .{ q, given });
-                            }
-                        } else {
-                            return interpreter.abort(EvaluationError.TypeError, xp.attr,
-                                "pattern element contains invalid quote, body is {} (should be Symbol)", .{q.getTag()});
-                        }
-                    } else if (xp.car.isExactSymbol("unquote")) {
-                        xp = xp.cdr.castCons() orelse return interpreter.abort(EvaluationError.TypeError, xp.attr,
-                            "pattern element contains invalid unquote, body is {}", .{xp.cdr.getTag()});
-
-                        const uq = try interpreter.eval(xp.car);
-
-                        if (!xp.cdr.isNil()) {
-                            return interpreter.abort(EvaluationError.TypeError, xp.attr,
-                                "pattern element contains invalid unquote, tail of body is {}", .{xp.cdr.getTag()});
-                        }
-
-                        return runImpl(interpreter, at, bindings, uq, given);
-                    } else if (xp.car.isExactSymbol(":")) {
-                        xp = xp.cdr.castCons() orelse return interpreter.abort(EvaluationError.TypeError, xp.attr,
-                            "invalid pattern, expected a value to follow `->`, got {}", .{xp.cdr.getTag()});
-                        const predE = xp.car;
-
-                        if (!xp.cdr.isNil()) {
-                            return interpreter.abort(EvaluationError.TypeError, xp.attr,
-                                "invalid pattern, expected only a value to follow `:`, got {}", .{xp.cdr.getTag()});
-                        }
-
-                        const res = try interpreter.nativeInvoke(at, try interpreter.eval(predE), &[1]SExpr { given });
-
-                        if (res.coerceNativeBool()) {
-                            return null;
-                        } else {
-                            return patternError(interpreter, EvaluationError.RangeError, at,
-                                "predicate `{}` failed on value `{}`", .{ predE, given });
-                        }
-                    } else if (xp.car.isExactSymbol("->")) {
-                        xp = xp.cdr.castCons() orelse return interpreter.abort(EvaluationError.TypeError, xp.attr,
-                            "invalid pattern, expected a value to follow `->`, got {}", .{xp.cdr.getTag()});
-                        const predE = xp.car;
-
-                        const args = try SExpr.Quote(try SExpr.List(at, &[_]SExpr { given }));
-                        const body = try SExpr.List(at, &[_]SExpr { try SExpr.Symbol(at, "apply"), predE, args });
-
-                        var out: NativeWithOut = undefined;
-                        try interpreter.nativeWith(at, body, &out, struct {
-                            fn fail(e: *Interpreter, a: *const Source.Attr, x: SExpr) Result!SExpr {
-                                const terminator = (try envLookup(try SExpr.Symbol(a, "terminator"), e.env)).?;
-                                return try invoke(e, a, terminator, x);
-                            }
-                        });
-
-                        switch (out) {
-                            .Evaluated => |x| {
-                                if (!xp.cdr.isNil()) {
-                                    return runImpl(interpreter, at, bindings, xp.cdr, x);
-                                } else {
-                                    return null;
-                                }
-                            },
-                            .Terminated => |_| {
-                                return patternError(interpreter, EvaluationError.RangeError, at,
-                                    "view pattern `{}` failed on value `{}`", .{ predE, given });
-                            },
-                        }
-                    } else if (xp.car.isExactSymbol("?")) {
-                        xp = xp.cdr.castCons() orelse return interpreter.abort(EvaluationError.TypeError, at,
-                            "invalid pattern, expected a var to follow `?`, got {}", .{xp.cdr.getTag()});
-                        const vx = xp.car;
-
-                        if (!xp.cdr.isNil()) {
-                            return interpreter.abort(EvaluationError.TypeError, at,
-                                "invalid pattern, expected only a value to follow `?`, got {}", .{xp.cdr.getTag()});
-                        }
-
-                        if (given.isNil()) {
-                            const varBinders = try binders(interpreter, at, vx);
-                            defer interpreter.context.allocator.free(varBinders);
-
-                            for (varBinders) |binder| {
-                                // cannot fail because given is null
-                                _ = try bind(interpreter, at, bindings, binder, null);
-                            }
-
-                            return null;
-                        } else {
-                            return runImpl(interpreter, at, bindings, vx, given);
-                        }
-                    } else if (xp.car.isExactSymbol("@")) {
-                        xp = xp.cdr.castCons() orelse return interpreter.abort(EvaluationError.TypeError, xp.attr,
-                            "invalid pattern, expected a var to follow `@`, got {}", .{xp.cdr.getTag()});
-                        const atSym = xp.car;
-
-                        if (!atSym.isSymbol()) {
-                            return interpreter.abort(EvaluationError.TypeError, xp.attr,
-                                "invalid pattern, expected a symbol to follow `@`, got {}", .{atSym.getTag()});
-                        }
-
-                        xp = xp.cdr.castCons() orelse return interpreter.abort(EvaluationError.TypeError, xp.attr,
-                            "invalid pattern, expected a value to follow symbol in `@`, got {}", .{xp.cdr.getTag()});
-                        const vx = xp.car;
-
-                        if (!xp.cdr.isNil()) {
-                            return interpreter.abort(EvaluationError.TypeError, xp.attr,
-                                "invalid pattern, expected only a value to follow `@`, got {}", .{xp.cdr.getTag()});
-                        }
-
-                        if (try runImpl(interpreter, at, bindings, vx, given)) |err| {
-                            return err;
-                        }
-
-                        return bind(interpreter, at, bindings, atSym, given);
-                    } else if (xp.car.isExactSymbol("...")) {
-                        xp = xp.cdr.castCons() orelse {
-                            return interpreter.abort(EvaluationError.TypeError, xp.attr,
-                                "invalid pattern, expected a symbol to follow `...`, got {}", .{xp.cdr.getTag()});
-                        };
-                        var restSym = xp.car;
-
-                        const invalid = invalid: {
-                            if (!restSym.isSymbol()) {
-                                if (restSym.castCons()) |rxp| {
-                                    if (rxp.car.isExactSymbol("unquote")) {
-                                        const xp2 = rxp.cdr.castCons() orelse return interpreter.abort(EvaluationError.TypeError, xp.attr,
-                                            "invalid pattern, malformed unquote in rest parameter, got {}", .{rxp.cdr.getTag()});
-                                        restSym = try interpreter.eval(xp2.car);
-
-                                        if (!xp2.cdr.isNil()) {
-                                            return interpreter.abort(EvaluationError.TypeError, xp.attr,
-                                                "invalid pattern, expected only a value to follow `,` in rest parameter unquote, got {}", .{xp2.cdr.getTag()});
-                                        }
-
-                                        if (!restSym.isSymbol()) {
-                                            return interpreter.abort(EvaluationError.TypeError, xp.attr,
-                                                "invalid pattern, expected unquote inside rest parameter to evaluate to a symbol, got {}", .{restSym.getTag()});
-                                        }
-
-                                        break :invalid false;
-                                    }
-                                }
-
-                                break :invalid true;
-                            }
-
-                            break :invalid false;
-                        };
-
-                        if (invalid) {
-                            return interpreter.abort(EvaluationError.TypeError, xp.attr,
-                                "invalid pattern, expected a symbol to follow `...`, got {}", .{restSym.getTag()});
-                        }
-
-                        if (!xp.cdr.isNil()) {
-                            return interpreter.abort(EvaluationError.TypeError, xp.attr,
-                                "invalid pattern, expected only a symbol to follow `...`, got {}", .{xp.cdr.getTag()});
-                        }
-
-                        return try bind(interpreter, at, bindings, restSym, given);
-                    }
-
                     var currentExpected = expected;
                     var currentGiven = given;
                     while (!currentExpected.isNil()) {
-                        const xpExpected = currentExpected.castCons() orelse { // MiscUtils pairs of the form `(a . a)`
+                        const xpExpected = currentExpected.castCons() orelse { // pairs of the form `(a . a)`
                             return runImpl(interpreter, at, bindings, currentExpected, currentGiven);
                         };
+
+                        {
+                            var err: ?E = undefined;
+                            if (try specialImpl(interpreter, at, bindings, xpExpected.car, xpExpected.cdr, currentGiven, &err)) {
+                                return err;
+                            }
+                        }
 
                         const elemExpected = xpExpected.car;
 
@@ -1115,6 +970,187 @@ fn Pattern(comptime E: type, comptime mkError: fn (*Interpreter, EvaluationError
             defer set.deinit();
 
             try bindersImpl(interpreter, expect.getAttr(), expect, &set);
+        }
+
+        fn specialImpl(interpreter: *Interpreter, at: *const Source.Attr, bindings: *SExpr.HashMapOf(?SExpr), symbol: SExpr, rest: SExpr, given: SExpr, errOut: *?E) Result!bool {
+            if (symbol.isExactSymbol("quote")) {
+                const xp = try interpreter.castList(at, rest);
+                if (!xp.cdr.isNil()) {
+                    return interpreter.abort(EvaluationError.TypeError, xp.attr,
+                        "pattern element contains invalid quote, tail of body is {}", .{xp.cdr.getTag()});
+                }
+
+                const q = xp.car;
+                if (q.isSymbol()) {
+                    if (MiscUtils.equal(q, given)) {
+                        errOut.* = null;
+                    } else {
+                        errOut.* = try patternError(interpreter, EvaluationError.TypeError, at,
+                            "expected {}, got {}", .{ q, given });
+                    }
+                    return true;
+                } else {
+                    return interpreter.abort(EvaluationError.TypeError, xp.attr,
+                        "pattern element contains invalid quote, body is {} (should be Symbol)", .{q.getTag()});
+                }
+            } else if (symbol.isExactSymbol("unquote")) {
+                const xp = try interpreter.castList(at, rest);
+                const uq = try interpreter.eval(xp.car);
+
+                if (!xp.cdr.isNil()) {
+                    return interpreter.abort(EvaluationError.TypeError, xp.attr,
+                        "pattern element contains invalid unquote, tail of body is {}", .{xp.cdr.getTag()});
+                }
+
+                errOut.* = try runImpl(interpreter, at, bindings, uq, given);
+                return true;
+            } else if (symbol.isExactSymbol(":")) {
+                const xp = try interpreter.castList(at, rest);
+                const predE = xp.car;
+
+                if (!xp.cdr.isNil()) {
+                    return interpreter.abort(EvaluationError.TypeError, xp.attr,
+                        "invalid pattern, expected only a value to follow `:`, got {}", .{xp.cdr.getTag()});
+                }
+
+                const res = try interpreter.nativeInvoke(at, try interpreter.eval(predE), &[1]SExpr { given });
+
+                if (res.coerceNativeBool()) {
+                    errOut.* = null;
+                } else {
+                    errOut.* = try patternError(interpreter, EvaluationError.RangeError, at,
+                        "predicate `{}` failed on value `{}`", .{ predE, given });
+                }
+                return true;
+            } else if (symbol.isExactSymbol("->")) {
+                const xp = try interpreter.castList(at, rest);
+                const predE = xp.car;
+
+                const args = try SExpr.Quote(try SExpr.List(at, &[_]SExpr { given }));
+                const body = try SExpr.List(at, &[_]SExpr { try SExpr.Symbol(at, "apply"), predE, args });
+
+                var out: NativeWithOut = undefined;
+                try interpreter.nativeWith(at, body, &out, struct {
+                    fn fail(e: *Interpreter, a: *const Source.Attr, x: SExpr) Result!SExpr {
+                        const terminator = (try envLookup(try SExpr.Symbol(a, "terminator"), e.env)).?;
+                        return try invoke(e, a, terminator, x);
+                    }
+                });
+
+                switch (out) {
+                    .Evaluated => |x| {
+                        if (!xp.cdr.isNil()) {
+                            errOut.* = try runImpl(interpreter, at, bindings, xp.cdr, x);
+                        } else {
+                            errOut.* = null;
+                        }
+                    },
+                    .Terminated => |_| {
+                        errOut.* = try patternError(interpreter, EvaluationError.RangeError, at,
+                            "view pattern `{}` failed on value `{}`", .{ predE, given });
+                    },
+                }
+
+                return true;
+            } else if (symbol.isExactSymbol("?")) {
+                const xp = try interpreter.castList(at, rest);
+
+                const vx = xp.car;
+
+                if (!xp.cdr.isNil()) {
+                    return interpreter.abort(EvaluationError.TypeError, at,
+                        "invalid pattern, expected only a value to follow `?`, got {}", .{xp.cdr.getTag()});
+                }
+
+                if (given.isNil()) {
+                    const varBinders = try binders(interpreter, at, vx);
+                    defer interpreter.context.allocator.free(varBinders);
+
+                    for (varBinders) |binder| {
+                        // cannot fail because given is null
+                        _ = try bind(interpreter, at, bindings, binder, null);
+                    }
+
+                    errOut.* = null;
+                } else {
+                    errOut.* = try runImpl(interpreter, at, bindings, vx, given);
+                }
+
+                return true;
+            } else if (symbol.isExactSymbol("@")) {
+                const xp = try interpreter.castList(at, rest);
+
+                const atSym = xp.car;
+
+                if (!atSym.isSymbol()) {
+                    return interpreter.abort(EvaluationError.TypeError, xp.attr,
+                        "invalid pattern, expected a symbol to follow `@`, got {}", .{atSym.getTag()});
+                }
+
+                const xp2 = xp.cdr.castCons() orelse return interpreter.abort(EvaluationError.TypeError, xp.attr,
+                    "invalid pattern, expected a value to follow symbol in `@`, got {}", .{xp.cdr.getTag()});
+                const vx = xp2.car;
+
+                if (!xp2.cdr.isNil()) {
+                    return interpreter.abort(EvaluationError.TypeError, xp2.attr,
+                        "invalid pattern, expected only a value to follow `@`, got {}", .{xp2.cdr.getTag()});
+                }
+
+                if (try runImpl(interpreter, at, bindings, vx, given)) |err| {
+                    errOut.* = err;
+                } else {
+                    errOut.* = try bind(interpreter, at, bindings, atSym, given);
+                }
+
+                return true;
+            } else if (symbol.isExactSymbol("...")) {
+                const xp = try interpreter.castList(at, rest);
+
+                var restSym = xp.car;
+
+                const invalid = invalid: {
+                    if (!restSym.isSymbol()) {
+                        if (restSym.castCons()) |rxp| {
+                            if (rxp.car.isExactSymbol("unquote")) {
+                                const xp2 = rxp.cdr.castCons() orelse return interpreter.abort(EvaluationError.TypeError, xp.attr,
+                                    "invalid pattern, malformed unquote in rest parameter, got {}", .{rxp.cdr.getTag()});
+                                restSym = try interpreter.eval(xp2.car);
+
+                                if (!xp2.cdr.isNil()) {
+                                    return interpreter.abort(EvaluationError.TypeError, xp.attr,
+                                        "invalid pattern, expected only a value to follow `,` in rest parameter unquote, got {}", .{xp2.cdr.getTag()});
+                                }
+
+                                if (!restSym.isSymbol()) {
+                                    return interpreter.abort(EvaluationError.TypeError, xp.attr,
+                                        "invalid pattern, expected unquote inside rest parameter to evaluate to a symbol, got {}", .{restSym.getTag()});
+                                }
+
+                                break :invalid false;
+                            }
+                        }
+
+                        break :invalid true;
+                    }
+
+                    break :invalid false;
+                };
+
+                if (invalid) {
+                    return interpreter.abort(EvaluationError.TypeError, xp.attr,
+                        "invalid pattern, expected a symbol to follow `...`, got {}", .{restSym.getTag()});
+                }
+
+                if (!xp.cdr.isNil()) {
+                    return interpreter.abort(EvaluationError.TypeError, xp.attr,
+                        "invalid pattern, expected only a symbol to follow `...`, got {}", .{xp.cdr.getTag()});
+                }
+
+                errOut.* = try bind(interpreter, at, bindings, restSym, given);
+                return true;
+            }
+
+            return false;
         }
 
         fn bindersImpl(interpreter: *Interpreter, at: *const Source.Attr, expected: SExpr, out: *SExpr.HashSet) Result!void {

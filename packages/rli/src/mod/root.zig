@@ -86,7 +86,7 @@ pub fn init(allocator: std.mem.Allocator, cwd: std.fs.Dir, out: std.io.AnyWriter
     log.info("... command line arguments loaded", .{});
 
     log.info("loading built-ins ...", .{});
-    Builtin.bind(Error, self.interpreter, self, runFile, builtinEnvs, .{
+    Builtin.bind(Error, self.interpreter, .{self, false}, runFile, builtinEnvs, .{
         .{ "process-args", "a list of command line arguments to the compiler", sArgs }
     }) catch |err| {
         log.err("... failed to load built-ins", .{});
@@ -138,7 +138,7 @@ pub fn readFile(self: *Rli, fileName: []const u8) Error!SExpr {
 
     log.info("running [{s}] ...", .{fileName});
 
-    const result = try self.runFile(fileName, src);
+    const result = try self.runFile(true, fileName, src);
     log.info("... finished [{s}], result: {}", .{ fileName, result });
     return result;
 }
@@ -153,9 +153,33 @@ pub fn readFiles(self: *Rli, fileNames: []const []const u8) Error!void {
     }
 }
 
-pub fn runFile(self: *Rli, fileName: []const u8, text: []const u8) Error!SExpr {
+pub fn runFile(self: *Rli, cleanEnv: bool, fileName: []const u8, text: []const u8) Error!SExpr {
+    const termData = self.interpreter.terminationData;
+    defer self.interpreter.terminationData = termData;
+    self.interpreter.terminationData = null;
+
+    const old_env = self.interpreter.env;
+    defer {
+        if (cleanEnv) self.interpreter.env = old_env;
+    }
+
+    if (cleanEnv) {
+        self.interpreter.env = try Interpreter.envBase(self.interpreter.env);
+        try Interpreter.pushNewFrame(self.interpreter.context.attr, &self.interpreter.env);
+    }
+
+    const old_evidence = self.interpreter.evidence;
+    defer self.interpreter.evidence = old_evidence;
+    self.interpreter.evidence = try SExpr.Nil(self.interpreter.context.attr);
+
+    const old_fileName = self.parser.fileName;
     try self.parser.setFileName(fileName);
+    defer self.parser.fileName = old_fileName;
+    const old_input = self.parser.input;
+    const old_pos = self.parser.pos;
     self.parser.setInput(text, null);
+    defer self.parser.setInput(old_input, old_pos);
+
 
     var result = try SExpr.Nil(try self.parser.mkAttr(null, null, &.{}));
 

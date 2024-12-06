@@ -43,8 +43,16 @@ pub const Envs = struct {
     pub const @"type" = @import("type.zig");
 };
 
+pub const Script = struct {
+    text: []const u8,
+    exports: []const []const u8,
+};
+
 pub const Scripts = struct {
-    pub const module = @embedFile("module.bb");
+    pub const module = Script {
+        .text = @embedFile("module.bb"),
+        .exports = &.{"module", "import", "or-else", "or-panic", "or-panic-at"},
+    };
 };
 
 pub const EnvSet = envSet: {
@@ -195,12 +203,12 @@ pub fn bindEnvs(at: *const Source.Attr, outputEnv: SExpr, builtinEnvs: EnvSet) !
     log.info("... builtin environments loaded", .{});
 }
 
-pub fn bindScripts(comptime E: type, ctx: anytype, runFile: fn (@TypeOf(ctx), scriptName: []const u8, scriptContent: []const u8) E!SExpr) (E || Interpreter.Result)!void {
+pub fn bindScripts(comptime E: type, args: anytype, runFile: RunFile(E, @TypeOf(args))) (E || Interpreter.Result)!void {
     inline for (comptime std.meta.declarations(Scripts)) |scriptDecl| {
         const scriptName = scriptDecl.name;
         log.info("running builtin script [{s}] ...", .{scriptName});
         const script = @field(Scripts, scriptName);
-        const result = runFile(ctx, scriptName, script) catch |err| {
+        const result = @call(.auto, runFile, args ++ .{scriptName, script.text}) catch |err| {
             log.err("... failed to bind built-in script [{s}]", .{scriptName});
             return err;
         };
@@ -224,8 +232,32 @@ pub fn bindCustomEnv(attr: *const Source.Attr, outputEnv: SExpr, customEnv: anyt
     }.fun);
 }
 
+/// fn (Args.., scriptName: []const u8, scriptContent: []const u8) E!SExpr
+pub fn RunFile(comptime E: type, comptime Args: type) type {
+    const info = @typeInfo(Args).@"struct";
+    comptime std.debug.assert(info.is_tuple);
+
+    const numFields = info.fields.len;
+    var params = [1]std.builtin.Type.Fn.Param {undefined} ** (numFields + 2);
+
+    for (0..info.fields.len) |i| {
+        params[i] = .{ .is_generic = false, .is_noalias = false, .type = info.fields[i].type };
+    }
+
+    params[numFields] = .{ .is_generic = false, .is_noalias = false, .type = []const u8 };
+    params[numFields + 1] = .{ .is_generic = false, .is_noalias = false, .type = []const u8 };
+
+    return @Type(.{.@"fn" = .{
+        .calling_convention = .auto,
+        .is_generic = false,
+        .is_var_args = false,
+        .return_type = E!SExpr,
+        .params = &params,
+    }});
+}
+
 /// equivalent to bindCustomEnv + bindBuiltinEnvs + bindScripts + modularizeEnv in the default environment
-pub fn bind(comptime E: type, interpreter: *Interpreter, ctx: anytype, runFile: fn (@TypeOf(ctx), scriptName: []const u8, scriptContent: []const u8) E!SExpr, builtinEnvs: EnvSet, customEnv: anytype) (E || Interpreter.Result)!void {
+pub fn bind(comptime E: type, interpreter: *Interpreter, args: anytype, runFile: RunFile(E, @TypeOf(args)), builtinEnvs: EnvSet, customEnv: anytype) (E || Interpreter.Result)!void {
     log.info("binding custom environment ...", .{});
     bindCustomEnv(interpreter.context.attr, interpreter.env, customEnv) catch |err| {
         log.err("... failed to bind custom environment", .{});
@@ -241,7 +273,7 @@ pub fn bind(comptime E: type, interpreter: *Interpreter, ctx: anytype, runFile: 
     log.info("... builtin environments bound", .{});
 
     log.info("binding builtin scripts ...", .{});
-    bindScripts(E, ctx, runFile) catch |err| {
+    bindScripts(E, args, runFile) catch |err| {
         log.err("... failed to bind builtin scripts", .{});
         return err;
     };
@@ -255,7 +287,6 @@ pub fn bind(comptime E: type, interpreter: *Interpreter, ctx: anytype, runFile: 
     log.debug("... environment modularized", .{});
 }
 
-// TODO: handle additional script modularization besides the module script?
 pub fn modularizeEnv(attr: *const Source.Attr, envSource: SExpr) !SExpr {
     @setEvalBranchQuota(2_000);
 
@@ -269,8 +300,6 @@ pub fn modularizeEnv(attr: *const Source.Attr, envSource: SExpr) !SExpr {
     log.info("created destination environment", .{});
 
     const starModulesSym = try SExpr.Symbol(attr, "*modules*");
-    const moduleSym = try SExpr.Symbol(attr, "module");
-    const importSym = try SExpr.Symbol(attr, "import");
 
     log.info("created symbols", .{});
 
@@ -375,20 +404,20 @@ pub fn modularizeEnv(attr: *const Source.Attr, envSource: SExpr) !SExpr {
         log.info("extended global env with globals, finished env {s}", .{envName});
     }
 
-    const moduleMacro: SExpr =
-        try Interpreter.envLookup(moduleSym, envSource)
-        orelse return error.NoModuleSystem;
+    inline for (comptime std.meta.declarations(Scripts)) |scriptDecl| {
+        const scriptName = scriptDecl.name;
 
-    const importMacro: SExpr =
-        try Interpreter.envLookup(importSym, envSource)
-        orelse return error.NoModuleSystem;
+        const script = @field(Scripts, scriptName);
 
-    log.info("found module and import macros", .{});
+        inline for (script.exports) |exp| {
+            const symbol = try SExpr.Symbol(attr, exp);
+            if (try Interpreter.envLookup(symbol, envSource)) |value| {
+                try Interpreter.extendEnvFrame(attr, symbol, value, envDestination);
+            }
+        }
+    }
 
-    try Interpreter.extendEnvFrame(attr, moduleSym, moduleMacro, envDestination);
-    try Interpreter.extendEnvFrame(attr, importSym, importMacro, envDestination);
-
-    log.info("extended destination env with module and import macros", .{});
+    log.info("extended destination env with script exports", .{});
 
     return envDestination;
 }

@@ -24,6 +24,12 @@ pub const Decls = .{
             return try SExpr.Bool(at, arg.isNil());
         }
     } },
+    .{ "type/atom?", "determine if a value is an atom", struct {
+        pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
+            const arg = (try interpreter.evalN(1, args))[0];
+            return try SExpr.Bool(at, !arg.isCons());
+        }
+    } },
     .{ "type/pair?", "determine if a value is a cons pair", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const arg = (try interpreter.evalN(1, args))[0];
