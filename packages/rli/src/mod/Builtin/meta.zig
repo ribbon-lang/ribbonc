@@ -115,6 +115,11 @@ pub const Decls = .{
             return SExpr.Quote((try interpreter.evalN(1, args))[0]);
         }
     } },
+    .{ "to-quasi", "evaluates its input, then wraps it in a quasiquote", struct {
+        pub fn fun(interpreter: *Interpreter, _: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
+            return SExpr.Quasi((try interpreter.evalN(1, args))[0]);
+        }
+    } },
 
     .{ "meta/eval", "evaluate a given expression in the current env or an optional provided env", struct {
         pub fn fun(interpreter: *Interpreter, _: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {

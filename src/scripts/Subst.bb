@@ -4,6 +4,8 @@
 (import alist)
 (import type)
 
+(import "utils/new-type.bb")
+
 (export lookup alist/lookup)
 (export lookup-f alist/lookup-f)
 (export append alist/append)
@@ -14,10 +16,8 @@
 (export length list/length)
 (export each alist/each)
 
-(export fun @type-var (arg)
-    (match arg
-        (('type-var . (@ var (: type/symbol?))) (list var))
-        (else (stop))))
+(new-type/export type-var
+    symbol type/symbol?)
 
 (export fun apply (term subst)
     (match term

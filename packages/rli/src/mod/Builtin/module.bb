@@ -9,7 +9,7 @@
 
 (def *file-cache* ())
 
-(def macro or-else (body fail-handler) `(with ((fun fail () (print-ln "or-else fail handler") ,fail-handler)) ,body))
+(def macro or-else (body fail-handler) `(with ((fun fail () ,fail-handler)) ,body))
 (def macro or-panic (body . msg) `(or-else ,body (panic ,@msg)))
 (def macro or-panic-at (body attr . msg) `(or-else ,body (panic-at ,attr ,@msg)))
 

@@ -17,6 +17,7 @@ const log = Rli.log;
 
 cwd: std.fs.Dir,
 context: *Context,
+errorStack: ?std.ArrayList(*const Source.Attr),
 errorCause: ?[]const u8,
 attr: ?*const Source.Attr,
 env: SExpr,
@@ -153,11 +154,12 @@ pub const RichError = struct {
     err: Error,
     msg: ?[]const u8,
     attr: ?*const Source.Attr,
+    stack: ?std.ArrayList(*const Source.Attr),
 
     const Self = @This();
 
     pub fn initFromInterpreter(interpreter: *const Interpreter, err: Error) Self {
-        return Self{ .err = err, .msg = interpreter.errorCause, .attr = interpreter.attr };
+        return Self{ .err = err, .msg = interpreter.errorCause, .attr = interpreter.attr, .stack = interpreter.errorStack };
     }
 
     pub fn format(self: *const Self, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
@@ -171,6 +173,13 @@ pub const RichError = struct {
 
         if (self.msg) |cause| {
             try writer.print("\n\t{s}", .{cause});
+        }
+
+        if (self.stack) |stack| {
+            try writer.writeAll("\n\n\tstack trace:");
+            for (stack.items) |attr| {
+                try writer.print("\n\t\t{}", .{attr});
+            }
         }
     }
 
@@ -212,6 +221,7 @@ pub fn init(context: *Context, cwd: std.fs.Dir) Error!*Interpreter {
         .cwd = cwd,
         .context = context,
         .errorCause = null,
+        .errorStack = null,
         .attr = null,
         .env = try SExpr.List(context.attr, &[1]SExpr{try SExpr.List(context.attr, &[0]SExpr{})}),
         .callerEnv = nil,
@@ -226,6 +236,9 @@ pub fn init(context: *Context, cwd: std.fs.Dir) Error!*Interpreter {
 pub fn deinit(interpreter: *Interpreter) void {
     if (interpreter.errorCause) |cause| {
         interpreter.context.allocator.free(cause);
+    }
+    if (interpreter.errorStack) |stack| {
+        stack.deinit();
     }
     interpreter.context.allocator.destroy(interpreter);
 }
@@ -245,6 +258,11 @@ pub fn restore(interpreter: *Interpreter, envs: SavedEvaluationEnvs) void {
         interpreter.errorCause = null;
     }
 
+    if (interpreter.errorStack) |stack| {
+        interpreter.context.allocator.free(stack);
+        interpreter.errorStack = null;
+    }
+
     interpreter.attr = null;
 
     interpreter.callStack.clearRetainingCapacity();
@@ -259,6 +277,7 @@ pub fn exit(interpreter: *Interpreter, err: Error, attr: *const Source.Attr) Err
 pub fn abort(interpreter: *Interpreter, err: Error, attr: *const Source.Attr, comptime fmt: []const u8, args: anytype) Error {
     interpreter.attr = attr;
     interpreter.errorCause = try std.fmt.allocPrint(interpreter.context.allocator, fmt, args);
+    interpreter.errorStack = try interpreter.callStack.clone();
     return err;
 }
 
@@ -816,6 +835,7 @@ fn mkPatternRichError(interpreter: *Interpreter, err: EvaluationError, at: *cons
         .err = err,
         .msg = try std.fmt.allocPrint(interpreter.context.allocator, fmt, args),
         .attr = at,
+        .stack = try interpreter.callStack.clone(),
     };
 }
 

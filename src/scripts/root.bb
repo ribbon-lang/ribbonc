@@ -18,7 +18,7 @@
 ; S = (D+)
 
 
-(import Subst)
+(import "Subst.bb")
 
 (def subst '(
     (a . bool)
@@ -27,6 +27,13 @@
 
 (def expr `(fun ((type-var . a) int) (type-var . b) in ()))
 
+(def applied (Subst/apply expr subst))
+
 (print-ln subst)
 (print-ln expr)
-(print-ln (Subst/apply expr subst))
+(print-ln applied)
+(assert-eq '(fun (bool int) float in ()) applied)
+(assert (Subst/type-var? '(type-var . a)))
+(assert (not (Subst/type-var? '(typeVar . a))))
+(assert-eq 'a (Subst/symbol<-type-var (Subst/type-var<-symbol 'a)))
+

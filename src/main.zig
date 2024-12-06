@@ -10,7 +10,6 @@ pub const std_options = std.Options {
 };
 
 const SCRIPT_PATHS = &[_][]const u8 {
-    "src/scripts/Subst.bb",
     "src/scripts/root.bb",
 };
 
@@ -27,17 +26,8 @@ pub fn main() !void {
     rli.readFileCallback = readFile;
     defer rli.deinit();
 
-    if (comptime zig_builtin.mode == .Debug) {
-        for (SCRIPT_PATHS) |scriptPath| {
-            _ = try rli.readFile(scriptPath);
-        }
-    } else {
-        inline for (SCRIPT_PATHS) |fullScriptPath| {
-            const scriptPath = fullScriptPath[COMPTIME_DIR.len..];
-            const script = @embedFile(scriptPath);
-
-            _ = try rli.runFile(true, "BUILTIN:" ++ scriptPath, script);
-        }
+    for (SCRIPT_PATHS) |scriptPath| {
+        _ = try rli.readFile(scriptPath);
     }
 }
 

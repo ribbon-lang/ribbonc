@@ -23,6 +23,7 @@ export const Effectful = [
 
 export const Special = [
     "quote", "quasiquote", "unquote", "unquote-splicing",
+    "to-quote", "to-quasi",
     "apply", "gensym", "eval", "get-env",
 ]
 
