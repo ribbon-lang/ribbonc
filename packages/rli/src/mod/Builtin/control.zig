@@ -38,10 +38,10 @@ pub const Doc =
     \\> ```
     \\For more information on the syntax of lambda lists, see the [`Pattern` module](#pattern).
     \\
-    \\`begin` allows for sequencing expressions.
+    \\`do` allows for sequencing expressions.
     \\> ##### Example
     \\> ```lisp
-    \\> (begin
+    \\> (do
     \\>   (action1)
     \\>   (action2))
     \\> ```
@@ -120,28 +120,29 @@ pub const Decls = .{
                 const lList = case.head[0];
                 const then = case.tail;
                 if (lList.isExactSymbol("else")) {
+                    Rli.log.debug("Running else {}", .{then});
                     if (eArgs.hasNext()) {
                         return interpreter.abort(Interpreter.Error.TooManyArguments, at, "expected else to be the last match case", .{});
                     }
                     return try interpreter.runProgram(then);
                 }
-                // Rli.log.debug("Running llist {} on {}", .{lList, scrutinee});
+                Rli.log.debug("Running llist {} on {}", .{lList, scrutinee});
                 switch (try Interpreter.PatternLite.run(interpreter, lList.getAttr(), lList, scrutinee)) {
                     .Okay => |frame| {
-                        // Rli.log.debug("llist Okay", .{});
+                        Rli.log.debug("llist Okay", .{});
                         try Interpreter.pushFrame(frame, &interpreter.env);
                         defer _ = Interpreter.popFrame(&interpreter.env) catch unreachable;
                         return try interpreter.runProgram(then);
                     },
                     else => {
-                        // Rli.log.debug("llist Fail", .{});
+                        Rli.log.debug("llist Fail", .{});
                     },
                 }
             }
             return SExpr.Nil(at);
         }
     } },
-    .{ "begin", "allows sequencing expressions", struct {
+    .{ "do", "allows sequencing expressions", struct {
         pub fn fun(interpreter: *Interpreter, _: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             return try interpreter.runProgram(args);
         }
@@ -183,6 +184,7 @@ pub const Decls = .{
     } },
     .{ "stop", "prompts `fail`; this is a shortcut for `(prompt fail)`", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, _: SExpr) Interpreter.Result!SExpr {
+            Rli.log.debug("stop", .{});
             return interpreter.nativePrompt(at, "fail", &[0]SExpr{});
         }
     } },

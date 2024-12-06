@@ -14,6 +14,12 @@ pub const Doc =
 ;
 
 pub const Decls = .{
+    .{ "meta/apply", "apply a function to a list of arguments", struct {
+        pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
+            const rArgs = try interpreter.evalN(2, args);
+            return try interpreter.nativeInvoke(at, rArgs[0], rArgs[1]);
+        }
+    } },
     .{ "quasiquote", "a quote accepting `unquote` and `unquote-splicing` in its body", struct {
         pub fn fun(interpreter: *Interpreter, _: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const esc = (try interpreter.expectN(1, args))[0];
@@ -102,6 +108,11 @@ pub const Decls = .{
     .{ "quote", "makes a given input into its literal equivalent by skipping an evaluation step", struct {
         pub fn fun(interpreter: *Interpreter, _: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             return (try interpreter.expectN(1, args))[0];
+        }
+    } },
+    .{ "to-quote", "evaluates its input, then wraps it in a quote", struct {
+        pub fn fun(interpreter: *Interpreter, _: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
+            return SExpr.Quote((try interpreter.evalN(1, args))[0]);
         }
     } },
 

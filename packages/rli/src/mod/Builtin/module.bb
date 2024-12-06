@@ -9,23 +9,20 @@
 
 (def *file-cache* ())
 
-(def macro or-else (body fail-handler) `(with ((fun fail () ,fail-handler)) ,body))
+(def macro or-else (body fail-handler) `(with ((fun fail () (print-ln "or-else fail handler") ,fail-handler)) ,body))
 (def macro or-panic (body . msg) `(or-else ,body (panic ,@msg)))
 (def macro or-panic-at (body attr . msg) `(or-else ,body (panic-at ,attr ,@msg)))
-
-(with-global fun fail ()
-    (panic "uncaught fail"))
 
 (with-global fun exception (value)
     (panic "uncaught exception: " (attr/of value) value))
 
-(def fun symbol-pair (... args)
+(def fun @symbol-pair (... args)
     (match args
         (((a . b))
             (f-assert (type/symbol? a))
             (f-assert (type/symbol? b))
             (list a b))
-        (else stop)))
+        (else (stop))))
 
 (def fun module/new (env exports)
     `(,(pair/cons 'env env)
@@ -59,7 +56,7 @@
                     ((: type/symbol?)
                         (set! internal-key entry)
                         (set! external-key entry))
-                    ((-> symbol-pair a b)
+                    ((-> @symbol-pair a b)
                         (set! internal-key a)
                         (set! external-key b))
                     (else (panic-at
@@ -84,7 +81,7 @@
                     ((: type/symbol?)
                         (if (eq? entry key)
                             (prompt result entry)))
-                    ((-> symbol-pair original alias)
+                    ((-> @symbol-pair original alias)
                         (if (eq? original key)
                             (prompt result alias)))
                     (else (panic-at (attr/of entry) "expected a symbol or a pair in import list, got " (type/of entry) ": `" entry "`")))))
@@ -98,14 +95,14 @@
             "expected a string for module path, got " (type/of mod-name) ": `" mod-name "`")
         (set! mod-name (symbol<-string mod-name))
         (or-else (alist/lookup-f abs-path *file-cache*)
-            (begin
+            (do
                 (assert-at (attr/of filename) (not (alist/member? mod-name *modules*))
                     "module `" mod-name "` already exists")
                 (let ((data (io/run-file abs-path)))
                     (set! *file-cache* (alist/append abs-path mod-name *file-cache*))
                     (when (not (alist/member? mod-name *modules*))
-                        ; FIXME: this should be a warning
-                        ; (print-ln "import file [" abs-path "] did not define a module named `" mod-name "`; binding return value")
+                        ; TODO: this could be a warning
+                        (print-ln "import file [" abs-path "] did not define a module named `" mod-name "`; binding return value")
                         (set! *modules* (alist/append mod-name (module/new (env/new data) (alist/keys data)) *modules*)))
                     mod-name)))))
 
@@ -156,7 +153,7 @@
                 (list/each rest (fun (arg)
                     (match arg
                         ((: type/symbol?) (bind-export arg))
-                        ((-> symbol-pair original alias) (bind-export (pair/cons original alias)))
+                        ((-> @symbol-pair original alias) (bind-export (pair/cons original alias)))
                         (else (panic-at (attr/of arg)
                             "expected a symbol or a pair of symbols in export list, got " (type/of arg) ": `" arg "`"))))))
             ((name . body)

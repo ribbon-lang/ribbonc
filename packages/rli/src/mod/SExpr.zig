@@ -654,8 +654,32 @@ pub const SExpr = extern struct {
 
     pub fn Quote(sexpr: SExpr) !SExpr {
         const at = try sexpr.getAttr().clone();
-        return try List(at, &[_]SExpr{ try Symbol(at, "quote"), sexpr });
+        return try List(at, &.{ try Symbol(at, "quote"), sexpr });
     }
+
+    pub fn ToQuote(sexpr: SExpr) !SExpr {
+        const at = try sexpr.getAttr().clone();
+        return try List(at, &.{ try Symbol(at, "to-quote"), sexpr });
+    }
+
+
+    pub fn Quasi(sexpr: SExpr) !SExpr {
+        const at = try sexpr.getAttr().clone();
+        return try List(at, &.{ try Symbol(at, "quasiquote"), sexpr });
+    }
+
+
+    pub fn Unquote(sexpr: SExpr) !SExpr {
+        const at = try sexpr.getAttr().clone();
+        return try List(at, &.{ try Symbol(at, "unquote"), sexpr });
+    }
+
+
+    pub fn UnquoteSplicing(sexpr: SExpr) !SExpr {
+        const at = try sexpr.getAttr().clone();
+        return try List(at, &.{ try Symbol(at, "unquote-splicing"), sexpr });
+    }
+
 
     pub fn MappedList(at: *const Source.Attr, args: anytype, comptime callback: anytype) (error{OutOfMemory, TypeError} || @typeInfo(@typeInfo(@TypeOf(callback)).@"fn".return_type.?).error_union.error_set)!SExpr {
         switch (@TypeOf(args)) {

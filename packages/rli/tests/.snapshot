@@ -46,7 +46,7 @@ out[0]:
 ```
 err[119]:
 ```
-! Evaluation error at [module:20:5-57]: Panic
+! Evaluation error at [module:17:5-57]: Panic
 	uncaught exception: [./tests/fail/unhandled.bb:1:14-14]UnstringifyEmpty
 
 ```
@@ -105,18 +105,6 @@ err[0]:
 
 ```
 
-## pass:begin
-out[4]:
-```
-1
-1
-
-```
-err[0]:
-```
-
-```
-
 ## pass:branch
 out[75]:
 ```
@@ -144,6 +132,18 @@ out[21]:
 ```
 exception: test
 fail
+
+```
+err[0]:
+```
+
+```
+
+## pass:do
+out[4]:
+```
+1
+1
 
 ```
 err[0]:
@@ -241,7 +241,7 @@ err[0]:
 ```
 
 ## pass:module-system
-out[30]:
+out[155]:
 ```
 1
 2
@@ -249,8 +249,10 @@ out[30]:
 100
 100
 11
+or-else fail handler
 bar
 env-done
+import file [tests/pass/env-basics.bb] did not define a module named `env-basics`; binding return value
 
 ```
 err[0]:

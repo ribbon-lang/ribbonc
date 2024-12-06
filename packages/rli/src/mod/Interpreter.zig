@@ -67,12 +67,14 @@ pub fn readerCall(interpreter: *Interpreter, parser: *Parser, readerName: SExpr,
     });
 
     interpreter.nativeWith(readerName.getAttr(), body, &out, struct {
-        fn exception (e: *Interpreter, a: *const Source.Attr, args: SExpr) Result!SExpr {
-            return try invoke(e, a, (try envLookup(try SExpr.Symbol(a, "terminator"), e.env)).?, args);
+        pub fn exception (e: *Interpreter, a: *const Source.Attr, args: SExpr) Result!SExpr {
+            const eArgs = try e.expectAtLeastN(1, args);
+            return invoke(e, a, eArgs.head[0], eArgs.tail);
         }
 
-        fn fail (e: *Interpreter, a: *const Source.Attr, args: SExpr) Result!SExpr {
-            return try invoke(e, a, (try envLookup(try SExpr.Symbol(a, "terminator"), e.env)).?, args);
+        pub fn fail (e: *Interpreter, a: *const Source.Attr, args: SExpr) Result!SExpr {
+            const eArgs = try e.expectAtLeastN(1, args);
+            return invoke(e, a, eArgs.head[0], eArgs.tail);
         }
     }) catch |res| {
         if (res == Signal.Terminate) {
@@ -577,19 +579,27 @@ pub fn nativeWith(
 
     const contextId = try SExpr.Int(at, @intCast(interpreter.context.genId()));
 
+
     inline for (comptime std.meta.declarations(HandlerSet)) |decl| {
+        log.debug("adding native handler for `{s}`", .{decl.name});
+
         const promptSym = try SExpr.Symbol(at, decl.name);
-        const wrappedHandler = try wrapNativeHandler(interpreter, at, contextId, promptSym, @field(HandlerSet, decl.name));
+        const wrappedHandler = try wrapNativeHandler(interpreter, at, contextId, decl.name, promptSym, @field(HandlerSet, decl.name));
 
         try extendEnvFrame(at, promptSym, wrappedHandler, interpreter.evidence);
+        log.debug("added native handler for `{}`", .{promptSym});
     }
 
+    log.debug("running nativeWith encapsulated body {}", .{body});
     const value = interpreter.eval(body) catch |res| {
+        log.debug("nativeWith caught error {}", .{res});
         if (res == Signal.Terminate) {
             const terminationData = interpreter.terminationData orelse {
+                log.debug("nativeWith missing termination data", .{});
                 return EvaluationError.MissingTerminationData;
             };
             if (MiscUtils.equal(terminationData.ctxId, contextId)) {
+                log.debug("nativeWith early-terminate on my context", .{});
                 out.* = .{ .Terminated = terminationData.value };
                 interpreter.terminationData = null;
                 return;
@@ -598,10 +608,12 @@ pub fn nativeWith(
         return res;
     };
 
+    log.debug("nativeWith did not early-terminate", .{});
+
     out.* = .{ .Evaluated = value };
 }
 
-fn wrapNativeHandler(interpreter: *Interpreter, at: *const Source.Attr, ctxId: SExpr, promptSym: SExpr, handler: SExpr.Types.Builtin.Proc) Result!SExpr {
+fn wrapNativeHandler(interpreter: *Interpreter, at: *const Source.Attr, ctxId: SExpr, comptime handlerName: []const u8, promptSym: SExpr, handler: SExpr.Types.Builtin.Proc) Result!SExpr {
     var env = interpreter.env;
 
     const handlerSym = try SExpr.Symbol(at, "builtin-handler");
@@ -609,14 +621,21 @@ fn wrapNativeHandler(interpreter: *Interpreter, at: *const Source.Attr, ctxId: S
     const argsSym = try SExpr.Symbol(at, "args");
 
     try pushNewFrame(at, &env);
-    try extendEnvFrame(at, handlerSym, try SExpr.Builtin(at, "native-handler", handler), env);
+    try extendEnvFrame(at, handlerSym, try SExpr.Builtin(at, "native-handler-" ++ handlerName, handler), env);
     try extendEnvFrame(at, terminatorSym, try wrapTerminator(interpreter, at, ctxId, promptSym, "native-terminator", valueTerminator), env);
 
-    const lList = try SExpr.List(at, &[_]SExpr{ try SExpr.Symbol(at, "..."), argsSym });
-    const apply = try SExpr.List(at, &[_]SExpr{try SExpr.Symbol(at, "apply"), handlerSym, argsSym });
-    const closureBody = try SExpr.List(at, &[_]SExpr{ apply });
+    const lList = try SExpr.List(at, &.{ try SExpr.Symbol(at, "..."), argsSym });
+    const closureBody = try SExpr.List(at, &.{
+        try SExpr.Quasi(
+            try SExpr.List(at, &.{
+                try SExpr.Unquote(try SExpr.ToQuote(handlerSym)),
+                try SExpr.Unquote(terminatorSym),
+                try SExpr.UnquoteSplicing(argsSym)
+            })
+        ),
+    });
 
-    return try SExpr.Function(at, .Lambda, lList, env, closureBody);
+    return try SExpr.Function(at, .Macro, lList, env, closureBody);
 }
 
 
@@ -627,17 +646,23 @@ pub fn wrapTerminator(interpreter: *Interpreter, at: *const Source.Attr, ctxId: 
     const valSym = try SExpr.Symbol(at, "val");
 
     try pushNewFrame(at, &env);
-    try extendEnvFrame(at, terminateSym, try SExpr.Builtin(at, terminatorName, terminator), env);
+    try extendEnvFrame(at, terminateSym, try SExpr.Builtin(at, terminatorName, struct {
+        pub fn fun(a: *Interpreter, b: *const Source.Attr, c: SExpr) Result!SExpr {
+            log.debug("wrappedTerminator-{s} {}", .{terminatorName, c});
+            return terminator(a, b, c);
+        }
+    }.fun), env);
 
-    const val = try SExpr.List(at, &[_]SExpr{ try SExpr.Symbol(at, "?"), valSym });
-    const lList = try SExpr.List(at, &[_]SExpr{val});
-    const invoker = try SExpr.List(at, &[_]SExpr{ terminateSym, ctxId, promptName, valSym });
-    const body = try SExpr.List(at, &[_]SExpr{invoker});
+    const val = try SExpr.List(at, &.{ try SExpr.Symbol(at, "?"), valSym });
+    const lList = try SExpr.List(at, &.{val});
+    const invoker = try SExpr.List(at, &.{ terminateSym, ctxId, promptName, valSym });
+    const body = try SExpr.List(at, &.{invoker});
 
     return try SExpr.Function(at, .Lambda, lList, env, body);
 }
 
 pub fn valueTerminator(interpreter: *Interpreter, _: *const Source.Attr, args: SExpr) Result!SExpr {
+    log.debug("valueTerminator {}", .{args});
     const buf = try interpreter.expectN(3, args);
     const ctxId = buf[0];
     const value = try interpreter.eval(buf[2]);
@@ -659,6 +684,7 @@ pub fn liftFetch(interpreter: *Interpreter, at: *const Source.Attr, name: SExpr)
 }
 
 pub fn liftPrompt(interpreter: *Interpreter, at: *const Source.Attr, name: SExpr, args: SExpr) Result!SExpr {
+    log.debug("liftPrompt {} {}", .{name, args});
     const handler = try liftFetch(interpreter, at, name);
 
     return interpreter.invoke(at, handler, args);
@@ -683,7 +709,7 @@ pub fn eval(interpreter: *Interpreter, sexpr: SExpr) Result!SExpr {
                 const sym = sexpr.forceSymbolSlice();
 
                 if (std.mem.eql(u8, sym, "unquote") or std.mem.eql(u8, sym, "unquote-splicing")) {
-                    return interpreter.abort(EvaluationError.InvalidContext, sexpr.getAttr(), "encountered `{s}` outside of quasi-quote", .{sym});
+                    return interpreter.abort(EvaluationError.InvalidContext, sexpr.getAttr(), "encountered `{s}` outside of quasiquote", .{sym});
                 } else if (std.mem.eql(u8, sym, "terminate")) {
                     return interpreter.abort(EvaluationError.UnexpectedTerminate, sexpr.getAttr(), "encountered `terminate` outside of effect handler", .{});
                 } else {
@@ -759,6 +785,7 @@ pub fn evalListOfInRange(interpreter: *Interpreter, sList: SExpr, minLength: usi
 }
 
 pub fn invoke(interpreter: *Interpreter, at: *const Source.Attr, fun: SExpr, sArgs: SExpr) Result!SExpr {
+    log.debug("invoke {} {}", .{fun, sArgs});
     switch (fun.getTag()) {
         .Nil,
         .Bool,
@@ -841,6 +868,7 @@ fn Pattern(comptime E: type, comptime mkError: fn (*Interpreter, EvaluationError
                 },
 
                 .Cons => {
+                    log.debug("{}: checking cons pattern {}:{} on {}:{}", .{at, expected.getAttr(), expected, given.getAttr(), given});
                     var currentExpected = expected;
                     var currentGiven = given;
                     while (!currentExpected.isNil()) {
@@ -849,7 +877,7 @@ fn Pattern(comptime E: type, comptime mkError: fn (*Interpreter, EvaluationError
                         };
 
                         {
-                            var err: ?E = undefined;
+                            var err: ?E = null;
                             if (try specialImpl(interpreter, at, bindings, xpExpected.car, xpExpected.cdr, currentGiven, &err)) {
                                 return err;
                             }
@@ -974,6 +1002,7 @@ fn Pattern(comptime E: type, comptime mkError: fn (*Interpreter, EvaluationError
 
         fn specialImpl(interpreter: *Interpreter, at: *const Source.Attr, bindings: *SExpr.HashMapOf(?SExpr), symbol: SExpr, rest: SExpr, given: SExpr, errOut: *?E) Result!bool {
             if (symbol.isExactSymbol("quote")) {
+                log.debug("recognized quote", .{});
                 const xp = try interpreter.castList(at, rest);
                 if (!xp.cdr.isNil()) {
                     return interpreter.abort(EvaluationError.TypeError, xp.attr,
@@ -994,6 +1023,7 @@ fn Pattern(comptime E: type, comptime mkError: fn (*Interpreter, EvaluationError
                         "pattern element contains invalid quote, body is {} (should be Symbol)", .{q.getTag()});
                 }
             } else if (symbol.isExactSymbol("unquote")) {
+                log.debug("recognized unquote", .{});
                 const xp = try interpreter.castList(at, rest);
                 const uq = try interpreter.eval(xp.car);
 
@@ -1005,6 +1035,7 @@ fn Pattern(comptime E: type, comptime mkError: fn (*Interpreter, EvaluationError
                 errOut.* = try runImpl(interpreter, at, bindings, uq, given);
                 return true;
             } else if (symbol.isExactSymbol(":")) {
+                log.debug("recognized predicate", .{});
                 const xp = try interpreter.castList(at, rest);
                 const predE = xp.car;
 
@@ -1023,29 +1054,38 @@ fn Pattern(comptime E: type, comptime mkError: fn (*Interpreter, EvaluationError
                 }
                 return true;
             } else if (symbol.isExactSymbol("->")) {
+                log.debug("recognized transformer", .{});
                 const xp = try interpreter.castList(at, rest);
                 const predE = xp.car;
 
-                const args = try SExpr.Quote(try SExpr.List(at, &[_]SExpr { given }));
-                const body = try SExpr.List(at, &[_]SExpr { try SExpr.Symbol(at, "apply"), predE, args });
+                const args = try SExpr.List(at, &.{try SExpr.Quote(given)});
+                const body = try SExpr.Cons(at, predE, args);
+
+                log.debug("-> {}", .{body});
 
                 var out: NativeWithOut = undefined;
                 try interpreter.nativeWith(at, body, &out, struct {
-                    fn fail(e: *Interpreter, a: *const Source.Attr, x: SExpr) Result!SExpr {
-                        const terminator = (try envLookup(try SExpr.Symbol(a, "terminator"), e.env)).?;
-                        return try invoke(e, a, terminator, x);
+                    pub fn fail(e: *Interpreter, a: *const Source.Attr, x: SExpr) Result!SExpr {
+                        log.debug("-> fail", .{});
+                        const eArgs = try e.expectAtLeastN(1, x);
+                        return try invoke(e, a, eArgs.head[0], eArgs.tail);
                     }
                 });
+
+                log.debug("-> out: {}", .{out});
 
                 switch (out) {
                     .Evaluated => |x| {
                         if (!xp.cdr.isNil()) {
+                            log.debug("-> ran: {}", .{x});
+                            log.debug("-> applying rest: {}", .{xp.cdr});
                             errOut.* = try runImpl(interpreter, at, bindings, xp.cdr, x);
                         } else {
                             errOut.* = null;
                         }
                     },
                     .Terminated => |_| {
+                        log.debug("-> failed", .{});
                         errOut.* = try patternError(interpreter, EvaluationError.RangeError, at,
                             "view pattern `{}` failed on value `{}`", .{ predE, given });
                     },
@@ -1053,6 +1093,7 @@ fn Pattern(comptime E: type, comptime mkError: fn (*Interpreter, EvaluationError
 
                 return true;
             } else if (symbol.isExactSymbol("?")) {
+                log.debug("recognized optional", .{});
                 const xp = try interpreter.castList(at, rest);
 
                 const vx = xp.car;
@@ -1078,6 +1119,7 @@ fn Pattern(comptime E: type, comptime mkError: fn (*Interpreter, EvaluationError
 
                 return true;
             } else if (symbol.isExactSymbol("@")) {
+                log.debug("recognized alias", .{});
                 const xp = try interpreter.castList(at, rest);
 
                 const atSym = xp.car;
@@ -1104,6 +1146,7 @@ fn Pattern(comptime E: type, comptime mkError: fn (*Interpreter, EvaluationError
 
                 return true;
             } else if (symbol.isExactSymbol("...")) {
+                log.debug("recognized rest", .{});
                 const xp = try interpreter.castList(at, rest);
 
                 var restSym = xp.car;
@@ -1149,6 +1192,9 @@ fn Pattern(comptime E: type, comptime mkError: fn (*Interpreter, EvaluationError
                 errOut.* = try bind(interpreter, at, bindings, restSym, given);
                 return true;
             }
+
+            log.debug("did not recognize a special pattern in {}", .{symbol});
+
 
             return false;
         }
@@ -1334,6 +1380,7 @@ fn Pattern(comptime E: type, comptime mkError: fn (*Interpreter, EvaluationError
         }
 
         inline fn patternError(interpreter: *Interpreter, err: EvaluationError, at: *const Source.Attr, comptime fmt: []const u8, args: anytype) Result!?E {
+            log.debug("pattern error {}: {} " ++ fmt, .{at, err} ++ args);
             return try @call(.always_inline, mkError, .{ interpreter, err, at, fmt, args });
         }
     };
@@ -1435,6 +1482,7 @@ pub fn runProgram(interpreter: *Interpreter, program: SExpr) Result!SExpr {
             return interpreter.abort(EvaluationError.TypeError, tail.getAttr(), "expected an expression list, got {}", .{tail.getTag()});
         });
 
+        log.debug("runProgram {}", .{list.car});
         result = try interpreter.eval(list.car);
 
         tail = list.cdr;
@@ -1791,7 +1839,7 @@ pub fn coerceNativeChar(interpreter: *Interpreter, at: *const Source.Attr, sexpr
 }
 
 pub fn errorToException(interpreter: *Interpreter, at: *const Source.Attr, err: anyerror) Result!SExpr {
-    return interpreter.nativePrompt(at, "exception", &[_]SExpr{try SExpr.Symbol(at, @errorName(err))});
+    return interpreter.nativePrompt(at, "exception", &[_]SExpr {try SExpr.Symbol(at, @errorName(err))});
 }
 
 pub inline fn argIterator(interpreter: *Interpreter, shouldEval: bool, args: SExpr) Result!ArgIterator {

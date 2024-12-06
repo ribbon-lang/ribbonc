@@ -140,6 +140,10 @@ patterns.keywords["identifier.reader.ribbon"] = {
     },
 };
 
+patterns.keywords["transformer.ribbon"] = {
+    match: cat(set("@"), identifier, end),
+};
+
 patterns.keywords["predicate.ribbon"] = {
     match: cat(identifier, set("?"), end),
 };

@@ -1,5 +1,5 @@
 export const Keywords = [
-    "begin", "match", "cond", "unless", "when", "if", "else",
+    "do", "match", "cond", "unless", "when", "if", "else",
 ];
 
 export const Module = [
@@ -28,6 +28,7 @@ export const Special = [
 
 export const ControlFlow = [
     "assert", "stop", "throw", "panic", "else",
+    "or-else", "or-panic", "or-panic-at",
 ];
 
 export const Operators = [
