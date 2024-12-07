@@ -1,16 +1,16 @@
 ; V = kebab-sym
-;   | bool_lit | int_lit | float_lit | char_lit | str_lit
+;   | () | bool_lit | int_lit | float_lit | char_lit | string_lit
 ;   | ('fun (kebab-sym T?)* [-> T]? => V)
 ;   | (V ': T)
-;   | ('do V++';)
+;   | ('do V+)
 ;   | (V+)
 
 ; T = CamelCaseSym
+;   | '->
 ;   | ('type-var . kebab-sym)
-;   | (T '-> T)
 ;   | (T T+)
 
-; Q = (('for kekab-sym+)? T)
+; Q = (('for kebab-sym+)? T)
 
 ; D = (kebab-sym [': Q]? '= V)
 ;   | ('type CamelCaseSym '= Q)
@@ -18,22 +18,30 @@
 ; S = (D+)
 
 
+(import attr)
+
+(import "Env.bb")
 (import "Subst.bb")
+(import "Tc.bb")
 
-(def subst '(
-    (a . bool)
-    (b . float)
-))
 
-(def expr `(fun ((type-var . a) int) (type-var . b) in ()))
+(def expr
+    '(fun (x) (fun (y) (+ x y))))
+(print-ln "expr: " expr)
 
-(def applied (Subst/apply expr subst))
-
-(print-ln subst)
-(print-ln expr)
-(print-ln applied)
-(assert-eq '(fun (bool int) float in ()) applied)
-(assert (Subst/type-var? '(type-var . a)))
-(assert (not (Subst/type-var? '(typeVar . a))))
-(assert-eq 'a (Subst/symbol<-type-var (Subst/type-var<-symbol 'a)))
-
+(def type
+    (with ((fun fail ()
+                (print-ln "ICE")
+                (terminate))
+           (fun log (msg)
+                (print-ln msg))
+           (fun exception (... args)
+                (match args
+                    ((((attr . kind) . msg))
+                        (print-ln kind "Error[" attr "]:\n\t" msg)
+                        (terminate))
+                    (else
+                        (print-ln "uncaught exception" args)
+                        (terminate)))))
+        (Tc/infer expr (Subst/empty) '((+ . (-> Int (-> Int Int)))))))
+(print-ln "type: " type)

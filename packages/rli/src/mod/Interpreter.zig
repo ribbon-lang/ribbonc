@@ -61,10 +61,12 @@ pub fn readerCall(interpreter: *Interpreter, parser: *Parser, readerName: SExpr,
 
     var out: NativeWithOut = undefined;
     const body = try SExpr.List(at, &.{
-        readerName,
-        try SExpr.Quote(try parser.toSExpr(at)),
-        try SExpr.Quote(try SExpr.from(at, start)),
-        try SExpr.Quote(try SExpr.from(at, comments)),
+        try SExpr.List(at, &.{
+            readerName,
+            try SExpr.Quote(try parser.toSExpr(at)),
+            try SExpr.Quote(try SExpr.from(at, start)),
+            try SExpr.Quote(try SExpr.from(at, comments)),
+        })
     });
 
     interpreter.nativeWith(readerName.getAttr(), body, &out, struct {
@@ -177,7 +179,8 @@ pub const RichError = struct {
 
         if (self.stack) |stack| {
             try writer.writeAll("\n\n\tstack trace:");
-            for (stack.items) |attr| {
+            for (0..stack.items.len) |i| {
+                const attr = stack.items[stack.items.len - i - 1];
                 try writer.print("\n\t\t{}", .{attr});
             }
         }
@@ -259,7 +262,7 @@ pub fn restore(interpreter: *Interpreter, envs: SavedEvaluationEnvs) void {
     }
 
     if (interpreter.errorStack) |stack| {
-        interpreter.context.allocator.free(stack);
+        stack.deinit();
         interpreter.errorStack = null;
     }
 
@@ -610,7 +613,7 @@ pub fn nativeWith(
     }
 
     log.debug("running nativeWith encapsulated body {}", .{body});
-    const value = interpreter.eval(body) catch |res| {
+    const value = interpreter.runProgram(body) catch |res| {
         log.debug("nativeWith caught error {}", .{res});
         if (res == Signal.Terminate) {
             const terminationData = interpreter.terminationData orelse {
@@ -763,8 +766,48 @@ pub fn evalList(interpreter: *Interpreter, sList: SExpr) Result![]const SExpr {
     return evalListInRange(interpreter, sList, 0, std.math.maxInt(usize));
 }
 
+pub fn evalListOfT(interpreter: *Interpreter, comptime T: type, sList: SExpr) Result![]const T {
+    return evalListOfTInRange(interpreter, T, sList, 0, std.math.maxInt(usize));
+}
+
 pub fn evalListInRange(interpreter: *Interpreter, sList: SExpr, minLength: usize, maxLength: usize) Result![]const SExpr {
     return evalListOfInRange(interpreter, sList, minLength, maxLength, "", passAll);
+}
+
+pub fn evalListOfTInRange(interpreter: *Interpreter, comptime T: type, sList: SExpr, minLength: usize, maxLength: usize) Result![]const T {
+    var listBuf = std.ArrayList(T).init(interpreter.context.allocator);
+
+    var tail = sList;
+
+    while (!tail.isNil()) {
+        const xp: *SExpr.Types.Cons = (tail.castCons() orelse {
+            return interpreter.abort(Error.TypeError, tail.getAttr(), "expected a list, got {}", .{tail.getTag()});
+        });
+
+        tail = xp.cdr;
+
+        const head =
+            (try interpreter.eval(xp.car)).to(T) catch |err| {
+                return interpreter.abort(err, xp.car.getAttr(), "expected {s}, got {}", .{ @typeName(T), xp.car.getTag() });
+            };
+
+
+        try listBuf.append(head);
+    }
+
+    const len = listBuf.items.len;
+
+    if (len < minLength) {
+        return interpreter.abort(Error.NotEnoughArguments, sList.getAttr(), "expected at least {} arguments, got {}", .{ minLength, len });
+    }
+
+    if (len > maxLength) {
+        return interpreter.abort(Error.TooManyArguments, sList.getAttr(), "expected at most {} arguments, got {}", .{ maxLength, len });
+    }
+
+    listBuf.shrinkAndFree(len);
+
+    return listBuf.items;
 }
 
 pub fn evalListOfInRange(interpreter: *Interpreter, sList: SExpr, minLength: usize, maxLength: usize, comptime expected: []const u8, predicate: fn (SExpr) bool) Result![]const SExpr {
@@ -1059,10 +1102,7 @@ fn Pattern(comptime E: type, comptime mkError: fn (*Interpreter, EvaluationError
                 const xp = try interpreter.castList(at, rest);
                 const predE = xp.car;
 
-                if (!xp.cdr.isNil()) {
-                    return interpreter.abort(EvaluationError.TypeError, xp.attr,
-                        "invalid pattern, expected only a value to follow `:`, got {}", .{xp.cdr.getTag()});
-                }
+                try interpreter.validateNil(at, xp.cdr);
 
                 const res = try interpreter.nativeInvoke(at, try interpreter.eval(predE), &[1]SExpr { given });
 
@@ -1078,8 +1118,7 @@ fn Pattern(comptime E: type, comptime mkError: fn (*Interpreter, EvaluationError
                 const xp = try interpreter.castList(at, rest);
                 const predE = xp.car;
 
-                const args = try SExpr.List(at, &.{try SExpr.Quote(given)});
-                const body = try SExpr.Cons(at, predE, args);
+                const body = try SExpr.List(at, &.{try SExpr.Cons(at, predE, try SExpr.List(at, &.{try SExpr.Quote(given)}))});
 
                 log.debug("-> {}", .{body});
 
@@ -1114,17 +1153,9 @@ fn Pattern(comptime E: type, comptime mkError: fn (*Interpreter, EvaluationError
                 return true;
             } else if (symbol.isExactSymbol("?")) {
                 log.debug("recognized optional", .{});
-                const xp = try interpreter.castList(at, rest);
-
-                const vx = xp.car;
-
-                if (!xp.cdr.isNil()) {
-                    return interpreter.abort(EvaluationError.TypeError, at,
-                        "invalid pattern, expected only a value to follow `?`, got {}", .{xp.cdr.getTag()});
-                }
 
                 if (given.isNil()) {
-                    const varBinders = try binders(interpreter, at, vx);
+                    const varBinders = try binders(interpreter, at, rest);
                     defer interpreter.context.allocator.free(varBinders);
 
                     for (varBinders) |binder| {
@@ -1134,7 +1165,7 @@ fn Pattern(comptime E: type, comptime mkError: fn (*Interpreter, EvaluationError
 
                     errOut.* = null;
                 } else {
-                    errOut.* = try runImpl(interpreter, at, bindings, vx, given);
+                    errOut.* = try runImpl(interpreter, at, bindings, rest, given);
                 }
 
                 return true;
@@ -1154,14 +1185,17 @@ fn Pattern(comptime E: type, comptime mkError: fn (*Interpreter, EvaluationError
                 const vx = xp2.car;
 
                 if (!xp2.cdr.isNil()) {
-                    return interpreter.abort(EvaluationError.TypeError, xp2.attr,
-                        "invalid pattern, expected only a value to follow `@`, got {}", .{xp2.cdr.getTag()});
-                }
-
-                if (try runImpl(interpreter, at, bindings, vx, given)) |err| {
-                    errOut.* = err;
+                    if (try runImpl(interpreter, at, bindings, xp.cdr, given)) |err| {
+                        errOut.* = err;
+                    } else {
+                        errOut.* = try bind(interpreter, at, bindings, atSym, given);
+                    }
                 } else {
-                    errOut.* = try bind(interpreter, at, bindings, atSym, given);
+                    if (try runImpl(interpreter, at, bindings, vx, given)) |err| {
+                        errOut.* = err;
+                    } else {
+                        errOut.* = try bind(interpreter, at, bindings, atSym, given);
+                    }
                 }
 
                 return true;
@@ -1567,10 +1601,17 @@ pub fn validateNil(interpreter: *Interpreter, at: *const Source.Attr, sexpr: SEx
     }
 }
 
+pub fn validateNumber(interpreter: *Interpreter, at: *const Source.Attr, sexpr: SExpr) Error!void {
+    if (!sexpr.isNumber()) {
+        return interpreter.abort(Error.TypeError, at,
+            "expected an Int, got {}: `{}`", .{ sexpr.getTag(), sexpr });
+    }
+}
+
 pub fn validateInt(interpreter: *Interpreter, at: *const Source.Attr, sexpr: SExpr) Error!void {
     if (!sexpr.isInt()) {
         return interpreter.abort(Error.TypeError, at,
-            "expected an Int, got {}: `{}`", .{ sexpr.getTag(), sexpr });
+            "expected an Int or a Float, got {}: `{}`", .{ sexpr.getTag(), sexpr });
     }
 }
 

@@ -10,17 +10,12 @@ pub const Doc =
     \\
 ;
 
-fn checkIsIntOrFloat(interpreter: *Interpreter, at: *const Source.Attr, index: usize, a: SExpr) Interpreter.Result!void {
-    if (!(a.isInt() or a.isFloat()))
-        return interpreter.abort(Interpreter.Error.TypeError, at, "expected an integer or a float for argument {}, got {}: `{}`", .{ index + 1, a.getTag(), a });
-}
-
 pub const Decls = .{
     .{ .{ "add", "+" }, "integer/floating point addition on any number of values", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             var rArgs = try interpreter.argIterator(true, args);
             var a = try rArgs.atLeast();
-            try checkIsIntOrFloat(interpreter, at, 0, a);
+            try interpreter.validateNumber(at, a);
             if (!rArgs.hasNext()) {
                 switch (a.getTag()) {
                     .Int => return try SExpr.Int(at, @as(i64, @intCast(@abs(a.forceInt())))),
@@ -28,19 +23,9 @@ pub const Decls = .{
                     else => unreachable,
                 }
             }
-            while (try rArgs.nextWithIndex()) |next| {
-                const b = next[0];
-                const i = next[1];
-                try checkIsIntOrFloat(interpreter, at, i, b);
-                if (a.isInt() and b.isInt()) {
-                    a = try SExpr.Int(at, a.forceInt() + b.forceInt());
-                } else if (a.isFloat() or b.isFloat()) {
-                    a = try SExpr.Float(at, a.forceFloat() + b.forceFloat());
-                } else if (a.isInt() and b.isFloat()) {
-                    a = try SExpr.Float(at, @as(f64, @floatFromInt(a.forceInt())) + b.forceFloat());
-                } else if (a.isFloat() and b.isInt()) {
-                    a = try SExpr.Float(at, a.forceFloat() + @as(f64, @floatFromInt(b.forceInt())));
-                } else unreachable;
+            while (try rArgs.next()) |b| {
+                try interpreter.validateNumber(at, b);
+                a = try castedBinOp(.add, interpreter, at, a, b);
             }
             return a;
         }
@@ -49,7 +34,7 @@ pub const Decls = .{
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             var rArgs = try interpreter.argIterator(true, args);
             var a = try rArgs.atLeast();
-            try checkIsIntOrFloat(interpreter, at, 0, a);
+            try interpreter.validateNumber(at, a);
             if (!rArgs.hasNext()) {
                 switch (a.getTag()) {
                     .Int => return try SExpr.Int(at, -a.forceInt()),
@@ -57,19 +42,9 @@ pub const Decls = .{
                     else => unreachable,
                 }
             }
-            while (try rArgs.nextWithIndex()) |next| {
-                const b = next[0];
-                const i = next[1];
-                try checkIsIntOrFloat(interpreter, at, i, b);
-                if (a.isInt() and b.isInt()) {
-                    a = try SExpr.Int(at, a.forceInt() - b.forceInt());
-                } else if (a.isFloat() or b.isFloat()) {
-                    a = try SExpr.Float(at, a.forceFloat() - b.forceFloat());
-                } else if (a.isInt() and b.isFloat()) {
-                    a = try SExpr.Float(at, @as(f64, @floatFromInt(a.forceInt())) - b.forceFloat());
-                } else if (a.isFloat() and b.isInt()) {
-                    a = try SExpr.Float(at, a.forceFloat() - @as(f64, @floatFromInt(b.forceInt())));
-                } else unreachable;
+            while (try rArgs.next()) |b| {
+                try interpreter.validateNumber(at, b);
+                a = try castedBinOp(.sub, interpreter, at, a, b);
             }
             return a;
         }
@@ -78,20 +53,10 @@ pub const Decls = .{
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             var rArgs = try interpreter.argIterator(true, args);
             var a = try rArgs.atLeast();
-            try checkIsIntOrFloat(interpreter, at, 0, a);
-            while (try rArgs.nextWithIndex()) |next| {
-                const b = next[0];
-                const i = next[1];
-                try checkIsIntOrFloat(interpreter, at, i, b);
-                if (a.isInt() and b.isInt()) {
-                    a = try SExpr.Int(at, a.forceInt() * b.forceInt());
-                } else if (a.isFloat() or b.isFloat()) {
-                    a = try SExpr.Float(at, a.forceFloat() * b.forceFloat());
-                } else if (a.isInt() and b.isFloat()) {
-                    a = try SExpr.Float(at, @as(f64, @floatFromInt(a.forceInt())) * b.forceFloat());
-                } else if (a.isFloat() and b.isInt()) {
-                    a = try SExpr.Float(at, a.forceFloat() * @as(f64, @floatFromInt(b.forceInt())));
-                } else unreachable;
+            try interpreter.validateNumber(at, a);
+            while (try rArgs.next()) |b| {
+                try interpreter.validateNumber(at, b);
+                a = try castedBinOp(.mul, interpreter, at, a, b);
             }
             return a;
         }
@@ -100,36 +65,11 @@ pub const Decls = .{
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             var rArgs = try interpreter.argIterator(true, args);
             var a = try rArgs.atLeast();
-            try checkIsIntOrFloat(interpreter, at, 0, a);
-            while (try rArgs.nextWithIndex()) |next| {
-                const b = next[0];
-                const i = next[1];
-                try checkIsIntOrFloat(interpreter, at, i, b);
-                if (a.isInt() and b.isInt()) {
-                    const ib = b.forceInt();
-                    if (ib == 0) {
-                        return interpreter.abort(Interpreter.Error.DivisionByZero, b.getAttr(), "integer division by zero", .{});
-                    }
-                    a = try SExpr.Int(at, @divFloor(a.forceInt(), ib));
-                } else if (a.isFloat() or b.isFloat()) {
-                    const fb = b.forceFloat();
-                    if (fb == 0.0) {
-                        return interpreter.abort(Interpreter.Error.DivisionByZero, b.getAttr(), "float division by zero", .{});
-                    }
-                    a = try SExpr.Float(at, a.forceFloat() / fb);
-                } else if (a.isInt() and b.isFloat()) {
-                    const fb = b.forceFloat();
-                    if (fb == 0.0) {
-                        return interpreter.abort(Interpreter.Error.DivisionByZero, b.getAttr(), "float division by zero", .{});
-                    }
-                    a = try SExpr.Float(at, @as(f64, @floatFromInt(a.forceInt())) / fb);
-                } else if (a.isFloat() and b.isInt()) {
-                    const fb = @as(f64, @floatFromInt(b.forceInt()));
-                    if (fb == 0.0) {
-                        return interpreter.abort(Interpreter.Error.DivisionByZero, b.getAttr(), "float division by zero", .{});
-                    }
-                    a = try SExpr.Float(at, a.forceFloat() / fb);
-                } else unreachable;
+            try interpreter.validateNumber(at, a);
+
+            while (try rArgs.next()) |b| {
+                try interpreter.validateNumber(at, b);
+                a = try castedBinOp(.div, interpreter, at, a, b);
             }
             return a;
         }
@@ -138,36 +78,11 @@ pub const Decls = .{
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             var rArgs = try interpreter.argIterator(true, args);
             var a = try rArgs.atLeast();
-            try checkIsIntOrFloat(interpreter, at, 0, a);
-            while (try rArgs.nextWithIndex()) |next| {
-                const b = next[0];
-                const i = next[1];
-                try checkIsIntOrFloat(interpreter, at, i, b);
-                if (a.isInt() and b.isInt()) {
-                    const ib = b.forceInt();
-                    if (ib == 0) {
-                        return interpreter.abort(Interpreter.Error.DivisionByZero, b.getAttr(), "integer modulo by zero", .{});
-                    }
-                    a = try SExpr.Int(at, @mod(a.forceInt(), ib));
-                } else if (a.isFloat() or b.isFloat()) {
-                    const fb = b.forceFloat();
-                    if (fb == 0.0) {
-                        return interpreter.abort(Interpreter.Error.DivisionByZero, b.getAttr(), "float modulo by zero", .{});
-                    }
-                    a = try SExpr.Float(at, @mod(a.forceFloat(), fb));
-                } else if (a.isInt() and b.isFloat()) {
-                    const fb = b.forceFloat();
-                    if (fb == 0.0) {
-                        return interpreter.abort(Interpreter.Error.DivisionByZero, b.getAttr(), "float modulo by zero", .{});
-                    }
-                    a = try SExpr.Float(at, @mod(@as(f64, @floatFromInt(a.forceInt())), fb));
-                } else if (a.isFloat() and b.isInt()) {
-                    const fb = @as(f64, @floatFromInt(b.forceInt()));
-                    if (fb == 0.0) {
-                        return interpreter.abort(Interpreter.Error.DivisionByZero, b.getAttr(), "float modulo by zero", .{});
-                    }
-                    a = try SExpr.Float(at, @mod(a.forceFloat(), fb));
-                } else unreachable;
+            try interpreter.validateNumber(at, a);
+
+            while (try rArgs.next()) |b| {
+                try interpreter.validateNumber(at, b);
+                a = try castedBinOp(.mod, interpreter, at, a, b);
             }
             return a;
         }
@@ -176,20 +91,10 @@ pub const Decls = .{
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             var rArgs = try interpreter.argIterator(true, args);
             var a = try rArgs.atLeast();
-            try checkIsIntOrFloat(interpreter, at, 0, a);
-            while (try rArgs.nextWithIndex()) |next| {
-                const b = next[0];
-                const i = next[1];
-                try checkIsIntOrFloat(interpreter, at, i, b);
-                if (a.isInt() and b.isInt()) {
-                    a = try SExpr.Int(at, std.math.pow(i64, a.forceInt(), b.forceInt()));
-                } else if (a.isFloat() or b.isFloat()) {
-                    a = try SExpr.Float(at, std.math.pow(f64, a.forceFloat(), b.forceFloat()));
-                } else if (a.isInt() and b.isFloat()) {
-                    a = try SExpr.Float(at, std.math.pow(f64, @as(f64, @floatFromInt(a.forceInt())), b.forceFloat()));
-                } else if (a.isFloat() and b.isInt()) {
-                    a = try SExpr.Float(at, std.math.pow(f64, a.forceFloat(), @as(f64, @floatFromInt(b.forceInt()))));
-                } else unreachable;
+            try interpreter.validateNumber(at, a);
+            while (try rArgs.next()) |b| {
+                try interpreter.validateNumber(at, b);
+                a = try castedBinOp(.pow, interpreter, at, a, b);
             }
             return a;
         }
@@ -217,6 +122,20 @@ pub const Decls = .{
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const arg = (try interpreter.evalN(1, args))[0];
             return try SExpr.Bool(at, if (arg.isFloat()) std.math.isPositiveInf(arg.forceFloat()) else false);
+        }
+    } },
+    .{ "odd?", "check if input is odd", struct {
+        pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
+            const arg = (try interpreter.evalN(1, args))[0];
+            const i = arg.coerceNativeInt() orelse return interpreter.abort(error.TypeError, at, "expected an integer, got {}: `{}`", .{ arg.getTag(), arg });
+            return try SExpr.Bool(at, @rem(i, 2) != 0);
+        }
+    } },
+    .{ "even?", "check if input is even", struct {
+        pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
+            const arg = (try interpreter.evalN(1, args))[0];
+            const i = arg.coerceNativeInt() orelse return interpreter.abort(error.TypeError, at, "expected an integer, got {}: `{}`", .{ arg.getTag(), arg });
+            return try SExpr.Bool(at, @rem(i, 2) == 0);
         }
     } },
 
@@ -254,7 +173,7 @@ pub const Decls = .{
             } else if (arg.isFloat()) {
                 return try SExpr.Float(at, @floor(arg.forceFloat()));
             } else {
-                return interpreter.abort(Interpreter.Error.TypeError, at, "expected an integer or a float, got {}: `{}`", .{ arg.getTag(), arg });
+                return interpreter.abort(Interpreter.EvaluationError.TypeError, at, "expected an integer or a float, got {}: `{}`", .{ arg.getTag(), arg });
             }
         }
     } },
@@ -266,7 +185,7 @@ pub const Decls = .{
             } else if (arg.isFloat()) {
                 return try SExpr.Float(at, @ceil(arg.forceFloat()));
             } else {
-                return interpreter.abort(Interpreter.Error.TypeError, at, "expected an integer or a float, got {}: `{}`", .{ arg.getTag(), arg });
+                return interpreter.abort(Interpreter.EvaluationError.TypeError, at, "expected an integer or a float, got {}: `{}`", .{ arg.getTag(), arg });
             }
         }
     } },
@@ -278,7 +197,7 @@ pub const Decls = .{
             } else if (arg.isFloat()) {
                 return try SExpr.Float(at, @round(arg.forceFloat()));
             } else {
-                return interpreter.abort(Interpreter.Error.TypeError, at, "expected an integer or a float, got {}: `{}`", .{ arg.getTag(), arg });
+                return interpreter.abort(Interpreter.EvaluationError.TypeError, at, "expected an integer or a float, got {}: `{}`", .{ arg.getTag(), arg });
             }
         }
     } },
@@ -290,8 +209,32 @@ pub const Decls = .{
             } else if (arg.isFloat()) {
                 return try SExpr.Float(at, arg.forceFloat() - @trunc(arg.forceFloat()));
             } else {
-                return interpreter.abort(Interpreter.Error.TypeError, at, "expected an integer or a float, got {}: `{}`", .{ arg.getTag(), arg });
+                return interpreter.abort(Interpreter.EvaluationError.TypeError, at, "expected an integer or a float, got {}: `{}`", .{ arg.getTag(), arg });
             }
         }
     } },
 };
+
+pub fn castedBinOp(comptime op: @Type(.enum_literal), interpreter: *Interpreter, at: *const Source.Attr, a: SExpr, b: SExpr) !SExpr {
+    const opFn = switch (op) {
+        .add => struct { fn fun (_: *Interpreter, _: *const Source.Attr, x: anytype, y: @TypeOf(x)) !@TypeOf(y) { return x + y; } },
+        .sub => struct { fn fun (_: *Interpreter, _: *const Source.Attr, x: anytype, y: @TypeOf(x)) !@TypeOf(y) { return x - y; } },
+        .mul => struct { fn fun (_: *Interpreter, _: *const Source.Attr, x: anytype, y: @TypeOf(x)) !@TypeOf(y) { return x * y; } },
+        .div => struct { fn fun (i: *Interpreter, att: *const Source.Attr, x: anytype, y: @TypeOf(x)) !@TypeOf(y) { if (y == 0) return i.abort(error.RangeError, att, "division by zero", .{}); return switch (@TypeOf(x)) { i64 => @divFloor(x, y), f64 => x / y, else => unreachable }; } },
+        .mod => struct { fn fun (i: *Interpreter, att: *const Source.Attr, x: anytype, y: @TypeOf(x)) !@TypeOf(y) { if (y == 0) return i.abort(error.RangeError, att, "division by zero", .{}); return @mod(x, y); } },
+        .rem => struct { fn fun (i: *Interpreter, att: *const Source.Attr, x: anytype, y: @TypeOf(x)) !@TypeOf(y) { if (y == 0) return i.abort(error.RangeError, att, "division by zero", .{}); return @rem(x, y); } },
+        .pow => struct { fn fun (i: *Interpreter, att: *const Source.Attr, x: anytype, y: @TypeOf(x)) !@TypeOf(y) { if (y == 0) return i.abort(error.RangeError, att, "division by zero", .{}); return std.math.pow(@TypeOf(x), x, y); } },
+        else => @compileError("unsupported binary operation " ++ @typeName(op)),
+    }.fun;
+    if (a.isInt() and b.isInt()) {
+        return SExpr.Int(at, try opFn(interpreter, at, a.forceInt(), b.forceInt()));
+    } else if (a.isFloat() or b.isFloat()) {
+        return SExpr.Float(at, try opFn(interpreter, at, a.forceFloat(), b.forceFloat()));
+    } else if (a.isInt() and b.isFloat()) {
+        return SExpr.Float(at, try opFn(interpreter, at, @as(f64, @floatFromInt(a.forceInt())),  b.forceFloat()));
+    } else if (a.isFloat() and b.isInt()) {
+        return SExpr.Float(at, try opFn(interpreter, at, a.forceFloat(), @as(f64, @floatFromInt(b.forceInt()))));
+    } else {
+        return interpreter.abort(Interpreter.EvaluationError.TypeError, at, "expected an integer or a float, got {}: `{}` & {}: `{}`", .{a.getTag(), a, b.getTag(), b});
+    }
+}

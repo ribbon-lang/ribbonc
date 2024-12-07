@@ -152,4 +152,20 @@ pub const Decls = .{
             return SExpr.Symbol(at, newStr);
         }
     } },
+    .{ "symbol/basename", "takes a path symbol and returns the last portion of it; returns the whole symbol if it is not a path", struct {
+        pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
+            const eArgs = try interpreter.evalN(1, args);
+            const path = try interpreter.castSymbolSlice(at, eArgs[0]);
+            const base = std.fs.path.basenamePosix(path);
+            return SExpr.Symbol(at, base);
+        }
+    } },.{ "symbol/dirname", "takes a path symbol and returns the directory portion of it; may be nil if it is not a path", struct {
+        pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
+            const eArgs = try interpreter.evalN(1, args);
+            const path = try interpreter.castSymbolSlice(at, eArgs[0]);
+            const dir = std.fs.path.dirnamePosix(path);
+            if (dir) |d| if (d.len > 0) return SExpr.Symbol(at, d);
+            return SExpr.Nil(at);
+        }
+    } },
 };

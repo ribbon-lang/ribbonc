@@ -52,7 +52,7 @@ pub const Decls = .{
                 else if (rargs[1].coerceNativeChar()) |c| needleBuf[0..(TextUtils.encode(c, &needleBuf)
                     catch return interpreter.abort(Interpreter.Error.TypeError, at, "bad char {}", .{c}))]
                 else {
-                    return interpreter.abort(Interpreter.Error.TypeError, at, "expected a string or char for string/intercalate separator, got {}: `{}`", .{ rargs[1].getTag(), rargs[1] });
+                    return interpreter.abort(Interpreter.Error.TypeError, at, "expected a string or char for string/find needle, got {}: `{}`", .{ rargs[1].getTag(), rargs[1] });
                 };
             const pos = TextUtils.findStrCodepointIndex(haystack, needle) catch {
                 return interpreter.abort(Interpreter.Error.BadEncoding, at, "bad utf8 string", .{});

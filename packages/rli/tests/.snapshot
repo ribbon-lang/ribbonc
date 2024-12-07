@@ -3,12 +3,15 @@ out[0]:
 ```
 
 ```
-err[110]:
+err[162]:
 ```
 ! Evaluation error at [./tests/fail/assertion-failed.bb:1:1-16]: Panic
 	assert-eq failed:
 	a: 1 = 1
 	b: 2 = 2
+
+	stack trace:
+		[./tests/fail/assertion-failed.bb]
 
 ```
 
@@ -17,11 +20,16 @@ out[0]:
 ```
 
 ```
-err[165]:
+err[290]:
 ```
 ! Evaluation error at [./tests/fail/empty-parse.bb:3:1 to 4:33]: Panic
 	global prompt `fail` terminated with:
 		[./tests/fail/empty-parse.bb:4:16-31]: uncaught fail
+
+	stack trace:
+		[./tests/fail/empty-parse.bb]
+		[./tests/fail/empty-parse.bb:7:5-28]
+		[./tests/fail/empty-parse.bb:4:5-32]
 
 ```
 
@@ -30,12 +38,15 @@ out[0]:
 ```
 
 ```
-err[131]:
+err[181]:
 ```
 ! Evaluation error at [./tests/fail/equality-types.bb:1:1-31]: Panic
 	assert-eq-addr failed:
 	a: '(1 2) = (1 2)
 	b: '(1 2) = (1 2)
+
+	stack trace:
+		[./tests/fail/equality-types.bb]
 
 ```
 
@@ -44,10 +55,14 @@ out[0]:
 ```
 
 ```
-err[119]:
+err[201]:
 ```
-! Evaluation error at [module:17:5-57]: Panic
+! Evaluation error at [module:42:5-57]: Panic
 	uncaught exception: [./tests/fail/unhandled.bb:1:14-14]UnstringifyEmpty
+
+	stack trace:
+		[./tests/fail/unhandled.bb]
+		[./tests/fail/unhandled.bb:1:1-17]
 
 ```
 
@@ -56,10 +71,13 @@ out[0]:
 ```
 
 ```
-err[182]:
+err[229]:
 ```
 ! Evaluation error at [./tests/fail/unstringify.bb:4:5 to 5:63]: Type error
 	expected a Symbol, got Cons: `(fun exception (e) (terminate (string/concat "uncaught " (stringify e))))`
+
+	stack trace:
+		[./tests/fail/unstringify.bb]
 
 ```
 
@@ -184,6 +202,33 @@ err[0]:
 
 ```
 
+## pass:for
+out[145]:
+```
+0 1 2 3 4 5 6 7 8 9 
+10 11 12 13 14 15 16 17 18 19 
+0 1 2 3 4 5 6 7 8 9 10 
+10 11 12 13 14 15 16 17 18 19 20 
+10 12 14 16 18 
+10 12 14 16 18 20 
+
+```
+err[0]:
+```
+
+```
+
+## pass:list
+out[4]:
+```
+123
+
+```
+err[0]:
+```
+
+```
+
 ## pass:ll-eff
 out[0]:
 ```
@@ -241,7 +286,7 @@ err[0]:
 ```
 
 ## pass:module-system
-out[155]:
+out[134]:
 ```
 1
 2
@@ -249,7 +294,6 @@ out[155]:
 100
 100
 11
-or-else fail handler
 bar
 env-done
 import file [tests/pass/env-basics.bb] did not define a module named `env-basics`; binding return value
@@ -282,9 +326,9 @@ err[0]:
 ```
 
 ## pass:reader
-out[161]:
+out[202]:
 ```
-(my-reader ((offset . 204) (column . 4) (line . 9)) (((text . " test comment") (kind . plain)) ((text . " test doc") (kind . documentation))))
+(my-reader (Source.Pos (offset . 204) (column . 4) (line . 9)) ((Source.Comment (text . " test comment") (kind . plain)) (Source.Comment (text . " test doc") (kind . documentation))))
 test pass through
 
 ```

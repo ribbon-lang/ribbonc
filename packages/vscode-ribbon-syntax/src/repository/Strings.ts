@@ -37,7 +37,8 @@ export const Operators = [
     // "pow", "mod", "div", "mul", "sub", "add",
     "format","unstringify", "stringify",
     "frac", "round", "ceil", "floor",
-    "of", "in", "at", "is", "as", "to", "from", "each",
+    "of", "in", "at", "is", "as", "to", "from",
+    "each", "foldl", "foldr", "map", "filter",
     "cdr", "car", "cons", "list"
 ];
 

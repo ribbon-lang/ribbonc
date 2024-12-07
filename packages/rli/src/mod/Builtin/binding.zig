@@ -41,12 +41,12 @@ pub const Doc =
 pub const Decls = .{
     .{ "def", "define a new variable", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            return bindDef(interpreter, at, args, struct {
-                fn fun(i: *Interpreter, attr: *const Source.Attr, name: SExpr, obj: SExpr) Interpreter.Result!SExpr {
+            try bindDef(interpreter, at, args, struct {
+                fn fun(i: *Interpreter, attr: *const Source.Attr, name: SExpr, obj: SExpr) Interpreter.Result!void {
                     try Interpreter.extendEnvFrame(attr, name, obj, i.env);
-                    return obj;
                 }
             }.fun);
+            return SExpr.Nil(at);
         }
     } },
     .{ "let", "create local value bindings", struct {
@@ -57,10 +57,9 @@ pub const Decls = .{
             const baseEnv = interpreter.env;
             try Interpreter.pushNewFrame(at, &interpreter.env);
             defer interpreter.env = baseEnv;
-            _ = try bindDefs(interpreter, defs, struct {
-                fn fun(i: *Interpreter, attr: *const Source.Attr, name: SExpr, obj: SExpr) Interpreter.Result!SExpr {
+            try bindDefs(interpreter, defs, struct {
+                fn fun(i: *Interpreter, attr: *const Source.Attr, name: SExpr, obj: SExpr) Interpreter.Result!void {
                     try Interpreter.extendEnvFrame(attr, name, obj, i.env);
-                    return obj;
                 }
             }.fun);
             return try interpreter.runProgram(body);
@@ -96,8 +95,8 @@ pub const DefKind = enum {
     Macro,
     Var,
 
-    pub fn matchSymbol(interpreter: *Interpreter, kindSymbol: SExpr) Interpreter.Result!DefKind {
-        const kStr = try interpreter.castSymbolSlice(kindSymbol.getAttr(), kindSymbol);
+    pub fn matchSymbol(kindSymbol: SExpr) DefKind {
+        const kStr = if (kindSymbol.castSymbolSlice()) |s| s else return .Var;
         return if (std.mem.eql(u8, kStr, "fun")) .Fun else if (std.mem.eql(u8, kStr, "macro")) .Macro else .Var;
     }
 
@@ -110,29 +109,44 @@ pub const DefKind = enum {
     }
 };
 
-pub fn bindDefs(interpreter: *Interpreter, defs: SExpr, comptime bind: fn (*Interpreter, *const Source.Attr, SExpr, SExpr) Interpreter.Result!SExpr) Interpreter.Result!SExpr {
+pub fn bindDefs(interpreter: *Interpreter, defs: SExpr, comptime bind: fn (*Interpreter, *const Source.Attr, SExpr, SExpr) Interpreter.Result!void) Interpreter.Result!void {
     var iter = try interpreter.argIterator(false, defs);
 
-    var last: SExpr = undefined;
-    while (try iter.next()) |info| last = try bindDef(interpreter, info.getAttr(), info, bind);
-    return last;
+    while (try iter.next()) |info| try bindDef(interpreter, info.getAttr(), info, bind);
 }
 
-pub fn bindDef(interpreter: *Interpreter, at: *const Source.Attr, info: SExpr, comptime bind: fn (*Interpreter, *const Source.Attr, SExpr, SExpr) Interpreter.Result!SExpr) Interpreter.Result!SExpr {
+pub fn bindDef(interpreter: *Interpreter, at: *const Source.Attr, info: SExpr, comptime bind: fn (*Interpreter, *const Source.Attr, SExpr, SExpr) Interpreter.Result!void) Interpreter.Result!void {
     var res = try interpreter.expectAtLeastN(1, info);
 
-    const kind = try DefKind.matchSymbol(interpreter, res.head[0]);
-    if (kind != .Var) {
-        res = try interpreter.expectAtLeastN(1, res.tail);
+    switch (DefKind.matchSymbol(res.head[0])) {
+        .Fun => {
+            try interpreter.validateSymbol(res.head[0].getAttr(), res.head[0]);
+            res = try interpreter.expectAtLeastN(1, res.tail);
+
+            const obj = try procedure.function(interpreter, at, .Lambda, res.tail);
+            return bind(interpreter, at, res.head[0], obj);
+        },
+        .Macro => {
+            try interpreter.validateSymbol(res.head[0].getAttr(), res.head[0]);
+            res = try interpreter.expectAtLeastN(1, res.tail);
+
+            const obj = try procedure.function(interpreter, at, .Macro, res.tail);
+            return bind(interpreter, at, res.head[0], obj);
+        },
+        .Var => {
+            switch (try Interpreter.PatternRich.run(interpreter, res.head[0].getAttr(), res.head[0], try interpreter.runProgram(res.tail))) {
+                .Okay => |frame| {
+                    var it = frame.iter();
+                    while (try it.next()) |pair| {
+                        const xp = pair.forceCons();
+                        try bind(interpreter, at, xp.car, xp.cdr);
+                    }
+                    return;
+                },
+                else => |err| {
+                    return interpreter.abort(error.TypeError, at, "{}", .{err});
+                },
+            }
+        }
     }
-
-    const nameSymbol = res.head[0];
-
-    // Rli.log.debug("binding {} : {}", .{ nameSymbol, kind});
-
-    try interpreter.validateSymbol(nameSymbol.getAttr(), nameSymbol);
-
-    const obj = try kind.constructObject(interpreter, at, res.tail);
-
-    return bind(interpreter, at, nameSymbol, obj);
 }

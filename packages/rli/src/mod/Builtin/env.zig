@@ -22,10 +22,10 @@ pub const Decls = .{
     } },
     .{ "env/lookup-f", "lookup a key symbol in an environment, returning the value it binds; prompts `fail` if the key is not found", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const rargs = try interpreter.evalN(2, args);
-            const key = rargs[0];
+            const eArgs = try interpreter.evalN(2, args);
+            const key = eArgs[0];
+            const env = eArgs[1];
             try interpreter.validateSymbol(at, key);
-            const env = rargs[1];
             try interpreter.validateListOrNil(at, env);
             const entry = Interpreter.envLookup(key, env) catch |err| {
                 return interpreter.abort(err, at, "bad env: {}", .{env});
@@ -41,10 +41,10 @@ pub const Decls = .{
     } },
     .{ "env/lookup", "lookup a key symbol in an environment, returning the value it binds; returns `nil` if the key is not found", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const rargs = try interpreter.evalN(2, args);
-            const key = rargs[0];
+            const eArgs = try interpreter.evalN(2, args);
+            const key = eArgs[0];
+            const env = eArgs[1];
             try interpreter.validateSymbol(at, key);
-            const env = rargs[1];
             try interpreter.validateListOrNil(at, env);
             const entry = Interpreter.envLookup(key, env) catch |err| {
                 return interpreter.abort(err, at, "bad env: {}", .{env});
@@ -58,10 +58,10 @@ pub const Decls = .{
     } },
     .{ "env/pair", "lookup a key symbol in an environment, returning the pair it binds; prompts `fail` if the key is not found", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const rargs = try interpreter.evalN(2, args);
-            const key = rargs[0];
+            const eArgs = try interpreter.evalN(2, args);
+            const key = eArgs[0];
+            const env = eArgs[1];
             try interpreter.validateSymbol(at, key);
-            const env = rargs[1];
             try interpreter.validateListOrNil(at, env);
             const entry = Interpreter.envLookupPair(key, env) catch |err| {
                 return interpreter.abort(err, at, "bad env: {}", .{env});
@@ -76,11 +76,11 @@ pub const Decls = .{
     } },
     .{ "env/set!", "set the value associated with a name in an environment, returning the old value; prompts `fail` if the name is not bound", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const rargs = try interpreter.evalN(3, args);
-            const key = rargs[0];
+            const eArgs = try interpreter.evalN(3, args);
+            const key = eArgs[0];
+            const value = eArgs[1];
+            const env = eArgs[2];
             try interpreter.validateSymbol(at, key);
-            const value = rargs[1];
-            const env = rargs[2];
             try interpreter.validateListOrNil(at, env);
             const entry = Interpreter.envLookupPair(key, env) catch |err| {
                 return interpreter.abort(err, at, "bad env: {}", .{env});
@@ -97,11 +97,11 @@ pub const Decls = .{
     } },
     .{ "env/put!", "append a key-value pair to the top frame of an environment", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const rargs = try interpreter.evalN(3, args);
-            const key = rargs[0];
+            const eArgs = try interpreter.evalN(3, args);
+            const key = eArgs[0];
+            const value = eArgs[1];
+            const env = eArgs[2];
             try interpreter.validateSymbol(at, key);
-            const value = rargs[1];
-            const env = rargs[2];
             try interpreter.validateListOrNil(at, env);
             try Interpreter.extendEnvFrame(at, key, value, env);
             return env;
@@ -126,9 +126,9 @@ pub const Decls = .{
     } },
     .{ "env/get-frame", "get the environment frame at the given offset depth; prompts `fail` if the depth is out of bounds", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const rargs = try interpreter.evalN(2, args);
-            const env = rargs[0];
-            const frameOffsetI = try interpreter.coerceNativeInt(at, rargs[1]);
+            const eArgs = try interpreter.evalN(2, args);
+            const env = eArgs[0];
+            const frameOffsetI = try interpreter.coerceNativeInt(at, eArgs[1]);
             if (frameOffsetI < 0) {
                 return interpreter.abort(Interpreter.Error.TypeError, at, "expected a non-negative number for frame offset, got {}", .{frameOffsetI});
             }
@@ -142,11 +142,11 @@ pub const Decls = .{
             return frame;
         }
     } },
-    .{ "env/push", "push a given environment frame into the current environment, returning the modified enviroment", struct {
+    .{ "env/push", "push a provided frame into the given environment, returning a new environment", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const rargs = try interpreter.evalN(2, args);
-            var env = rargs[0];
-            const frame = rargs[1];
+            const eArgs = try interpreter.evalN(2, args);
+            const frame = eArgs[0];
+            var env = eArgs[1];
             Interpreter.validateFrame(frame) catch |err| {
                 return interpreter.abort(err, at, "bad frame: {}", .{frame});
             };
@@ -156,7 +156,7 @@ pub const Decls = .{
             return env;
         }
     } },
-    .{ "env/pop", "pop an environment frame off the current environment, returning it and the modified environment as a pair `(frame . env)`; prompts `fail` if the environment is empty", struct {
+    .{ "env/pop", "pop a frame off the given environment, returning it and a new environment as a pair `(frame . env)`; prompts `fail` if the environment is empty", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             var env = (try interpreter.evalN(1, args))[0];
             const frame = Interpreter.popFrame(&env) catch |err| {

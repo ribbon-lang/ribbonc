@@ -14,7 +14,7 @@ pub const Doc =
 ;
 
 pub const Decls = .{
-    .{ "meta/apply", "apply a function to a list of arguments", struct {
+    .{ "apply", "apply a function to a list of arguments", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const rArgs = try interpreter.evalN(2, args);
             return try interpreter.nativeInvoke(at, rArgs[0], rArgs[1]);
@@ -121,7 +121,7 @@ pub const Decls = .{
         }
     } },
 
-    .{ "meta/eval", "evaluate a given expression in the current env or an optional provided env", struct {
+    .{ "eval", "evaluate a given expression in the current env or an optional provided env", struct {
         pub fn fun(interpreter: *Interpreter, _: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             var buf = [2]SExpr{ undefined, undefined };
             const len = try interpreter.evalSmallList(args, 1, &buf);
@@ -136,7 +136,7 @@ pub const Decls = .{
         }
     } },
 
-    .{ "meta/gensym", "generate a unique symbol", struct {
+    .{ "gensym", "generate a unique symbol", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             try interpreter.expect0(args);
             return try SExpr.GenSymbol(at);
@@ -193,7 +193,7 @@ pub const Decls = .{
             return outEnv;
         }
     } },
-    .{ "meta/get-env", "take a copy of the current environment, leaving it in place; optionally accepts `'self` `'caller` or `'evidence` symbols indicating which environment to effect", struct {
+    .{ "get-env", "take a copy of the current environment, leaving it in place; optionally accepts `'self` `'caller` or `'evidence` symbols indicating which environment to effect", struct {
         pub fn fun(interpreter: *Interpreter, _: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const arg = try interpreter.evalMaybe1(args);
             if (arg) |which| {
@@ -248,7 +248,7 @@ pub const Decls = .{
         }
     } },
 
-    .{ "meta/ls", "shortcut for `(each (env/keys (meta/get-env)) (key . val) (print-ln key \" : \" (type/of val)))`; optionally accepts `'self` `'caller` or `'evidence` symbols indicating which environment to list", struct {
+    .{ "meta/ls", "shortcut for `(each (env/keys (get-env)) (key . val) (print-ln key \" : \" (type/of val)))`; optionally accepts `'self` `'caller` or `'evidence` symbols indicating which environment to list", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             var env = interpreter.env;
 

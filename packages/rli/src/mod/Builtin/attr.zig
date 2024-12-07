@@ -44,10 +44,10 @@ pub const Decls = .{
     } },
     .{ "attr/new", "create a new Attr from a filename string and a range object", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const rargs = try interpreter.evalN(3, args);
-            const filename = try interpreter.castStringSlice(at, rargs[0]);
-            const range = try convertSExprToRange(interpreter, at, rargs[1]);
-            const comments = try convertSExprToList(Source.Comment, interpreter, at, rargs[2], convertSExprToComment);
+            const eArgs = try interpreter.evalN(3, args);
+            const filename = try interpreter.castStringSlice(at, eArgs[0]);
+            const range = try convertSExprToRange(interpreter, at, eArgs[1]);
+            const comments = try convertSExprToList(Source.Comment, interpreter, at, eArgs[2], convertSExprToComment);
             const attr = try interpreter.context.new(Source.Attr{
                 .context = interpreter.context,
                 .filename = filename,
@@ -78,13 +78,12 @@ pub const Decls = .{
             }
         }
     } },
-    .{ "attr/set!", "set the Attr of a value; returns the old Attr", struct {
+    .{ "attr/set!", "set the Attr of a value; returns the value", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
-            const rargs = try interpreter.evalN(2, args);
-            const attr: *const Source.Attr = try interpreter.castExternDataPtr(Source.Attr, at, rargs[1]);
-            const oldAttr = rargs[0].getAttr();
-            rargs[0].setAttr(attr);
-            return try ExternAttr(at, oldAttr);
+            const eArgs = try interpreter.evalN(2, args);
+            const attr: *const Source.Attr = try interpreter.castExternDataPtr(Source.Attr, at, eArgs[0]);
+            eArgs[1].setAttr(attr);
+            return eArgs[1];
         }
     } },
 };

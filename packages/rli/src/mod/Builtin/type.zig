@@ -11,6 +11,7 @@ pub const Doc =
 ;
 
 pub const Decls = .{
+    // TODO: this should just be type-of
     .{ "type/of", "get a symbol representing the type of a value", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const arg = (try interpreter.evalN(1, args))[0];
@@ -18,79 +19,85 @@ pub const Decls = .{
         }
     } },
 
-    .{ "type/nil?", "determine if a value is the empty list", struct {
+    .{ "nil?", "determine if a value is the empty list", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const arg = (try interpreter.evalN(1, args))[0];
             return try SExpr.Bool(at, arg.isNil());
         }
     } },
-    .{ "type/atom?", "determine if a value is an atom", struct {
+    .{ "atom?", "determine if a value is an atom", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const arg = (try interpreter.evalN(1, args))[0];
             return try SExpr.Bool(at, !arg.isCons());
         }
     } },
-    .{ "type/pair?", "determine if a value is a cons pair", struct {
+    .{ "pair?", "determine if a value is a cons pair", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const arg = (try interpreter.evalN(1, args))[0];
             return try SExpr.Bool(at, arg.isCons());
         }
     } },
-    .{ "type/bool?", "determine if a value is a boolean", struct {
+    .{ "list?", "determine if a value is a cons pair or nil", struct {
+        pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
+            const arg = (try interpreter.evalN(1, args))[0];
+            return try SExpr.Bool(at, arg.isCons() or arg.isNil());
+        }
+    } },
+    .{ "bool?", "determine if a value is a boolean", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const arg = (try interpreter.evalN(1, args))[0];
             return try SExpr.Bool(at, arg.isBool());
         }
     } },
-    .{ "type/int?", "determine if a value is an integer", struct {
+    .{ "int?", "determine if a value is an integer", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const arg = (try interpreter.evalN(1, args))[0];
             return try SExpr.Bool(at, arg.isInt());
         }
     } },
-    .{ "type/char?", "determine if a value is a character", struct {
+    .{ "char?", "determine if a value is a character", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const arg = (try interpreter.evalN(1, args))[0];
             return try SExpr.Bool(at, arg.isChar());
         }
     } },
-    .{ "type/float?", "determine if a value is a floating point number", struct {
+    .{ "float?", "determine if a value is a floating point number", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const arg = (try interpreter.evalN(1, args))[0];
             return try SExpr.Bool(at, arg.isFloat());
         }
     } },
-    .{ "type/string?", "determine if a value is a string", struct {
+    .{ "string?", "determine if a value is a string", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const arg = (try interpreter.evalN(1, args))[0];
             return try SExpr.Bool(at, arg.isString());
         }
     } },
-    .{ "type/symbol?", "determine if a value is a symbol", struct {
+    .{ "symbol?", "determine if a value is a symbol", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const arg = (try interpreter.evalN(1, args))[0];
             return try SExpr.Bool(at, arg.isSymbol());
         }
     } },
-    .{ "type/function?", "determine if a value is a function", struct {
+    .{ "function?", "determine if a value is a function", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const arg = (try interpreter.evalN(1, args))[0];
             return try SExpr.Bool(at, arg.isFunction());
         }
     } },
-    .{ "type/lambda?", "determine if a value is a lambda", struct {
+    .{ "lambda?", "determine if a value is a lambda", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const arg = (try interpreter.evalN(1, args))[0];
             return try SExpr.Bool(at, arg.isLambda());
         }
     } },
-    .{ "type/macro?", "determine if a value is a macro", struct {
+    .{ "macro?", "determine if a value is a macro", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const arg = (try interpreter.evalN(1, args))[0];
             return try SExpr.Bool(at, arg.isMacro());
         }
     } },
-    .{ "type/extern-data?", "determine if a value is external data such as a file", struct {
+    .{ "extern-data?", "determine if a value is external data such as a file", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const eargs = try interpreter.evalListInRange(args, 1, 2);
             if (eargs.len == 1) {
@@ -102,19 +109,19 @@ pub const Decls = .{
             }
         }
     } },
-    .{ "type/extern-function?", "determine if a value is an external function", struct {
+    .{ "extern-function?", "determine if a value is an external function", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const arg = (try interpreter.evalN(1, args))[0];
             return try SExpr.Bool(at, arg.isExternFunction());
         }
     } },
-    .{ "type/builtin?", "determine if a value is a builtin function", struct {
+    .{ "builtin?", "determine if a value is a builtin function", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const arg = (try interpreter.evalN(1, args))[0];
             return try SExpr.Bool(at, arg.isBuiltin());
         }
     } },
-    .{ "type/callable?", "determine if a value is callable", struct {
+    .{ "callable?", "determine if a value is callable", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const arg = (try interpreter.evalN(1, args))[0];
             return try SExpr.Bool(at, arg.isCallable());

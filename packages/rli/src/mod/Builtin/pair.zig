@@ -13,7 +13,7 @@ pub const Doc =
     ;
 
 pub const Decls = .{
-    .{ "pair/cons", "join a head and tail into a pair", struct {
+    .{ "cons", "join a head and tail into a pair", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             const rArgs = try interpreter.evalN(2, args);
             return try SExpr.Cons(at, rArgs[0], rArgs[1]);

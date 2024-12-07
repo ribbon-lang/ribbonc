@@ -51,22 +51,22 @@
 
 (assert-eq ()
     (pattern/run
-        (: type/pair?)
+        (: pair?)
         '(1 . 2)))
 
 (assert-eq 'okay
     (with ((fun fail () (terminate 'okay)))
         (pattern/run-f
-            (: type/pair?)
+            (: pair?)
             1)))
 
 (assert-eq '((x . (1 . 2)))
     (pattern/run
-        (@ x (: type/pair?))
+        (@ x (: pair?))
         '(1 . 2)))
 
 (assert-eq 'okay
     (with ((fun fail () (terminate 'okay)))
         (pattern/run-f
-            (@ x (: type/pair?))
+            (@ x (: pair?))
             1)))

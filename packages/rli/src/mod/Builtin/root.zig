@@ -49,9 +49,17 @@ pub const Script = struct {
 };
 
 pub const Scripts = struct {
-    pub const module = Script {
-        .text = @embedFile("module.bb"),
-        .exports = &.{"module", "import", "or-else", "or-panic", "or-panic-at"},
+    pub const builtin = Script {
+        .text = @embedFile("builtin.bb"),
+        .exports = &.{
+            "module", "import", "or-else", "or-panic", "or-panic-at",
+
+            "@nil", "@atom", "@pair", "@bool", "@int", "@char", "@float", "@string",
+            "@symbol", "@function", "@lambda", "@macro", "@data", "@function",
+            "@builtin", "@callable",
+
+            "each", "foldl", "foldr", "map", "filter",
+        },
     };
 };
 

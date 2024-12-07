@@ -157,6 +157,8 @@ pub fn runFile(self: *Rli, cleanEnv: bool, fileName: []const u8, text: []const u
     const termData = self.interpreter.terminationData;
     defer self.interpreter.terminationData = termData;
     self.interpreter.terminationData = null;
+    try self.interpreter.callStack.append(try self.context.bindAttr(fileName, null, &.{}));
+    defer _ = self.interpreter.callStack.pop();
 
     const old_env = self.interpreter.env;
     defer {
@@ -191,6 +193,9 @@ pub fn runFile(self: *Rli, cleanEnv: bool, fileName: []const u8, text: []const u
                 } else |res| {
                     if (Interpreter.asEvaluationError(res)) |err| {
                         try self.expectedOutput("! {}", .{self.interpreter.errFmt(err)});
+                        return err;
+                    } else if (Parser.asSyntaxError(res)) |err| {
+                        try self.expectedOutput("! Syntax error at [{s}:{}]: {s} (last input: {u})", .{ fileName, self.parser.pos, @errorName(err), self.parser.input[self.parser.pos.offset] });
                         return err;
                     } else {
                         log.err("unexpected result in file [{s}]: {}", .{ fileName, res });

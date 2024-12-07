@@ -776,7 +776,13 @@ pub const SExpr = extern struct {
     pub fn compare(self: SExpr, other: SExpr) Ordering {
         const tagOrd = MiscUtils.compare(@intFromEnum(self.getTag()), @intFromEnum(other.getTag()));
         if (tagOrd != Ordering.Equal) {
-            return tagOrd;
+            if (self.getTag() == Tag.Int and other.getTag() == Tag.Float) {
+                return MiscUtils.compare(@as(f64, @floatFromInt(self.data.integral)), other.data.floating);
+            } else if (self.getTag() == Tag.Float and other.getTag() == Tag.Int) {
+                return MiscUtils.compare(self.data.floating, @as(f64, @floatFromInt(other.data.integral)));
+            } else {
+                return tagOrd;
+            }
         }
 
         switch (self.getTag()) {
@@ -857,6 +863,10 @@ pub const SExpr = extern struct {
 
     pub fn isBool(self: SExpr) bool {
         return self.getTag() == Tag.Bool;
+    }
+
+    pub fn isNumber(self: SExpr) bool {
+        return self.isInt() or self.isFloat();
     }
 
     pub fn isInt(self: SExpr) bool {
@@ -1317,6 +1327,7 @@ pub const SExpr = extern struct {
             TextUtils.Char => return Char(at, value),
             []const u8 => return String(at, value),
             SExpr => return value,
+            []SExpr => return fromBuffer(SExpr, at, value),
             *Types.Cons, *Types.Function, *Types.String, *Types.Symbol, *Types.ExternData, *Types.ExternFunction => return fromExistingPtr(value),
             Types.ExternFunction.Proc => return ExternFunction(at, "extern", value),
             Types.Builtin.Proc => return Builtin(at, "extern", value),
@@ -1335,15 +1346,17 @@ pub const SExpr = extern struct {
                 },
                 .@"fn" => return wrapFn(at, "extern", value),
                 .@"struct" => |info| {
-                    var table = try SExpr.Nil(at);
+                    const att = try at.clone();
+                    var fields = try SExpr.Nil(att);
                     inline for (info.fields) |field| {
-                        const pair = try SExpr.Cons(at, try Symbol(at, field.name), try from(at, @field(value, field.name)));
-                        table = try SExpr.Cons(at, pair, table);
+                        const pair = try SExpr.Cons(att, try Symbol(att, field.name), try from(at, @field(value, field.name)));
+                        fields = try SExpr.Cons(att, pair, fields);
                     }
-                    return table;
+                    return try SExpr.Cons(at, try SExpr.Symbol(att, @typeName(T)), fields);
                 },
                 .@"union" => |info| if (info.tag_type) |TT| {
-                    return SExpr.Cons(at, try from(at, @as(TT, value)), try from(at, @field(value, @tagName(value))));
+                    const att = try at.clone();
+                    return SExpr.Cons(at, try from(att, @as(TT, value)), try from(att, @field(value, @tagName(value))));
                 } else @compileError("cannot convert union without tag type to SExpr"),
                 .@"enum", .enum_literal => return try SExpr.Symbol(at, @tagName(value)),
                 else => @compileError("cannot convert `" ++ @typeName(T) ++ "` to SExpr"),
@@ -1352,11 +1365,13 @@ pub const SExpr = extern struct {
     }
 
     fn fromBuffer(comptime T: type, at: *const Source.Attr, value: []const T) Interpreter.Error!SExpr {
-        var tail = try Nil(at);
+        const att = try at.clone();
+        var tail = try Nil(att);
         for (0..value.len) |i| {
             const j = value.len - i - 1;
-            tail = try Cons(at, try from(at, value[j]), tail);
+            tail = try Cons(att, try from(att, value[j]), tail);
         }
+        tail.setAttr(at);
         return tail;
     }
 
@@ -1397,9 +1412,9 @@ pub const SExpr = extern struct {
             return T.fromSExpr(self);
         }
 
-        const tinfo = @typeInfo(T);
-        if (tinfo == .pointer and tinfo.pointer.size == .One
-        and std.meta.hasFn(tinfo.pointer.child, "fromSExpr")) {
+        const tInfo = @typeInfo(T);
+        if (tInfo == .pointer and tInfo.pointer.size == .One
+        and std.meta.hasFn(tInfo.pointer.child, "fromSExpr")) {
             return T.fromSExpr(self);
         }
 
@@ -1415,6 +1430,7 @@ pub const SExpr = extern struct {
             TextUtils.Char => return self.castChar() orelse error.TypeError,
             []const u8 => return self.castStringSlice() orelse error.TypeError,
             SExpr => return self.*,
+            []SExpr => return self.toBuffer(SExpr),
             *Types.Cons => return self.castCons() orelse error.TypeError,
             *Types.Function => return self.castFunction() orelse error.TypeError,
             *Types.Builtin => return self.castBuiltin() orelse error.TypeError,
@@ -1446,10 +1462,17 @@ pub const SExpr = extern struct {
                 },
                 .@"fn" => return @ptrCast(self.castExternFunctionProc() orelse return error.TypeError),
                 .@"struct" => |info| {
+                    const xp = self.castCons() orelse return error.TypeError;
+                    const typeName = xp.car.castSymbolSlice() orelse return error.TypeError;
+                    if (!std.mem.eql(u8, typeName, @typeName(T))) return error.TypeError;
+
+                    const fields = xp.cdr;
+
                     var result: T = undefined;
                     for (info.fields) |field| {
-                        @field(result, field.name) = try (try self.getField(field.name) orelse return error.TypeError).to(field.type);
+                        @field(result, field.name) = try (try fields.getField(field.name) orelse return error.TypeError).to(field.type);
                     }
+
                     return result;
                 },
                 .@"union" => |info| if (info.tag_type) |_| {
@@ -1462,7 +1485,7 @@ pub const SExpr = extern struct {
                     }
                 } else @compileError("cannot convert union without tag type from SExpr"),
                 .@"enum" => |info| {
-                    const str = self.castStringSlice() orelse return error.TypeError;
+                    const str = self.castSymbolSlice() orelse return error.TypeError;
                     inline for (info.fields) |field| {
                         if (std.mem.eql(u8, str, field.name)) {
                             return @field(T, field.name);
@@ -1475,7 +1498,7 @@ pub const SExpr = extern struct {
         }
     }
 
-    fn toArray(self: *const SExpr, comptime N: usize, comptime T: type) Interpreter.Result![N]T {
+    fn toArray(self: *const SExpr, comptime N: usize, comptime T: type) Interpreter.Error![N]T {
         var it = self.iter();
         var result: [N]T = undefined;
         for (0..N) |i| {
@@ -1484,7 +1507,7 @@ pub const SExpr = extern struct {
         return result;
     }
 
-    fn toBuffer(self: *const SExpr, comptime T: type) Interpreter.Result![]T {
+    fn toBuffer(self: *const SExpr, comptime T: type) Interpreter.Error![]T {
         var buffer = std.ArrayList(T).init(self.getContext().allocator);
         var it = self.iter();
         while (try it.next()) |elem| {
@@ -1493,7 +1516,7 @@ pub const SExpr = extern struct {
         return buffer.toOwnedSlice();
     }
 
-    fn getField(self: *const SExpr, name: []const u8) Interpreter.Result!?SExpr {
+    fn getField(self: *const SExpr, name: []const u8) Interpreter.Error!?SExpr {
         var it = self.iter();
         while (try it.next()) |elem| {
             if (elem.castCons()) |cons| {
@@ -1505,7 +1528,7 @@ pub const SExpr = extern struct {
         return null;
     }
 
-    fn getIndex(self: *const SExpr, index: usize) Interpreter.Result!?SExpr {
+    fn getIndex(self: *const SExpr, index: usize) Interpreter.Error!?SExpr {
         var it = self.iter();
         for (0..index) |_| {
             try it.next() orelse return null;

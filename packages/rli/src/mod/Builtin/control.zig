@@ -7,6 +7,8 @@ const Source = Rli.Source;
 const SExpr = Rli.SExpr;
 const Interpreter = Rli.Interpreter;
 
+const arithmetic = @import("arithmetic.zig");
+
 pub const Doc =
     \\This module provides special forms for controlling the flow of execution.
     \\
@@ -48,6 +50,104 @@ pub const Doc =
 ;
 
 pub const Decls = .{
+    .{ "for", "runs an inner loop with a number in a given range; ie `(for (x [ITERATOR]) print-ln(x))` where `[ITERATOR]` can be anything suiting the pattern `(.. a? b)|(..= a? b) incr?`; `break` and `continue` effects are available in the body", struct {
+        pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
+            Rli.log.debug("for start", .{});
+            const xArgs = try interpreter.expectAtLeastN(1, args);
+            const loopArgs = try interpreter.expectAtLeastN(2, xArgs.head[0]);
+            const varName = loopArgs.head[0];
+            try interpreter.validateSymbol(at, varName);
+            const range = try interpreter.expectAtLeastN(2, loopArgs.head[1]);
+            const rangeKind = range.head[0].to(enum { @"..", @"..=" }) catch |err| {
+                return interpreter.abort(err, range.head[0].getAttr(), "expected range kind `..` or `..=`", .{});
+            };
+            const pole1 = try interpreter.eval(range.head[1]);
+            try interpreter.validateNumber(range.head[1].getAttr(), pole1);
+
+            const AB = struct { SExpr, SExpr };
+            const a, const b = if (range.tail.castCons()) |xp| range: {
+                Rli.log.debug("custom range start", .{});
+                const end = try interpreter.eval(xp.car);
+                try interpreter.validateNumber(xp.car.getAttr(), end);
+                break :range AB{ pole1, end };
+            } else range: {
+                Rli.log.debug("default range start", .{});
+                try interpreter.validateNil(range.tail.getAttr(), range.tail);
+                break :range AB{ try SExpr.Int(range.tail.getAttr(), 0), pole1 };
+            };
+
+            const incr = if (loopArgs.tail.castCons()) |xp| incr: {
+                Rli.log.debug("custom incr", .{});
+                const incr = try interpreter.eval(xp.car);
+                try interpreter.validateNumber(xp.car.getAttr(), incr);
+                try interpreter.validateNil(xp.cdr.getAttr(), xp.cdr);
+                break :incr incr;
+            } else def: {
+                Rli.log.debug("default incr", .{});
+                try interpreter.validateNil(loopArgs.tail.getAttr(), loopArgs.tail);
+                break :def try SExpr.Int(loopArgs.tail.getAttr(), 1);
+            };
+
+            const body = xArgs.tail;
+
+            var i = a;
+
+            Rli.log.debug("for loop start {} {} {} {}", .{varName, i, b, incr});
+
+            var out = try SExpr.Nil(at);
+
+            while (switch (rangeKind) {
+                .@".." => MiscUtils.less(i, b),
+                .@"..=" => MiscUtils.lessOrEqual(i, b),
+            }) : (i = try arithmetic.castedBinOp(.add, interpreter, loopArgs.head[1].getAttr(), i, incr)) {
+                Rli.log.debug("for loop step {i}", .{i});
+
+                const env = interpreter.env;
+                defer interpreter.env = env;
+
+                try Interpreter.pushNewFrame(body.getAttr(), &interpreter.env);
+                try Interpreter.extendEnvFrame(varName.getAttr(), varName, i, interpreter.env);
+
+                var nativeOut: Interpreter.NativeWithOut = undefined;
+
+                Rli.log.debug("for loop body start {}", .{body});
+
+                try interpreter.nativeWith(body.getAttr(), body, &nativeOut, struct {
+                    pub fn @"break"(interp: *Interpreter, att: *const Source.Attr, xs: SExpr) !SExpr {
+                        Rli.log.debug("for loop break", .{});
+                        const eArgs = try interp.expectN(1, xs);
+                        const terminator = eArgs[0];
+                        return interp.nativeInvoke(att, terminator, &[_]SExpr {try SExpr.Symbol(att, "break")});
+                    }
+
+                    pub fn @"continue"(interp: *Interpreter, att: *const Source.Attr, xs: SExpr) !SExpr {
+                        Rli.log.debug("for loop continue", .{});
+                        const eArgs = try interp.expectN(1, xs);
+                        const terminator = eArgs[0];
+                        return interp.nativeInvoke(att, terminator, &[_]SExpr {try SExpr.Symbol(att, "continue")});
+                    }
+                });
+
+                Rli.log.debug("for loop body end", .{});
+
+                switch (nativeOut) {
+                    .Evaluated => |res| {
+                        Rli.log.debug("for loop evaluated step {}", .{i});
+                        out = res;
+                    },
+                    .Terminated => |sym| {
+                        Rli.log.debug("terminated {}", .{sym});
+                        const symStr = try interpreter.castSymbolSlice(at, sym);
+                        if (std.mem.eql(u8, symStr, "break")) { break; }
+                        else if (std.mem.eql(u8, symStr, "continue")) { continue; }
+                        else return interpreter.abort(Interpreter.Error.InvalidContext, sym.getAttr(), "expected `break` or `continue`, got `{s}`", .{sym});
+                    }
+                }
+            }
+
+            return out;
+        }
+    } },
     .{ "if", "two-option conditional branch", struct {
         pub fn fun(interpreter: *Interpreter, at: *const Source.Attr, args: SExpr) Interpreter.Result!SExpr {
             var buf = [3]SExpr{ undefined, undefined, undefined };

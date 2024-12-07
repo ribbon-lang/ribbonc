@@ -136,7 +136,7 @@ fn bindDefs(interpreter: *Interpreter, at: *const Source.Attr, defs: SExpr, comp
 fn bindDef(interpreter: *Interpreter, at: *const Source.Attr, contextId: SExpr, info: SExpr, comptime terminatorName: []const u8, comptime terminator: fn (*Interpreter, *const Source.Attr, SExpr) Interpreter.Result!SExpr, comptime bind: fn (*Interpreter, *const Source.Attr, SExpr, SExpr) Interpreter.Result!void) Interpreter.Result!void {
     var res = try interpreter.expectAtLeastN(1, info);
 
-    const kind = try binding.DefKind.matchSymbol(interpreter, res.head[0]);
+    const kind = binding.DefKind.matchSymbol(res.head[0]);
     if (kind != .Var) {
         res = try interpreter.expectAtLeastN(1, res.tail);
     }

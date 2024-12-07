@@ -5,4 +5,4 @@
         (manyprint (string/concat s "i") (+ x 1) y)
         s))
 
-(manyprint "" 0 1024)
+(manyprint "" 0 1023)

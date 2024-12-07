@@ -17,8 +17,8 @@
 (def res1 (parser/parse-sexpr! p))
 (assert-eq
     (pair/cdr (attr/range (attr/of res1)))
-    (pair/cons (pair/cons 2 (+ 1 line-len)) line-len))
-(meta/eval res1)
-(meta/eval (parser/parse-sexpr! p))
-(assert-eq (meta/eval (parser/parse-sexpr! p)) 3)
+    (cons (cons 2 (+ 1 line-len)) line-len))
+(eval res1)
+(eval (parser/parse-sexpr! p))
+(assert-eq (eval (parser/parse-sexpr! p)) 3)
 (assert (parser/eof? p))
