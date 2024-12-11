@@ -155,9 +155,7 @@ pub const Interpreter = struct {
     pub fn runProgram(self: ptr(Interpreter), program: Obj(Rml.Block)) Result! Object {
         const rml = getRml(self);
 
-        const nil: Obj(Nil) = try .init(rml, program.getHeader().origin);
-        var result: Object = nil.typeErase();
-        nil.deinit();
+        var result: Object = (try Obj(Nil).init(rml, program.getHeader().origin)).typeEraseLeak();
         errdefer result.deinit();
 
         const exprs = program.data.array.items();
@@ -182,14 +180,12 @@ pub const Interpreter = struct {
             switch (procedure.data.*) {
                 .macro => { unreachable; },
                 .function => { unreachable; },
-                .native => |func| {
+                .native_macro => |func| return func(self, callOrigin, args),
+                .native_function => |func| {
                     var eArgs = try self.evalAll(args);
                     defer eArgs.deinit(getRml(self));
 
-                    const selfObj = getObj(self);
-                    defer selfObj.deinit();
-
-                    return func(selfObj, callOrigin, eArgs.items());
+                    return func(self, callOrigin, eArgs.items());
                 },
             }
         } else {

@@ -19,7 +19,8 @@ const forceObj = Rml.forceObj;
 pub const ProcedureKind = enum {
     macro,
     function,
-    native,
+    native_macro,
+    native_function,
 };
 
 pub const ProcedureBody = struct {
@@ -35,7 +36,8 @@ pub const ProcedureBody = struct {
 pub const Procedure = union(ProcedureKind) {
     macro: ProcedureBody,
     function: ProcedureBody,
-    native: Rml.bindgen.NativeFunction,
+    native_macro: Rml.bindgen.NativeFunction,
+    native_function: Rml.bindgen.NativeFunction,
 
     pub fn onInit(_: ptr(Procedure)) OOM! void {
         return;
@@ -53,7 +55,8 @@ pub const Procedure = union(ProcedureKind) {
         switch (self.*) {
             .macro => |*data| data.deinit(),
             .function => |*data| data.deinit(),
-            .native => {},
+            .native_macro => {},
+            .native_function => {},
         }
     }
 };

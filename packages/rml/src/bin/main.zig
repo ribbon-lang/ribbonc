@@ -44,10 +44,10 @@ pub fn main () !void {
     }
 
     log.info("test start", .{});
-    log.info("namespace_env: {}", .{rml.main_interpreter.data.namespace_env});
-    log.info("evaluation_env: {}", .{rml.main_interpreter.data.evaluation_env});
+    log.debug("namespace_env: {}", .{rml.main_interpreter.data.namespace_env});
+    log.debug("evaluation_env: {}", .{rml.main_interpreter.data.evaluation_env});
 
-    const srcText: []const u8 = "(print-ln \"Hello, world!\" (+ '1' 2))";
+    const srcText: []const u8 = "(print-ln \"Hello, world!\" (or nil 10))";
 
     const parser: Rml.Obj(Rml.Parser) = try .init(rml, rml.storage.origin, .{"test.rml", try Rml.Obj(Rml.String).init(rml, rml.storage.origin, .{srcText})});
     defer {
@@ -68,10 +68,7 @@ pub fn main () !void {
 
     log.info("expr: {}", .{expr});
 
-    const obj = expr.typeErase();
-    defer obj.deinit();
-
-    if (rml.main_interpreter.data.eval(obj)) |res| {
+    if (rml.main_interpreter.data.runProgram(expr)) |res| {
         defer res.deinit();
 
         log.info("result: {}", .{res});

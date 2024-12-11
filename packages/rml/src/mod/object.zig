@@ -3,6 +3,8 @@ const MiscUtils = @import("Utils").Misc;
 const TypeUtils = @import("Utils").Type;
 
 const Rml = @import("root.zig");
+const Nil = Rml.Nil;
+const Bool = Rml.Bool;
 const bindgen = Rml.bindgen;
 const Error = Rml.Error;
 const Ordering = Rml.Ordering;
@@ -422,8 +424,35 @@ pub fn getRml(p: anytype) *Rml {
 }
 
 pub fn castObj(comptime T: type, obj: Object) ?Obj(T) {
-    if (MiscUtils.equal(obj.getHeader().type_id, TypeId.of(T))) return forceObj(T, obj)
+    if (isType(T, obj)) return forceObj(T, obj)
     else return null;
+}
+
+pub fn isType(comptime T: type, obj: Object) bool {
+    return MiscUtils.equal(obj.getHeader().type_id, TypeId.of(T));
+}
+
+pub fn isObjectType(comptime T: type) bool {
+    return switch (T) { // TODO: this should be generated
+        Rml.Nil,
+        Rml.Bool,
+        Rml.Int,
+        Rml.Char,
+        Rml.Float,
+        Rml.Array,
+        Rml.Block,
+        Rml.Env,
+        Rml.Interpreter,
+        Rml.Map,
+        Rml.Parser,
+        Rml.Pattern,
+        Rml.Procedure,
+        Rml.String,
+        Rml.Symbol,
+        Rml.Writer,
+        => true,
+        else => false,
+    };
 }
 
 pub fn forceObj(comptime T: type, obj: Object) Obj(T) {
@@ -442,4 +471,16 @@ pub fn downgradeCast(obj: anytype) Weak {
     const e: Object = obj.typeErase();
     defer e.deinit();
     return e.downgrade();
+}
+
+pub fn coerceBool(obj: Object) Bool {
+    if (castObj(Bool, obj)) |b| {
+        defer b.deinit();
+
+        return b.data.*;
+    } else if (isType(Nil, obj)) {
+        return false;
+    } else {
+        return true;
+    }
 }

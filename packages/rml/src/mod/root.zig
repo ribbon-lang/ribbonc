@@ -79,9 +79,12 @@ pub const getHeader = object.getHeader;
 pub const getTypeId = object.getTypeId;
 pub const getRml = object.getRml;
 pub const forceObj = object.forceObj;
+pub const isType = object.isType;
+pub const isObjectType = object.isObjectType;
 pub const castObj = object.castObj;
 pub const upgradeCast = object.upgradeCast;
 pub const downgradeCast = object.downgradeCast;
+pub const coerceBool = object.coerceBool;
 
 test {
     std.testing.refAllDeclsRecursive(@This());
