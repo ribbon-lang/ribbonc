@@ -15,19 +15,17 @@ const forceObj = Rml.forceObj;
 
 pub const Native = std.io.AnyWriter;
 
-pub const Writer = Obj(Memory);
-
-pub const Memory = struct {
+pub const Writer = struct {
     unmanaged: MemoryUnmanaged,
 
-    pub fn onInit(native_writer: Native) Memory {
-        return Memory { .unmanaged = .{ .native_writer = native_writer } };
+    pub fn onInit(native_writer: Native) Writer {
+        return Writer { .unmanaged = .{ .native_writer = native_writer } };
     }
 
-    pub fn onCompare(self: ptr(Memory), other: Object) Ordering {
+    pub fn onCompare(self: ptr(Writer), other: Object) Ordering {
         var ord = Rml.compare(getHeader(self).type_id, other.getHeader().type_id);
         if (ord == .Equal) {
-            const b = forceObj(Memory, other);
+            const b = forceObj(Writer, other);
             defer b.deinit();
 
             ord = self.unmanaged.compare(b.data.unmanaged);
@@ -35,19 +33,19 @@ pub const Memory = struct {
         return ord;
     }
 
-    pub fn onFormat(self: ptr(Memory), writer: Writer) Error! void {
+    pub fn onFormat(self: ptr(Writer), writer: Obj(Writer)) Error! void {
         try writer.data.print("{}", .{self.unmanaged});
     }
 
-    pub fn print(self: ptr(Memory), comptime fmt: []const u8, args: anytype) Error! void {
+    pub fn print(self: ptr(Writer), comptime fmt: []const u8, args: anytype) Error! void {
         return self.unmanaged.print(fmt, args);
     }
 
-    pub fn write(self: ptr(Memory), val: []const u8) Error! usize {
+    pub fn write(self: ptr(Writer), val: []const u8) Error! usize {
         return self.unmanaged.write(val);
     }
 
-    pub fn writeAll(self: ptr(Memory), val: []const u8) Error! void {
+    pub fn writeAll(self: ptr(Writer), val: []const u8) Error! void {
         return self.unmanaged.writeAll(val);
     }
 };
@@ -64,7 +62,7 @@ pub const MemoryUnmanaged = struct {
     }
 
     pub fn format(_: *const MemoryUnmanaged, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) anyerror!void {
-        try writer.writeAll("Writer");
+        try writer.writeAll("Obj(Writer)");
     }
 
     pub fn print(self: *MemoryUnmanaged, comptime fmt: []const u8, args: anytype) Error! void {

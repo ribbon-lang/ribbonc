@@ -8,18 +8,16 @@ const const_ptr = Rml.const_ptr;
 const ptr = Rml.ptr;
 const Obj = Rml.Obj;
 const Object = Rml.Object;
+const Writer = Rml.Writer;
 const getHeader = Rml.getHeader;
 const getObj = Rml.getObj;
 const getRml = Rml.getRml;
 const forceObj = Rml.forceObj;
 
 
-pub const ObjectMap = Obj(ObjectMemory);
-pub const ObjectMemory = Memory(Rml.object.ObjData, Rml.object.ObjData);
+pub const Map = TypedMap(Rml.object.ObjData, Rml.object.ObjData);
 
-pub fn Map (comptime K: type, comptime V: type) type { return Obj(Memory(K, V)); }
-
-pub fn Memory (comptime K: type, comptime V: type) type {
+pub fn TypedMap (comptime K: type, comptime V: type) type {
     return struct {
         const Self = @This();
 
@@ -41,7 +39,7 @@ pub fn Memory (comptime K: type, comptime V: type) type {
             return ord;
         }
 
-        pub fn onFormat(self: const_ptr(Self), writer: Rml.Writer) Error! void {
+        pub fn onFormat(self: const_ptr(Self), writer: Rml.Obj(Writer)) Error! void {
             return writer.data.print("{}", .{self.unmanaged});
         }
 

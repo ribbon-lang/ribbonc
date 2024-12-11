@@ -8,46 +8,46 @@ const const_ptr = Rml.const_ptr;
 const ptr = Rml.ptr;
 const Obj = Rml.Obj;
 const Object = Rml.Object;
-const String = Rml.String;
-const Symbol = Rml.Symbol;
 const Procedure = Rml.Procedure;
+const Char = Rml.Char;
+const String = Rml.String;
+const Array = Rml.Array;
+const Symbol = Rml.Symbol;
 const getHeader = Rml.getHeader;
 const getObj = Rml.getObj;
 const getRml = Rml.getRml;
 const forceObj = Rml.forceObj;
 
-pub const Pattern = Obj(Memory);
-
 pub const Alias = struct {
-    sym: Symbol,
+    sym: Obj(Symbol),
     sub: Object,
 
-    pub fn deinit(self: *Alias) void {
+    pub fn deinit(self: Alias) void {
         self.sub.deinit();
     }
 };
 
 pub const Optional = struct {
-    sym: ?Symbol,
+    sym: ?Obj(Symbol),
     sub: Object,
 
-    pub fn deinit(self: *Alias) void {
+    pub fn deinit(self: Optional) void {
         self.sub.deinit();
     }
 };
 
-pub const Sequence = Rml.array.MemoryUnmanaged(Object);
+pub const Sequence = Obj(Array);
 
-pub const Memory = union(enum) {
+pub const Pattern = union(enum) {
     wildcard: void,
 
-    symbol: Symbol,
+    symbol: Obj(Symbol),
 
-    bool_literal: Rml.Bool,
-    int_literal: Rml.Int,
-    float_literal: Rml.Float,
-    char_literal: Rml.Char,
-    string_literal: Rml.String,
+    bool_literal: Obj(Rml.Bool),
+    int_literal: Obj(Rml.Int),
+    float_literal: Obj(Rml.Float),
+    char_literal: Obj(Char),
+    string_literal: Obj(String),
 
     escape: Object,
     predicate: Object,
@@ -56,4 +56,22 @@ pub const Memory = union(enum) {
     alias: Alias,
     sequence: Sequence,
     optional: Optional,
+
+    pub fn onDeinit (self: ptr(Pattern)) void {
+        switch (self.*) {
+            .wildcard => {},
+            .symbol => |x| x.deinit(),
+            .bool_literal => |x| x.deinit(),
+            .int_literal => |x| x.deinit(),
+            .float_literal => |x| x.deinit(),
+            .char_literal => |x| x.deinit(),
+            .string_literal => |x| x.deinit(),
+            .escape => |x| x.deinit(),
+            .predicate => |x| x.deinit(),
+            .transformer => |x| x.deinit(),
+            .alias => |x| x.deinit(),
+            .sequence => |x| x.deinit(),
+            .optional => |x| x.deinit(),
+        }
+    }
 };

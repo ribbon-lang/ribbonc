@@ -18,24 +18,9 @@ pub const compare = MiscUtils.compare;
 pub const equal = MiscUtils.equal;
 pub const hashWith = MiscUtils.hashWith;
 
-pub const BUILTIN_NAMESPACES = .{
-    .array = Rml.array.ObjectMemory,
-    .block = Rml.block.Memory,
-    .env = Rml.env.Memory,
-    .interpreter = Rml.interpreter.Memory,
-    .map = Rml.map.ObjectMemory,
-    .parser = Rml.parser.Memory,
-    .pattern = Rml.pattern.Memory,
-    .procedure = Rml.procedure.Memory,
-    .string = Rml.string.Memory,
-    .symbol = Rml.symbol.Memory,
-    .writer = Rml.writer.Memory,
-};
-
 pub const array = @import("array.zig");
 pub const bindgen = @import("bindgen.zig");
 pub const block = @import("block.zig");
-pub const BUILTIN = @import("BUILTIN.zig");
 pub const env = @import("env.zig");
 pub const interpreter = @import("interpreter.zig");
 pub const map = @import("map.zig");
@@ -49,12 +34,13 @@ pub const string = @import("string.zig");
 pub const symbol = @import("symbol.zig");
 pub const writer = @import("writer.zig");
 
-pub const int = i64;
-pub const float = f64;
-pub const char = TextUtils.Char;
+pub const Nil = extern struct {};
+pub const Bool = bool;
+pub const Int = i64;
+pub const Float = f64;
+pub const Char = TextUtils.Char;
+
 pub const str = []const u8;
-pub const nil = extern struct {};
-pub const Nil = Obj(nil);
 
 pub const Result = interpreter.Result;
 pub const EvalError = interpreter.EvalError;
@@ -65,25 +51,20 @@ pub const Unexpected = error{Unexpected};
 pub const SymbolAlreadyBound = env.SymbolAlreadyBound;
 pub const Error = IOError || OOM || EvalError || SyntaxError || Unexpected;
 
-pub const Bool = Obj(bool);
-pub const Int = Obj(i64);
-pub const Float = Obj(f64);
-pub const Char = Obj(TextUtils.Char);
+pub const Writer = writer.Writer;
+pub const Array = array.Array;
+pub const Block = block.Block;
 pub const Env = env.Env;
-pub const NativeFunction = bindgen.NativeFunction;
 pub const Interpreter = interpreter.Interpreter;
 pub const Parser = parser.Parser;
 pub const Pattern = pattern.Pattern;
 pub const Procedure = procedure.Procedure;
-pub const Origin = source.Origin;
-pub const Array = array.Array;
-pub const ObjectArray = array.ObjectArray;
-pub const Block = block.Block;
-pub const Map = map.Map;
-pub const ObjectMap = map.ObjectMap;
 pub const String = string.String;
 pub const Symbol = symbol.Symbol;
-pub const Writer = writer.Writer;
+pub const Map = map.Map;
+
+pub const NativeFunction = bindgen.NativeFunction;
+pub const Origin = source.Origin;
 pub const ptr = object.ptr;
 pub const const_ptr = object.const_ptr;
 pub const Obj = object.Obj;
@@ -110,8 +91,8 @@ test {
 storage: Storage,
 cwd: ?std.fs.Dir,
 out: ?std.io.AnyWriter,
-global_env: Env = undefined,
-main_interpreter: Interpreter = undefined,
+global_env: Obj(Env) = undefined,
+main_interpreter: Obj(Interpreter) = undefined,
 diagnostic: ?*?Diagnostic = null,
 
 
@@ -124,6 +105,22 @@ pub const Diagnostic = struct {
     message_mem: [MAX_LENGTH]u8 = std.mem.zeroes([MAX_LENGTH]u8),
 };
 
+
+pub const BUILTIN = @import("BUILTIN.zig");
+
+pub const BUILTIN_NAMESPACES = .{
+    .Array = Array,
+    .Block = Block,
+    .Env = Env,
+    .Interpreter = Interpreter,
+    .Map = Map,
+    .Parser = Parser,
+    .Pattern = Pattern,
+    .Procedure = Procedure,
+    .String = String,
+    .Symbol = Symbol,
+    .Writer = Writer,
+};
 
 
 /// caller must close cwd and out
@@ -143,10 +140,10 @@ pub fn init(allocator: std.mem.Allocator, cwd: ?std.fs.Dir, out: ?std.io.AnyWrit
 
     log.debug("initializing interpreter ...", .{});
 
-    self.global_env = try Env.init(self, self.storage.origin);
+    self.global_env = try Obj(Env).init(self, self.storage.origin);
     errdefer self.global_env.deinit();
 
-    const namespace_env = try Env.init(self, self.storage.origin);
+    const namespace_env = try Obj(Env).init(self, self.storage.origin);
     errdefer namespace_env.deinit();
 
     bindgen.bindObjectNamespaces(self, namespace_env, BUILTIN_NAMESPACES) catch |err| switch (err) {
@@ -162,11 +159,11 @@ pub fn init(allocator: std.mem.Allocator, cwd: ?std.fs.Dir, out: ?std.io.AnyWrit
     // TODO args
     _ = args;
 
-    const main_env = try Env.init(self, self.storage.origin);
+    const main_env = try Obj(Env).init(self, self.storage.origin);
     main_env.data.parent = downgradeCast(self.global_env);
     errdefer main_env.deinit();
 
-    if (Interpreter.init(self, self.storage.origin, .{namespace_env, main_env})) |x| {
+    if (Obj(Interpreter).init(self, self.storage.origin, .{namespace_env, main_env})) |x| {
         log.debug("... interpreter ready", .{});
         self.main_interpreter = x;
         return self;

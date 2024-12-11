@@ -15,8 +15,6 @@ const forceObj = Rml.forceObj;
 const getRml = Rml.getRml;
 
 
-pub const Block = Obj(Memory);
-
 pub const BlockKind = enum {
     doc,
     curly,
@@ -42,24 +40,24 @@ pub const BlockKind = enum {
     }
 };
 
-pub const Memory = struct {
+pub const Block = struct {
     block_kind: BlockKind = .doc,
-    array: Rml.array.MemoryUnmanaged(ObjData) = .{},
+    array: Rml.array.ArrayUnmanaged = .{},
 
-    pub fn onInit(self: ptr(Memory), block_kind: BlockKind, data: []const Object) OOM! void {
+    pub fn onInit(self: ptr(Block), block_kind: BlockKind, data: []const Object) OOM! void {
         self.block_kind = block_kind;
         try self.appendSlice(data);
     }
 
-    pub fn onDeinit(self: ptr(Memory)) void {
+    pub fn onDeinit(self: ptr(Block)) void {
         self.array.deinit(getRml(self));
     }
 
-    pub fn onCompare(a: ptr(Memory), other: Object) Ordering {
+    pub fn onCompare(a: ptr(Block), other: Object) Ordering {
         var ord = Rml.compare(getTypeId(a), other.getHeader().type_id);
 
         if (ord == .Equal) {
-            const b = forceObj(Memory, other);
+            const b = forceObj(Block, other);
             defer b.deinit();
 
             ord = Rml.compare(a.block_kind, b.data.block_kind);
@@ -72,35 +70,35 @@ pub const Memory = struct {
         return ord;
     }
 
-    pub fn onFormat(self: ptr(Memory), writer: Writer) Error! void {
+    pub fn onFormat(self: ptr(Block), writer: Obj(Writer)) Error! void {
         try writer.data.writeAll(self.block_kind.toOpenStr());
         try writer.data.print("{}", .{self.array});
         try writer.data.writeAll(self.block_kind.toCloseStr());
     }
 
     /// Length of the block.
-    pub fn length(self: ptr(Memory)) usize {
+    pub fn length(self: ptr(Block)) usize {
         return self.array.length();
     }
 
     /// Contents of the block.
     /// Pointers to elements in this slice are invalidated by various functions of this ArrayList in accordance with the respective documentation.
     /// In all cases, "invalidated" means that the memory has been passed to an allocator's resize or free function.
-    pub fn items(self: ptr(Memory)) []Object {
+    pub fn items(self: ptr(Block)) []Object {
         return self.array.items();
     }
 
     /// Extend the block by 1 element.
     /// Allocates more memory as necessary.
     /// Invalidates element pointers if additional memory is needed.
-    pub fn append(self: ptr(Memory), obj: Object) OOM! void {
+    pub fn append(self: ptr(Block), obj: Object) OOM! void {
         const rml = getRml(self);
         return self.array.append(rml, obj);
     }
 
     /// Append the slice of items to the block. Allocates more memory as necessary.
     /// Invalidates element pointers if additional memory is needed.
-    pub fn appendSlice(self: ptr(Memory), slice: []const Object) OOM! void {
+    pub fn appendSlice(self: ptr(Block), slice: []const Object) OOM! void {
         const rml = getRml(self);
         return self.array.appendSlice(rml, slice);
     }

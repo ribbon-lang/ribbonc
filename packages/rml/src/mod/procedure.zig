@@ -10,6 +10,7 @@ const Obj = Rml.Obj;
 const Object = Rml.Object;
 const Block = Rml.Block;
 const Pattern = Rml.Pattern;
+const Writer = Rml.Writer;
 const getHeader = Rml.getHeader;
 const getObj = Rml.getObj;
 const getRml = Rml.getRml;
@@ -21,11 +22,9 @@ pub const ProcedureKind = enum {
     native,
 };
 
-pub const Procedure = Obj(Memory);
-
 pub const ProcedureBody = struct {
-    argument_pattern: Pattern,
-    body: Block,
+    argument_pattern: Obj(Pattern),
+    body: Obj(Block),
 
     pub fn deinit(self: *ProcedureBody) void {
         self.argument_pattern.deinit();
@@ -33,24 +32,24 @@ pub const ProcedureBody = struct {
     }
 };
 
-pub const Memory = union(ProcedureKind) {
+pub const Procedure = union(ProcedureKind) {
     macro: ProcedureBody,
     function: ProcedureBody,
     native: Rml.bindgen.NativeFunction,
 
-    pub fn onInit(_: ptr(Memory)) OOM! void {
+    pub fn onInit(_: ptr(Procedure)) OOM! void {
         return;
     }
 
-    pub fn onCompare(self: ptr(Memory), other: Object) Ordering {
+    pub fn onCompare(self: ptr(Procedure), other: Object) Ordering {
         return Rml.compare(getHeader(self).type_id, other.getHeader().type_id);
     }
 
-    pub fn onFormat(self: ptr(Memory), writer: Rml.Writer) Error! void {
+    pub fn onFormat(self: ptr(Procedure), writer: Rml.Obj(Writer)) Error! void {
         return writer.data.print("[{s}-{x}]", .{@tagName(self.*), @intFromPtr(self)});
     }
 
-    pub fn onDeinit(self: ptr(Memory)) void {
+    pub fn onDeinit(self: ptr(Procedure)) void {
         switch (self.*) {
             .macro => |*data| data.deinit(),
             .function => |*data| data.deinit(),

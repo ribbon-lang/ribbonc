@@ -13,14 +13,11 @@ const getHeader = Rml.getHeader;
 const getRml = Rml.getRml;
 const forceObj = Rml.forceObj;
 
-pub const ObjectArray = Obj(ObjectMemory);
-pub const ObjectMemory = Memory(Rml.object.ObjData);
-pub const ObjectMemoryUnmanaged = MemoryUnmanaged(Rml.object.ObjData);
+pub const Array = TypedArray(Rml.object.ObjData);
+pub const ArrayUnmanaged = TypedArrayUnmanaged(Rml.object.ObjData);
 
-pub fn Array (comptime T: type) type { return Obj(Memory(T)); }
-
-pub fn Memory (comptime T: type) type {
-    const Unmanaged = MemoryUnmanaged(T);
+pub fn TypedArray (comptime T: type) type {
+    const Unmanaged = TypedArrayUnmanaged(T);
 
     return struct {
         const Self = @This();
@@ -37,7 +34,7 @@ pub fn Memory (comptime T: type) type {
             return ord;
         }
 
-        pub fn onFormat(self: ptr(Self), writer: Writer) Error! void {
+        pub fn onFormat(self: ptr(Self), writer: Obj(Writer)) Error! void {
             try writer.data.print("{}", .{self.unmanaged});
         }
 
@@ -56,7 +53,7 @@ pub fn Memory (comptime T: type) type {
     };
 }
 
-pub fn MemoryUnmanaged (comptime T: type) type {
+pub fn TypedArrayUnmanaged (comptime T: type) type {
     return struct {
         const Self = @This();
 

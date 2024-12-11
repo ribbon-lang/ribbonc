@@ -3,8 +3,6 @@ const TextUtils = @import("Utils").Text;
 const TypeUtils = @import("Utils").Type;
 
 const Rml = @import("root.zig");
-const Symbol = Rml.Symbol;
-const Env = Rml.Env;
 const Result = Rml.interpreter.Result;
 const Error = Rml.Error;
 const Ordering = Rml.Ordering;
@@ -13,9 +11,19 @@ const SymbolAlreadyBound = Rml.SymbolAlreadyBound;
 const const_ptr = Rml.const_ptr;
 const ptr = Rml.ptr;
 const Origin = Rml.Origin;
-const Writer = Rml.Writer;
 const Obj = Rml.Obj;
 const Object = Rml.Object;
+const Int = Rml.Int;
+const Bool = Rml.Bool;
+const Float = Rml.Float;
+const Char = Rml.Char;
+const str = Rml.str;
+const Nil = Rml.Nil;
+const Env = Rml.Env;
+const Symbol = Rml.Symbol;
+const Writer = Rml.Writer;
+const Procedure = Rml.Procedure;
+const Interpreter = Rml.Interpreter;
 const getObj = Rml.getObj;
 const getHeader = Rml.getHeader;
 const getRml = Rml.getRml;
@@ -23,9 +31,9 @@ const forceObj = Rml.forceObj;
 const downgradeCast = Rml.downgradeCast;
 
 
-pub fn bindGlobals(rml: *Rml, env: Env, comptime globals: type) (OOM || SymbolAlreadyBound)! void {
+pub fn bindGlobals(rml: *Rml, env: Obj(Env), comptime globals: type) (OOM || SymbolAlreadyBound)! void {
     inline for (comptime std.meta.declarations(globals)) |field| {
-        const symbol: Symbol = try .init(rml, rml.storage.origin, .{field.name});
+        const symbol: Obj(Symbol) = try .init(rml, rml.storage.origin, .{field.name});
         errdefer symbol.deinit();
 
         const object = try toObjectConst(rml, rml.storage.origin, &@field(globals, field.name));
@@ -36,9 +44,9 @@ pub fn bindGlobals(rml: *Rml, env: Env, comptime globals: type) (OOM || SymbolAl
 }
 
 
-pub fn bindObjectNamespaces(rml: *Rml, env: Env, comptime namespaces: anytype) (OOM || SymbolAlreadyBound)! void {
+pub fn bindObjectNamespaces(rml: *Rml, env: Obj(Env), comptime namespaces: anytype) (OOM || SymbolAlreadyBound)! void {
     inline for (comptime std.meta.fields(@TypeOf(namespaces))) |field| {
-        const builtinEnv: Env = try .init(rml, rml.storage.origin);
+        const builtinEnv: Obj(Env) = try .init(rml, rml.storage.origin);
         builtinEnv.data.parent = downgradeCast(env);
         defer std.debug.assert(builtinEnv.getHeader().ref_count == 1);
         defer builtinEnv.deinit();
@@ -50,7 +58,7 @@ pub fn bindObjectNamespaces(rml: *Rml, env: Env, comptime namespaces: anytype) (
 
         try builtinEnv.data.bindNamespace(methods);
 
-        try env.data.bind(try Symbol.init(rml, rml.storage.origin, .{field.name}), builtinEnv.typeErase());
+        try env.data.bind(try Obj(Symbol).init(rml, rml.storage.origin, .{field.name}), builtinEnv.typeErase());
     }
 }
 
@@ -75,8 +83,8 @@ pub fn Support(comptime T: type) type {
         }.onCompare;
 
         pub const onFormat = switch (T) {
-            Rml.char => struct {
-                pub fn onFormat(self: ptr(T), writer: Writer) Error! void {
+            Rml.Char => struct {
+                pub fn onFormat(self: ptr(T), writer: Obj(Writer)) Error! void {
                     var buf = [1]u8{0} ** 4;
                     const len = TextUtils.encode(self.*, buf[0..]) catch 0;
                     try writer.data.print("'{s}'", .{buf[0..len]});
@@ -84,21 +92,21 @@ pub fn Support(comptime T: type) type {
             },
             else => switch(@typeInfo(T)) {
                 .pointer => |info| if (@typeInfo(info.child) == .@"fn") struct {
-                    pub fn onFormat(self: ptr(T), writer: Writer) Error! void {
+                    pub fn onFormat(self: ptr(T), writer: Obj(Writer)) Error! void {
                         try writer.data.print("[native-function {s} {x}]", .{fmtNativeType(T), @intFromPtr(self)});
                     }
                 } else struct {
-                    pub fn onFormat(self: ptr(T), writer: Writer) Error! void {
+                    pub fn onFormat(self: ptr(T), writer: Obj(Writer)) Error! void {
                         try writer.data.print("[native-{s} {x}]", .{@typeName(T), @intFromPtr(self)});
                     }
                 },
                 .array => struct {
-                    pub fn onFormat(self: ptr(T), writer: Writer) Error! void {
+                    pub fn onFormat(self: ptr(T), writer: Obj(Writer)) Error! void {
                         try writer.data.print("{any}", .{self.*});
                     }
                 },
                 else => struct {
-                    pub fn onFormat(self: ptr(T), writer: Writer) Error! void {
+                    pub fn onFormat(self: ptr(T), writer: Obj(Writer)) Error! void {
                         try writer.data.print("{}", .{self.*});
                     }
                 },
@@ -157,7 +165,7 @@ pub fn fmtNativeType(comptime T: type) []const u8 {
 
                 break :fun x ++ ")";
             },
-            .enum_literal => "Symbol",
+            .enum_literal => "Obj(Symbol)",
             else => fmtTypeName(T),
         }
     };
@@ -254,7 +262,7 @@ pub fn isVTableMethodName(name: []const u8) bool {
 }
 
 
-pub const NativeFunction = *const fn (Rml.Interpreter, Origin, []const Object) Result! Object;
+pub const NativeFunction = *const fn (Obj(Interpreter), Origin, []const Object) Result! Object;
 
 pub fn Namespace(comptime T: type) type {
     @setEvalBranchQuota(10_000);
@@ -337,7 +345,7 @@ pub fn Namespace(comptime T: type) type {
         for (std.meta.fields(BaseMethods), 0..) |field, fieldIndex| {
             fields[fieldIndex] = std.builtin.Type.StructField {
                 .name = field.name,
-                .type = Rml.Procedure,
+                .type = Obj(Procedure),
                 .default_value = null,
                 .is_comptime = false,
                 .alignment = @alignOf(*const fn () void),
@@ -406,31 +414,31 @@ pub fn fromObject(comptime T: type, _: *Rml, value: Object) Error! T {
 pub fn ObjectRepr(comptime T: type) type {
     const tInfo = @typeInfo(T);
     return switch (T) {
-        Rml.int => Rml.Int,
-        Rml.float => Rml.Float,
-        Rml.char => Rml.Char,
-        NativeFunction => Rml.Procedure,
+        Rml.Int => Obj(Rml.Int),
+        Rml.Float => Obj(Rml.Float),
+        Rml.Char => Obj(Rml.Char),
+        NativeFunction => Obj(Procedure),
         else => switch (tInfo) {
-            .bool => Rml.Bool,
+            .bool => Obj(Rml.Bool),
 
             .void, .null, .undefined, .noreturn
-                => Rml.Nil,
+                => Obj(Rml.Nil),
 
             .int, .float, .error_set, .error_union, .@"enum", .@"opaque", .enum_literal, .array, .vector,
-                => Rml.Obj(T),
+                => Obj(T),
 
             .pointer => |info|
-                if (@typeInfo(info.child) == .@"fn") Rml.Procedure
+                if (@typeInfo(info.child) == .@"fn") Obj(Procedure)
                 else if (info.alignment == Rml.object.OBJ_ALIGN) ObjectRepr(info.child)
-                     else Rml.Obj(T),
+                     else Obj(T),
 
             .@"struct" =>
                 if (std.mem.startsWith(u8, @typeName(T), "object.Obj")) T
-                else Rml.Obj(T),
+                else Obj(T),
 
-            .@"union" => Rml.Obj(T),
+            .@"union" => Obj(T),
 
-            .@"fn" => Rml.Procedure,
+            .@"fn" => Obj(Procedure),
 
             .optional => Rml.Object,
 
@@ -443,34 +451,34 @@ pub fn toObject(rml: *Rml, origin: Origin, value: anytype) OOM! ObjectRepr(@Type
     const T = @TypeOf(value);
     const tInfo = @typeInfo(T);
     return switch (T) {
-        Rml.int => Rml.Int.wrap(rml, origin, value),
-        Rml.float => Rml.Float.wrap(rml, origin, value),
-        Rml.char => Rml.Char.wrap(rml, origin, value),
-        Rml.str => Rml.Obj([]const u8).wrap(rml, origin, value),
-        Rml.Object => return value.clone(),
-        NativeFunction => Rml.Procedure.wrap(rml, origin, .{ .native = value }),
+        Int => Obj(Int).wrap(rml, origin, value),
+        Float => Obj(Float).wrap(rml, origin, value),
+        Char => Obj(Char).wrap(rml, origin, value),
+        str => Obj(str).wrap(rml, origin, value),
+        Object => return value.clone(),
+        NativeFunction => Obj(Procedure).wrap(rml, origin, .{ .native = value }),
         else => switch (tInfo) {
             .bool =>
-                Rml.Bool.wrap(rml, origin, value),
+                Obj(Bool).wrap(rml, origin, value),
 
             .void, .null, .undefined, .noreturn, =>
-                Rml.Nil.wrap(rml, origin, Rml.nil{}),
+                Obj(Nil).wrap(rml, origin, Nil{}),
 
             .int, .float, .error_set, .error_union, .@"enum",
             .@"opaque", .enum_literal, .array, .vector, =>
-                Rml.Obj(T).wrap(rml, origin, value),
+                Obj(T).wrap(rml, origin, value),
 
             .pointer => |info|
                 if (@typeInfo(info.child) == .@"fn") @compileError("wrap functions with wrapNativeFunction")
                 else if (info.alignment == Rml.object.OBJ_ALIGN) getObj(value)
-                     else Rml.Obj(T).wrap(rml, origin, value),
+                     else Obj(T).wrap(rml, origin, value),
 
             .@"struct" =>
                 if (comptime std.mem.startsWith(u8, @typeName(T), "object.Obj")) value
-                else Rml.Obj(T).wrap(rml, origin, value),
+                else Obj(T).wrap(rml, origin, value),
 
             .@"union" =>
-                Rml.Obj(T).wrap(rml, origin, value),
+                Obj(T).wrap(rml, origin, value),
 
             .optional =>
                 if (value) |v| v: {
@@ -478,7 +486,7 @@ pub fn toObject(rml: *Rml, origin: Origin, value: anytype) OOM! ObjectRepr(@Type
                     defer x.deinit();
                     break :v x.typeErase();
                 } else nil: {
-                    const x = try Rml.Nil.wrap(rml, origin, Rml.nil{});
+                    const x = try Obj(Nil).wrap(rml, origin, Nil{});
                     defer x.deinit();
                     break :nil x.typeErase();
                 },
@@ -492,30 +500,30 @@ pub fn toObjectConst(rml: *Rml, origin: Origin, comptime value: anytype) OOM! Ob
     const T = @TypeOf(value);
     const tInfo = @typeInfo(T);
     return switch (T) {
-        Rml.int => Rml.Int.wrap(rml, origin, value),
-        Rml.float => Rml.Float.wrap(rml, origin, value),
-        Rml.char => Rml.Char.wrap(rml, origin, value),
-        Rml.str => Rml.Obj([]const u8).wrap(rml, origin, value),
-        Rml.Object => value.clone(),
-        NativeFunction => Rml.Procedure.wrap(rml, origin, .{ .native = value }),
+        Int => Obj(Int).wrap(rml, origin, value),
+        Float => Obj(Float).wrap(rml, origin, value),
+        Char => Obj(Char).wrap(rml, origin, value),
+        str => Obj([]const u8).wrap(rml, origin, value),
+        Object => value.clone(),
+        NativeFunction => Obj(Procedure).wrap(rml, origin, .{ .native = value }),
         else => switch (tInfo) {
             .bool =>
-                Rml.Bool.wrap(rml, origin, value),
+                Obj(Bool).wrap(rml, origin, value),
 
             .void, .null, .undefined, .noreturn, =>
-                Rml.Nil.wrap(rml, origin, Rml.nil{}),
+                Obj(Nil).wrap(rml, origin, Nil{}),
 
             .int, .float, .error_set, .error_union, .@"enum",
             .@"opaque", .enum_literal, .array, .vector, =>
-                Rml.Obj(T).wrap(rml, origin, value),
+                Obj(T).wrap(rml, origin, value),
 
             .pointer => |info|
                 if (@typeInfo(info.child) == .@"fn") wrapNativeFunction(rml, origin, value)
                 else if (info.alignment == Rml.object.OBJ_ALIGN) getObj(value)
-                     else Rml.Obj(T).wrap(rml, origin, value),
+                     else Obj(T).wrap(rml, origin, value),
 
             .@"struct", .@"union", =>
-                Rml.Obj(T).wrap(rml, origin, value),
+                Obj(T).wrap(rml, origin, value),
 
             .optional =>
                 if (value) |v| v: {
@@ -523,7 +531,7 @@ pub fn toObjectConst(rml: *Rml, origin: Origin, comptime value: anytype) OOM! Ob
                     defer x.deinit();
                     break :v x.typeErase();
                 } else nil: {
-                    const x = try Rml.Nil.wrap(rml, origin, Rml.nil{});
+                    const x = try Obj(Nil).wrap(rml, origin, Nil{});
                     defer x.deinit();
                     break :nil x.typeErase();
                 },
@@ -534,12 +542,12 @@ pub fn toObjectConst(rml: *Rml, origin: Origin, comptime value: anytype) OOM! Ob
 }
 
 
-pub fn wrapNativeFunction(rml: *Rml, origin: Origin, comptime value: anytype) OOM! Rml.Procedure {
+pub fn wrapNativeFunction(rml: *Rml, origin: Origin, comptime value: anytype) OOM! Obj(Procedure) {
     const T = @typeInfo(@TypeOf(value)).pointer.child;
     const info = @typeInfo(T).@"fn";
 
-    return Rml.Procedure.wrap(rml, origin, .{ .native = struct {
-        pub fn method (interpreter: Rml.Interpreter, callOrigin: Origin, args: []const Object) Result! Object {
+    return Obj(Procedure).wrap(rml, origin, .{ .native = struct {
+        pub fn method (interpreter: Obj(Interpreter), callOrigin: Origin, args: []const Object) Result! Object {
             if (args.len != info.params.len) {
                 try interpreter.data.abort(callOrigin, error.InvalidArgumentCount, "expected {} arguments, got {}", .{info.params.len, args.len});
             }

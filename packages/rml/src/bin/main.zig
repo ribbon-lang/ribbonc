@@ -47,9 +47,9 @@ pub fn main () !void {
     log.info("namespace_env: {}", .{rml.main_interpreter.data.namespace_env});
     log.info("evaluation_env: {}", .{rml.main_interpreter.data.evaluation_env});
 
-    const srcText: []const u8 = "(print-ln \"Hello, world!\" (+ \"1\" 2))";
+    const srcText: []const u8 = "(print-ln \"Hello, world!\" (+ '1' 2))";
 
-    const parser: Rml.Parser = try .init(rml, rml.storage.origin, .{"test.rml", try Rml.String.init(rml, rml.storage.origin, .{srcText})});
+    const parser: Rml.Obj(Rml.Parser) = try .init(rml, rml.storage.origin, .{"test.rml", try Rml.Obj(Rml.String).init(rml, rml.storage.origin, .{srcText})});
     defer {
         log.debug("Deinitializing parser", .{});
         parser.deinit();

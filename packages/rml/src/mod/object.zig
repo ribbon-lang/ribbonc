@@ -4,13 +4,14 @@ const TypeUtils = @import("Utils").Type;
 
 const Rml = @import("root.zig");
 const bindgen = Rml.bindgen;
-const Writer = Rml.Writer;
 const Error = Rml.Error;
 const Ordering = Rml.Ordering;
 const OOM = Rml.OOM;
 const log = Rml.log;
 const TypeId = Rml.TypeId;
 const map = Rml.map;
+const Writer = Rml.Writer;
+const Symbol = Rml.Symbol;
 const Origin = Rml.Origin;
 
 
@@ -70,7 +71,7 @@ pub const Header = struct {
         return self.vtable.onCompare(self, obj);
     }
 
-    pub fn onFormat(self: ptr(Header), writer: Writer) Error! void {
+    pub fn onFormat(self: ptr(Header), writer: Obj(Writer)) Error! void {
         return self.vtable.onFormat(self, writer);
     }
 
@@ -134,7 +135,7 @@ pub const VTable = struct {
 
     pub const ObjDataFunctions = struct {
         onCompare: ?*const fn (const_ptr(ObjData), Rml.Object) Ordering = null,
-        onFormat: ?*const fn (const_ptr(ObjData), Writer) Error! void = null,
+        onFormat: ?*const fn (const_ptr(ObjData), Obj(Writer)) Error! void = null,
         onDeinit: ?*const fn (const_ptr(ObjData)) void = null,
     };
 
@@ -208,7 +209,7 @@ pub const VTable = struct {
         return self.obj_data.onCompare.?(data, other);
     }
 
-    pub fn onFormat(self: *const VTable, header: ptr(Header), writer: Writer) Error! void {
+    pub fn onFormat(self: *const VTable, header: ptr(Header), writer: Obj(Writer)) Error! void {
         const data = header.getData();
         log.debug("VTable/onFormat {s}", .{TypeId.name(header.type_id)});
         return self.obj_data.onFormat.?(data, writer);
@@ -373,7 +374,7 @@ pub fn Obj(comptime T: type) type {
         pub fn format(self: Self, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) Error! void {
             const w: Rml.writer.Native = if (@TypeOf(writer) == Rml.writer.Native) writer else writer.any();
 
-            const wObj: Writer = try .init(self.getRml(), self.getRml().storage.origin, .{w});
+            const wObj: Obj(Writer) = try .init(self.getRml(), self.getRml().storage.origin, .{w});
             defer wObj.deinit();
 
             try self.getHeader().onFormat(wObj);

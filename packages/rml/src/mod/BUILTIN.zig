@@ -1,17 +1,28 @@
 const std = @import("std");
 
 const Rml = @import("root.zig");
-
+const Obj = Rml.Obj;
+const Result = Rml.Result;
+const Object = Rml.Object;
+const Origin = Rml.Origin;
+const Nil = Rml.Nil;
+const Int = Rml.Int;
+const Float = Rml.Float;
+const Char = Rml.Char;
+const Writer = Rml.Writer;
+const Interpreter = Rml.Interpreter;
+const TypeId = Rml.TypeId;
+const castObj = Rml.castObj;
 
 
 /// Print any number of arguments followed by a new line
-pub fn @"print-ln"(interpreter: Rml.Interpreter, callOrigin: Rml.Origin, args: []const Rml.Object) Rml.Result! Rml.Object {
+pub fn @"print-ln"(interpreter: Obj(Interpreter), callOrigin: Origin, args: []const Object) Result! Object {
     const rml = interpreter.getRml();
 
     const stdout = std.io.getStdOut();
     const nativeWriter = stdout.writer();
 
-    const writer: Rml.Writer = try .init(rml, callOrigin, .{nativeWriter.any()});
+    const writer: Obj(Writer) = try .init(rml, callOrigin, .{nativeWriter.any()});
     defer writer.deinit();
 
     try writer.data.print("{}: ", .{callOrigin});
@@ -20,7 +31,7 @@ pub fn @"print-ln"(interpreter: Rml.Interpreter, callOrigin: Rml.Origin, args: [
 
     try writer.data.writeAll("\n");
 
-    const nil: Rml.Nil = try .init(rml, callOrigin);
+    const nil: Obj(Nil) = try .init(rml, callOrigin);
     defer nil.deinit();
 
     return nil.typeErase();
@@ -29,18 +40,18 @@ pub fn @"print-ln"(interpreter: Rml.Interpreter, callOrigin: Rml.Origin, args: [
 
 
 /// Print any number of arguments
-pub fn print(interpreter: Rml.Interpreter, callOrigin: Rml.Origin, args: []const Rml.Object) Rml.Result! Rml.Object {
+pub fn print(interpreter: Obj(Interpreter), callOrigin: Origin, args: []const Object) Result! Object {
     const rml = interpreter.getRml();
 
     const stdout = std.io.getStdOut();
     const nativeWriter = stdout.writer();
 
-    const writer: Rml.Writer = try .init(rml, callOrigin, .{nativeWriter.any()});
+    const writer: Obj(Writer) = try .init(rml, callOrigin, .{nativeWriter.any()});
     defer writer.deinit();
 
     for (args) |arg| try arg.getHeader().onFormat(writer);
 
-    const nil: Rml.Nil = try .init(rml, callOrigin);
+    const nil: Obj(Nil) = try .init(rml, callOrigin);
     defer nil.deinit();
 
     return nil.typeErase();
@@ -52,43 +63,43 @@ pub fn print(interpreter: Rml.Interpreter, callOrigin: Rml.Origin, args: []const
 pub const add = @"+";
 /// Sum any number of arguments of type `int | float | char`;
 /// if only one argument is provided, return the argument's absolute value
-pub fn @"+"(interpreter: Rml.Interpreter, callOrigin: Rml.Origin, args: []const Rml.Object) Rml.Result! Rml.Object {
+pub fn @"+"(interpreter: Obj(Interpreter), callOrigin: Origin, args: []const Object) Result! Object {
     if (args.len == 0) try interpreter.data.abort(callOrigin, error.InvalidArgumentCount, "expected at least 1 argument, found 0", .{});
 
-    var sum: Rml.Object = args[0].clone();
+    var sum: Object = args[0].clone();
     defer sum.deinit();
 
     if (args.len == 1) {
-        if (Rml.castObj(Rml.int, sum)) |int| {
+        if (castObj(Int, sum)) |int| {
             defer int.deinit();
 
-            const result: Rml.Int = try .wrap(int.getRml(), callOrigin, @intCast(@abs(int.data.*)));
+            const result: Obj(Int) = try .wrap(int.getRml(), callOrigin, @intCast(@abs(int.data.*)));
             defer result.deinit();
 
             return result.typeErase();
-        } else if (Rml.castObj(Rml.float, sum)) |float| {
+        } else if (castObj(Float, sum)) |float| {
             defer float.deinit();
 
-            const result: Rml.Float = try .wrap(float.getRml(), callOrigin, @abs(float.data.*));
+            const result: Obj(Float) = try .wrap(float.getRml(), callOrigin, @abs(float.data.*));
             defer result.deinit();
 
             return result.typeErase();
-        } if (Rml.castObj(Rml.char, sum)) |char| {
+        } if (castObj(Char, sum)) |char| {
             defer char.deinit();
 
-            const result: Rml.Char = try .wrap(char.getRml(), callOrigin, char.data.*);
+            const result: Obj(Char) = try .wrap(char.getRml(), callOrigin, char.data.*);
             defer result.deinit();
 
             return result.typeErase();
         } else {
-            try interpreter.data.abort(callOrigin, error.TypeError, "expected int | float | char, found {s}", .{Rml.TypeId.name(sum.getHeader().type_id)});
+            try interpreter.data.abort(callOrigin, error.TypeError, "expected int | float | char, found {s}", .{TypeId.name(sum.getHeader().type_id)});
         }
     }
 
-    return arithCastReduce(interpreter, callOrigin, &sum, args, struct {
-        pub fn int(a: Rml.int, b: Rml.int) Rml.int { return a + b; }
-        pub fn float(a: Rml.float, b: Rml.float) Rml.float { return a + b; }
-        pub fn char(a: Rml.char, b: Rml.char) Rml.char { return a + b; }
+    return arithCastReduce(interpreter, callOrigin, &sum, args[1..], struct {
+        pub fn int(a: Int, b: Int) Int { return a + b; }
+        pub fn float(a: Float, b: Float) Float { return a + b; }
+        pub fn char(a: Char, b: Char) Char { return a + b; }
     });
 }
 
@@ -98,43 +109,43 @@ pub fn @"+"(interpreter: Rml.Interpreter, callOrigin: Rml.Origin, args: []const 
 pub const sub = @"-";
 /// Subtract any number of arguments of type `int | float | char`;
 /// if only one argument is provided, return the argument's negative value
-pub fn @"-"(interpreter: Rml.Interpreter, callOrigin: Rml.Origin, args: []const Rml.Object) Rml.Result! Rml.Object {
+pub fn @"-"(interpreter: Obj(Interpreter), callOrigin: Origin, args: []const Object) Result! Object {
     if (args.len == 0) try interpreter.data.abort(callOrigin, error.InvalidArgumentCount, "expected at least 1 argument, found 0", .{});
 
-    var sum: Rml.Object = args[0].clone();
+    var sum: Object = args[0].clone();
     defer sum.deinit();
 
     if (args.len == 1) {
-        if (Rml.castObj(Rml.int, sum)) |int| {
+        if (castObj(Int, sum)) |int| {
             defer int.deinit();
 
-            const result: Rml.Int = try .wrap(int.getRml(), callOrigin, -int.data.*);
+            const result: Obj(Int) = try .wrap(int.getRml(), callOrigin, -int.data.*);
             defer result.deinit();
 
             return result.typeErase();
-        } else if (Rml.castObj(Rml.float, sum)) |float| {
+        } else if (castObj(Float, sum)) |float| {
             defer float.deinit();
 
-            const result: Rml.Float = try .wrap(float.getRml(), callOrigin, -float.data.*);
+            const result: Obj(Float) = try .wrap(float.getRml(), callOrigin, -float.data.*);
             defer result.deinit();
 
             return result.typeErase();
-        } if (Rml.castObj(Rml.char, sum)) |char| { // ???
+        } if (castObj(Char, sum)) |char| { // ???
             defer char.deinit();
 
-            const result: Rml.Char = try .wrap(char.getRml(), callOrigin, char.data.*);
+            const result: Obj(Char) = try .wrap(char.getRml(), callOrigin, char.data.*);
             defer result.deinit();
 
             return result.typeErase();
         } else {
-            try interpreter.data.abort(callOrigin, error.TypeError, "expected int | float | char, found {s}", .{Rml.TypeId.name(sum.getHeader().type_id)});
+            try interpreter.data.abort(callOrigin, error.TypeError, "expected int | float | char, found {s}", .{TypeId.name(sum.getHeader().type_id)});
         }
     }
 
-    return arithCastReduce(interpreter, callOrigin, &sum, args, struct {
-        pub fn int(a: Rml.int, b: Rml.int) Rml.int { return a - b; }
-        pub fn float(a: Rml.float, b: Rml.float) Rml.float { return a - b; }
-        pub fn char(a: Rml.char, b: Rml.char) Rml.char { return a - b; }
+    return arithCastReduce(interpreter, callOrigin, &sum, args[1..], struct {
+        pub fn int(a: Int, b: Int) Int { return a - b; }
+        pub fn float(a: Float, b: Float) Float { return a - b; }
+        pub fn char(a: Char, b: Char) Char { return a - b; }
     });
 }
 
@@ -143,16 +154,16 @@ pub fn @"-"(interpreter: Rml.Interpreter, callOrigin: Rml.Origin, args: []const 
 pub const div = @"/";
 /// Divide any number of arguments of type `int | float | char`;
 /// if only one argument is provided, it is an error
-pub fn @"/"(interpreter: Rml.Interpreter, callOrigin: Rml.Origin, args: []const Rml.Object) Rml.Result! Rml.Object {
+pub fn @"/"(interpreter: Obj(Interpreter), callOrigin: Origin, args: []const Object) Result! Object {
     if (args.len < 2) try interpreter.data.abort(callOrigin, error.InvalidArgumentCount, "expected at least 2 arguments, found {}", .{args.len});
 
-    var sum: Rml.Object = args[0].clone();
+    var sum: Object = args[0].clone();
     defer sum.deinit();
 
-    return arithCastReduce(interpreter, callOrigin, &sum, args, struct {
-        pub fn int(a: Rml.int, b: Rml.int) Rml.int { return @divFloor(a, b); }
-        pub fn float(a: Rml.float, b: Rml.float) Rml.float { return a / b; }
-        pub fn char(a: Rml.char, b: Rml.char) Rml.char { return @divFloor(a, b); }
+    return arithCastReduce(interpreter, callOrigin, &sum, args[1..], struct {
+        pub fn int(a: Int, b: Int) Int { return @divFloor(a, b); }
+        pub fn float(a: Float, b: Float) Float { return a / b; }
+        pub fn char(a: Char, b: Char) Char { return @divFloor(a, b); }
     });
 }
 
@@ -161,136 +172,136 @@ pub fn @"/"(interpreter: Rml.Interpreter, callOrigin: Rml.Origin, args: []const 
 pub const mul = @"*";
 /// Multiply any number of arguments of type `int | float | char`;
 /// if only one argument is provided, it is an error
-pub fn @"*"(interpreter: Rml.Interpreter, callOrigin: Rml.Origin, args: []const Rml.Object) Rml.Result! Rml.Object {
+pub fn @"*"(interpreter: Obj(Interpreter), callOrigin: Origin, args: []const Object) Result! Object {
     if (args.len < 2) try interpreter.data.abort(callOrigin, error.InvalidArgumentCount, "expected at least 2 arguments, found {}", .{args.len});
 
-    var sum: Rml.Object = args[0].clone();
+    var sum: Object = args[0].clone();
     defer sum.deinit();
 
-    return arithCastReduce(interpreter, callOrigin, &sum, args, struct {
-        pub fn int(a: Rml.int, b: Rml.int) Rml.int { return a * b; }
-        pub fn float(a: Rml.float, b: Rml.float) Rml.float { return a * b; }
-        pub fn char(a: Rml.char, b: Rml.char) Rml.char { return a * b; }
+    return arithCastReduce(interpreter, callOrigin, &sum, args[1..], struct {
+        pub fn int(a: Int, b: Int) Int { return a * b; }
+        pub fn float(a: Float, b: Float) Float { return a * b; }
+        pub fn char(a: Char, b: Char) Char { return a * b; }
     });
 }
 
 
 /// Perform remainder division on any number of arguments of type `int | float | char`;
 /// if only one argument is provided, it is an error
-pub fn @"rem"(interpreter: Rml.Interpreter, callOrigin: Rml.Origin, args: []const Rml.Object) Rml.Result! Rml.Object {
+pub fn @"rem"(interpreter: Obj(Interpreter), callOrigin: Origin, args: []const Object) Result! Object {
     if (args.len < 2) try interpreter.data.abort(callOrigin, error.InvalidArgumentCount, "expected at least 2 arguments, found {}", .{args.len});
 
-    var sum: Rml.Object = args[0].clone();
+    var sum: Object = args[0].clone();
     defer sum.deinit();
 
     return arithCastReduce(interpreter, callOrigin, &sum, args[1..], struct {
-        pub fn int(a: Rml.int, b: Rml.int) Rml.int { return @rem(a, b); }
-        pub fn float(a: Rml.float, b: Rml.float) Rml.float { return @rem(a, b); }
-        pub fn char(a: Rml.char, b: Rml.char) Rml.char { return @rem(a, b); }
+        pub fn int(a: Int, b: Int) Int { return @rem(a, b); }
+        pub fn float(a: Float, b: Float) Float { return @rem(a, b); }
+        pub fn char(a: Char, b: Char) Char { return @rem(a, b); }
     });
 }
 
 
 
 fn arithCastReduce(
-    interpreter: Rml.Interpreter,
-    callOrigin: Rml.Origin, acc: *Rml.Object, args: []const Rml.Object,
+    interpreter: Obj(Interpreter),
+    callOrigin: Origin, acc: *Object, args: []const Object,
     comptime Ops: type,
-) Rml.Result! Rml.Object {
+) Result! Object {
     const offset = 1;
     for (args, 0..) |arg, i| {
-        if (Rml.castObj(Rml.int, acc.*)) |int| {
+        if (castObj(Int, acc.*)) |int| {
             defer int.deinit();
 
-            if (Rml.castObj(Rml.int, arg)) |int2| { // int + int = int
+            if (castObj(Int, arg)) |int2| { // int + int = int
                 defer int2.deinit();
 
-                const int3: Rml.Int = try .wrap(int2.getRml(), callOrigin, @field(Ops, "int")(int.data.*, int2.data.*));
+                const int3: Obj(Int) = try .wrap(int2.getRml(), callOrigin, @field(Ops, "int")(int.data.*, int2.data.*));
                 defer int3.deinit();
 
                 acc.deinit();
                 acc.* = int3.typeErase();
-            } else if (Rml.castObj(Rml.float, arg)) |float| { // int + float = float
+            } else if (castObj(Float, arg)) |float| { // int + float = float
                 defer float.deinit();
 
-                const float2: Rml.Float = try .wrap(float.getRml(), callOrigin, @field(Ops, "float")(@as(Rml.float, @floatFromInt(int.data.*)), float.data.*));
+                const float2: Obj(Float) = try .wrap(float.getRml(), callOrigin, @field(Ops, "float")(@as(Float, @floatFromInt(int.data.*)), float.data.*));
                 defer float2.deinit();
 
                 acc.deinit();
                 acc.* = float2.typeErase();
-            } else if (Rml.castObj(Rml.char, arg)) |char| { // int + char = int
+            } else if (castObj(Char, arg)) |char| { // int + char = int
                 defer char.deinit();
 
-                const int2: Rml.Int = try .wrap(char.getRml(), callOrigin, @field(Ops, "int")(int.data.*, @as(Rml.int, @intCast(char.data.*))));
+                const int2: Obj(Int) = try .wrap(char.getRml(), callOrigin, @field(Ops, "int")(int.data.*, @as(Int, @intCast(char.data.*))));
                 defer int2.deinit();
 
                 acc.deinit();
                 acc.* = int2.typeErase();
             } else {
-                try interpreter.data.abort(callOrigin, error.TypeError, "expected int | float | char for argument {}, found {s}", .{i + offset, Rml.TypeId.name(arg.getHeader().type_id)});
+                try interpreter.data.abort(callOrigin, error.TypeError, "expected int | float | char for argument {}, found {s}", .{i + offset, TypeId.name(arg.getHeader().type_id)});
             }
-        } else if (Rml.castObj(Rml.float, acc.*)) |float| {
+        } else if (castObj(Float, acc.*)) |float| {
             defer float.deinit();
 
-            if (Rml.castObj(Rml.int, arg)) |int| { // float + int = float
+            if (castObj(Int, arg)) |int| { // float + int = float
                 defer int.deinit();
 
-                const float2: Rml.Float = try .wrap(int.getRml(), callOrigin, @field(Ops, "float")(float.data.*, @as(Rml.float, @floatFromInt(int.data.*))));
+                const float2: Obj(Float) = try .wrap(int.getRml(), callOrigin, @field(Ops, "float")(float.data.*, @as(Float, @floatFromInt(int.data.*))));
                 defer float2.deinit();
 
                 acc.deinit();
                 acc.* = float2.typeErase();
-            } else if (Rml.castObj(Rml.float, arg)) |float2| { // float + float = float
+            } else if (castObj(Float, arg)) |float2| { // float + float = float
                 defer float2.deinit();
 
-                const float3: Rml.Float = try .wrap(float2.getRml(), callOrigin, @field(Ops, "float")(float.data.*, float2.data.*));
+                const float3: Obj(Float) = try .wrap(float2.getRml(), callOrigin, @field(Ops, "float")(float.data.*, float2.data.*));
                 defer float3.deinit();
 
                 acc.deinit();
                 acc.* = float3.typeErase();
-            } else if (Rml.castObj(Rml.char, arg)) |char| { // float + char = float
+            } else if (castObj(Char, arg)) |char| { // float + char = float
                 defer char.deinit();
 
-                const float2: Rml.Float = try .wrap(char.getRml(), callOrigin, @field(Ops, "float")(float.data.*, @as(Rml.float, @floatFromInt(char.data.*))));
+                const float2: Obj(Float) = try .wrap(char.getRml(), callOrigin, @field(Ops, "float")(float.data.*, @as(Float, @floatFromInt(char.data.*))));
                 defer float2.deinit();
 
                 acc.deinit();
                 acc.* = float2.typeErase();
             } else {
-                try interpreter.data.abort(callOrigin, error.TypeError, "expected int | float | char for argument {}, found {s}", .{i + offset, Rml.TypeId.name(arg.getHeader().type_id)});
+                try interpreter.data.abort(callOrigin, error.TypeError, "expected int | float | char for argument {}, found {s}", .{i + offset, TypeId.name(arg.getHeader().type_id)});
             }
-        } else if (Rml.castObj(Rml.char, acc.*)) |char| {
+        } else if (castObj(Char, acc.*)) |char| {
             defer char.deinit();
 
-            if (Rml.castObj(Rml.int, arg)) |int| { // char + int = int
+            if (castObj(Int, arg)) |int| { // char + int = int
                 defer int.deinit();
 
-                const int2: Rml.Int = try .wrap(char.getRml(), callOrigin, @field(Ops, "int")(@as(Rml.int, @intCast(char.data.*)), int.data.*));
+                const int2: Obj(Int) = try .wrap(char.getRml(), callOrigin, @field(Ops, "int")(@as(Int, @intCast(char.data.*)), int.data.*));
                 defer int2.deinit();
 
                 acc.deinit();
                 acc.* = int2.typeErase();
-            } else if (Rml.castObj(Rml.float, arg)) |float| { // char, float = float
+            } else if (castObj(Float, arg)) |float| { // char, float = float
                 defer float.deinit();
 
-                const float2: Rml.Float = try .wrap(float.getRml(), callOrigin, @field(Ops, "float")(@as(Rml.float, @floatFromInt(char.data.*)), float.data.*));
+                const float2: Obj(Float) = try .wrap(float.getRml(), callOrigin, @field(Ops, "float")(@as(Float, @floatFromInt(char.data.*)), float.data.*));
                 defer float2.deinit();
 
                 acc.deinit();
                 acc.* = float2.typeErase();
-            } else if (Rml.castObj(Rml.char, arg)) |char2| { // char, char = char
+            } else if (castObj(Char, arg)) |char2| { // char, char = char
                 defer char2.deinit();
 
-                const char3: Rml.Char = try .wrap(char2.getRml(), callOrigin, @field(Ops, "char")(char.data.*, char2.data.*));
+                const char3: Obj(Char) = try .wrap(char2.getRml(), callOrigin, @field(Ops, "char")(char.data.*, char2.data.*));
                 defer char3.deinit();
 
                 acc.deinit();
                 acc.* = char3.typeErase();
             } else {
-                try interpreter.data.abort(callOrigin, error.TypeError, "expected int | float | char for argument {}, found {s}", .{i + offset, Rml.TypeId.name(arg.getHeader().type_id)});
+                try interpreter.data.abort(callOrigin, error.TypeError, "expected int | float | char for argument {}, found {s}", .{i + offset, TypeId.name(arg.getHeader().type_id)});
             }
         } else {
-            try interpreter.data.abort(callOrigin, error.TypeError, "expected int | float | char for argument {}, found {s}", .{i, Rml.TypeId.name(acc.getHeader().type_id)});
+            try interpreter.data.abort(callOrigin, error.TypeError, "expected int | float | char for argument {}, found {s}", .{i, TypeId.name(acc.getHeader().type_id)});
         }
     }
 

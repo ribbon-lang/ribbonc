@@ -6,13 +6,14 @@ const Ordering = Rml.Ordering;
 const Error = Rml.Error;
 const OOM = Rml.OOM;
 const log = Rml.log;
-const Env = Rml.Env;
-const Symbol = Rml.Symbol;
-const Writer = Rml.Writer;
 const Object = Rml.Object;
 const Origin = Rml.Origin;
 const Obj = Rml.Obj;
 const ptr = Rml.ptr;
+const Nil = Rml.Nil;
+const Env = Rml.Env;
+const Symbol = Rml.Symbol;
+const Writer = Rml.Writer;
 const getObj = Rml.getObj;
 const getTypeId = Rml.getTypeId;
 const getRml = Rml.getRml;
@@ -23,8 +24,6 @@ const forceObj = Rml.forceObj;
 pub const evaluation = std.log.scoped(.evaluation);
 
 
-pub const Interpreter = Obj(Memory);
-
 pub const Result = Signal || Error;
 pub const Signal = error { Terminate };
 pub const EvalError = error {
@@ -32,31 +31,31 @@ pub const EvalError = error {
     UnboundSymbol,
     InvalidArgumentCount,
 };
-pub const Memory = struct {
-    namespace_env: Env,
-    evaluation_env: Env,
+pub const Interpreter = struct {
+    namespace_env: Obj(Env),
+    evaluation_env: Obj(Env),
 
-    pub fn onInit(self: ptr(Memory), namespace_env: Env, evaluation_env: Env) OOM! void {
-        evaluation.debug("initializing Interpreter{x}", .{@intFromPtr(self)});
+    pub fn onInit(self: ptr(Interpreter), namespace_env: Obj(Env), evaluation_env: Obj(Env)) OOM! void {
+        evaluation.debug("initializing Obj(Interpreter){x}", .{@intFromPtr(self)});
         self.namespace_env = namespace_env;
         self.evaluation_env = evaluation_env;
     }
 
-    pub fn onCompare(a: ptr(Memory), other: Object) Ordering {
+    pub fn onCompare(a: ptr(Interpreter), other: Object) Ordering {
         return Rml.compare(@intFromPtr(a), @intFromPtr(other.data));
     }
 
-    pub fn onFormat(self: ptr(Memory), writer: Writer) Error! void {
-        return writer.data.print("Interpreter{x}", .{@intFromPtr(self)});
+    pub fn onFormat(self: ptr(Interpreter), writer: Obj(Writer)) Error! void {
+        return writer.data.print("Obj(Interpreter){x}", .{@intFromPtr(self)});
     }
 
-    pub fn onDeinit(self: ptr(Memory)) void {
-        evaluation.debug("deinitializing Interpreter{x}", .{@intFromPtr(self)});
+    pub fn onDeinit(self: ptr(Interpreter)) void {
+        evaluation.debug("deinitializing Obj(Interpreter){x}", .{@intFromPtr(self)});
         self.namespace_env.deinit();
         self.evaluation_env.deinit();
     }
 
-    pub fn abort(self: ptr(Memory), origin: Origin, err: Error, comptime fmt: []const u8, args: anytype) Error! noreturn {
+    pub fn abort(self: ptr(Interpreter), origin: Origin, err: Error, comptime fmt: []const u8, args: anytype) Error! noreturn {
         const diagnostic = getRml(self).diagnostic orelse return err;
 
         var diag = Rml.Diagnostic {
@@ -77,18 +76,18 @@ pub const Memory = struct {
         return err;
     }
 
-    pub fn eval(self: ptr(Memory), expr: Object) Result! Object {
+    pub fn eval(self: ptr(Interpreter), expr: Object) Result! Object {
         return self.evalCheck(expr, null);
     }
 
-    pub fn evalAll(self: ptr(Memory), exprs: []const Object) Result! Rml.array.ObjectMemoryUnmanaged {
+    pub fn evalAll(self: ptr(Interpreter), exprs: []const Object) Result! Rml.array.ArrayUnmanaged {
         return self.evalAllCheck(exprs, null);
     }
 
-    pub fn evalAllCheck(self: ptr(Memory), exprs: []const Object, workDone: ?*bool) Result! Rml.array.ObjectMemoryUnmanaged {
+    pub fn evalAllCheck(self: ptr(Interpreter), exprs: []const Object, workDone: ?*bool) Result! Rml.array.ArrayUnmanaged {
         const rml = getRml(self);
 
-        var arr: Rml.array.ObjectMemoryUnmanaged = .{};
+        var arr: Rml.array.ArrayUnmanaged = .{};
         errdefer arr.deinit(rml);
 
         for (exprs) |expr| {
@@ -99,13 +98,13 @@ pub const Memory = struct {
         return arr;
     }
 
-    pub fn evalCheck(self: ptr(Memory), expr: Object, workDone: ?*bool) Result! Object {
+    pub fn evalCheck(self: ptr(Interpreter), expr: Object, workDone: ?*bool) Result! Object {
         const exprTypeId = expr.getHeader().type_id;
 
-        if (Rml.equal(exprTypeId, Rml.TypeId.of(Rml.block.Memory))) {
+        if (Rml.equal(exprTypeId, Rml.TypeId.of(Rml.block.Block))) {
             if (workDone) |x| x.* = true;
 
-            const block = forceObj(Rml.block.Memory, expr);
+            const block = forceObj(Rml.block.Block, expr);
             defer block.deinit();
 
             switch (block.data.block_kind) {
@@ -126,10 +125,10 @@ pub const Memory = struct {
                 },
                 else => return error.TypeError,
             }
-        } else if (Rml.equal(exprTypeId, Rml.TypeId.of(Rml.symbol.Memory))) {
+        } else if (Rml.equal(exprTypeId, Rml.TypeId.of(Rml.symbol.Symbol))) {
             if (workDone) |x| x.* = true;
 
-            const symbol = forceObj(Rml.symbol.Memory, expr);
+            const symbol = forceObj(Rml.symbol.Symbol, expr);
             defer symbol.deinit();
 
             evaluation.debug("looking up symbol {}", .{symbol});
@@ -145,18 +144,18 @@ pub const Memory = struct {
         return expr.clone();
     }
 
-    pub fn lookupNamespace(self: ptr(Memory), symbol: Symbol) ?Object {
+    pub fn lookupNamespace(self: ptr(Interpreter), symbol: Obj(Symbol)) ?Object {
         return self.namespace_env.data.get(symbol);
     }
 
-    pub fn lookup(self: ptr(Memory), symbol: Symbol) ?Object {
+    pub fn lookup(self: ptr(Interpreter), symbol: Obj(Symbol)) ?Object {
         return self.evaluation_env.data.get(symbol);
     }
 
-    pub fn runProgram(self: ptr(Memory), program: Rml.Block) Result! Object {
+    pub fn runProgram(self: ptr(Interpreter), program: Obj(Rml.Block)) Result! Object {
         const rml = getRml(self);
 
-        const nil: Rml.Nil = try .init(rml, program.getHeader().origin);
+        const nil: Obj(Nil) = try .init(rml, program.getHeader().origin);
         var result: Object = nil.typeErase();
         nil.deinit();
         errdefer result.deinit();
@@ -173,11 +172,11 @@ pub const Memory = struct {
         return result;
     }
 
-    pub fn invoke(self: ptr(Memory), callOrigin: Origin, function: Object, args: []const Object) Result! Object {
+    pub fn invoke(self: ptr(Interpreter), callOrigin: Origin, function: Object, args: []const Object) Result! Object {
         const functionTypeId = function.getHeader().type_id;
 
-        if (Rml.equal(functionTypeId, Rml.TypeId.of(Rml.procedure.Memory))) {
-            const procedure = forceObj(Rml.procedure.Memory, function);
+        if (Rml.equal(functionTypeId, Rml.TypeId.of(Rml.procedure.Procedure))) {
+            const procedure = forceObj(Rml.procedure.Procedure, function);
             defer procedure.deinit();
 
             switch (procedure.data.*) {
