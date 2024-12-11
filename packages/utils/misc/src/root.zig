@@ -482,7 +482,7 @@ pub fn compare(a: anytype, b: @TypeOf(a)) Ordering {
                 .One, .C => {
                     if (@intFromPtr(a) == @intFromPtr(b)) {
                         return Ordering.Equal;
-                    } else if (info.child == anyopaque) {
+                    } else if (info.child == anyopaque or (@typeInfo(info.child) == .@"fn")) {
                         return compare(@intFromPtr(a), @intFromPtr(b));
                     } else {
                         return compare(a.*, b.*);
@@ -505,9 +505,29 @@ pub fn compare(a: anytype, b: @TypeOf(a)) Ordering {
                         return Ordering.Equal;
                     }
                 },
-                else => {
-                    @compileError("Cannot do compare for type `" ++ @typeName(T) ++ "`, no length for pointer");
-                },
+                .Many =>
+                    if (comptime info.sentinel) |sentinel| {
+                        const sent = @as(*const info.child, @ptrCast(sentinel)).*;
+                        var i: usize = 0;
+                        while (true) {
+                            if (a[i] == sent) {
+                                if (b[i] == sent) {
+                                    return Ordering.Equal;
+                                } else {
+                                    return Ordering.Less;
+                                }
+                            } else if (b[i] == sent) {
+                                return Ordering.Greater;
+                            }
+                            const result = compare(a[i], b[i]);
+                            if (result != Ordering.Equal) {
+                                return result;
+                            }
+                            i += 1;
+                        }
+                    } else {
+                        @compileError("Cannot do compare for type `" ++ @typeName(T) ++ "`, no length or sentinel for pointer");
+                    },
             }
         },
         .array => |info| {

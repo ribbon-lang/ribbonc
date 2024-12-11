@@ -1,5 +1,48 @@
 const std = @import("std");
 
+pub fn TupleArray(comptime N: comptime_int, comptime T: type) type {
+    comptime var fields = [1]std.builtin.Type.StructField {undefined} ** N;
+    inline for (0..N) |i| {
+        fields[i] = std.builtin.Type.StructField {
+            .name = std.fmt.comptimePrint("{}", .{i}),
+            .type = T,
+            .default_value = null,
+            .is_comptime = false,
+            .alignment = @alignOf(T),
+        };
+    }
+    return @Type(.{.@"struct" = std.builtin.Type.Struct {
+        .decls = &.{},
+        .fields = &fields,
+        .is_tuple = true,
+        .layout = .auto,
+    }});
+}
+
+pub fn zero(comptime T: type) T {
+    return switch (@typeInfo(T)) {
+        .@"struct" => .{},
+        .pointer => &.{},
+        .array => |info| [1]info.child {zero(info.child)} ** info.len,
+        .@"enum" => @enumFromInt(0),
+        .bool => false,
+        else => 0,
+    };
+}
+
+
+pub const TypeId = struct {
+    typename: [*:0]const u8,
+
+    pub fn of(comptime T: type) TypeId {
+        return TypeId { .typename = @typeName(T).ptr };
+    }
+
+    pub fn name(self: TypeId) [*:0]const u8 {
+        return self.typename;
+    }
+};
+
 pub fn isString(comptime T: type) bool {
     switch (@typeInfo(T)) {
         .pointer => |ptr| {
@@ -23,6 +66,59 @@ pub fn isTuple(comptime T: type) bool {
         .@"struct" => |s| s.is_tuple,
         else => false,
     };
+}
+
+pub fn ToBytes(comptime T: type) type {
+    return [@sizeOf(T)] u8;
+}
+
+pub fn DropSelf(comptime T: type, comptime ArgsTuple: type) type {
+    const info = @typeInfo(ArgsTuple).@"struct";
+    if (hasSelf(T, ArgsTuple)) {
+        return @Type(.{.@"struct" = std.builtin.Type.Struct {
+            .decls = &.{},
+            .fields = if (info.is_tuple) adjustFields: {
+                var newFields = [1]std.builtin.Type.StructField {undefined} ** (info.fields.len - 1);
+                for (info.fields[1..], 0..) |field, i| {
+                    newFields[i] = std.builtin.Type.StructField {
+                        .alignment = field.alignment,
+                        .default_value = field.default_value,
+                        .is_comptime = field.is_comptime,
+                        .name = std.fmt.comptimePrint("{}", .{i}),
+                        .type = field.type,
+                    };
+                }
+                break :adjustFields &newFields;
+            } else info.fields[1..],
+            .is_tuple = info.is_tuple,
+            .layout = info.layout,
+        }});
+    }
+    return ArgsTuple;
+}
+
+pub fn hasSelf(comptime T: type, comptime ArgsTuple: type) bool {
+    const info = @typeInfo(ArgsTuple).@"struct";
+    const field0 = info.fields[0];
+    const fInfo = @typeInfo(field0.type);
+    return std.mem.eql(u8, field0.name, "self")
+        or if (fInfo == .pointer) ptr: {
+            break :ptr fInfo.pointer.child == T;
+        } else false;
+}
+
+pub fn supportsDecls(comptime T: type) bool {
+    return switch (@typeInfo(T)) {
+        .@"struct", .@"union", .@"enum", .@"opaque" => true,
+        else => false,
+    };
+}
+
+pub fn causesErrors(comptime T: type) bool {
+    comptime var info = @typeInfo(T);
+    if (comptime info == .pointer) info = @typeInfo(info.pointer.child);
+    if (comptime info != .@"fn") return false;
+    return @typeInfo(info.@"fn".return_type.?) == .error_union;
 }
 
 pub fn isInErrorSet(comptime E: type, err: anyerror) bool {
