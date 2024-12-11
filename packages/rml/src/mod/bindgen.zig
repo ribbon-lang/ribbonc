@@ -23,24 +23,12 @@ const forceObj = Rml.forceObj;
 const downgradeCast = Rml.downgradeCast;
 
 
-pub fn bindGlobals(rml: *Rml, env: Env, globals: anytype) (OOM || SymbolAlreadyBound)! void {
-    inline for (comptime std.meta.fields(@TypeOf(globals))) |field| {
+pub fn bindGlobals(rml: *Rml, env: Env, comptime globals: type) (OOM || SymbolAlreadyBound)! void {
+    inline for (comptime std.meta.declarations(globals)) |field| {
         const symbol: Symbol = try .init(rml, rml.storage.origin, .{field.name});
         errdefer symbol.deinit();
 
-        const object = try toObject(rml, rml.storage.origin, @field(globals, field.name));
-        defer object.deinit();
-
-        try env.data.bind(symbol, object.typeErase());
-    }
-}
-
-pub fn bindGlobalsConst(rml: *Rml, env: Env, comptime globals: anytype) (OOM || SymbolAlreadyBound)! void {
-    inline for (comptime std.meta.fields(@TypeOf(globals))) |field| {
-        const symbol: Symbol = try .init(rml, rml.storage.origin, .{field.name});
-        errdefer symbol.deinit();
-
-        const object = try toObjectConst(rml, rml.storage.origin, @field(globals, field.name));
+        const object = try toObjectConst(rml, rml.storage.origin, &@field(globals, field.name));
         defer object.deinit();
 
         try env.data.bind(symbol, object.typeErase());
@@ -48,7 +36,7 @@ pub fn bindGlobalsConst(rml: *Rml, env: Env, comptime globals: anytype) (OOM || 
 }
 
 
-pub fn bindNamespaces(rml: *Rml, env: Env, comptime namespaces: anytype) (OOM || SymbolAlreadyBound)! void {
+pub fn bindObjectNamespaces(rml: *Rml, env: Env, comptime namespaces: anytype) (OOM || SymbolAlreadyBound)! void {
     inline for (comptime std.meta.fields(@TypeOf(namespaces))) |field| {
         const builtinEnv: Env = try .init(rml, rml.storage.origin);
         builtinEnv.data.parent = downgradeCast(env);
@@ -266,7 +254,7 @@ pub fn isVTableMethodName(name: []const u8) bool {
 }
 
 
-pub const NativeFunction = *const fn (Rml.Interpreter, Origin, []Object) Result! Object;
+pub const NativeFunction = *const fn (Rml.Interpreter, Origin, []const Object) Result! Object;
 
 pub fn Namespace(comptime T: type) type {
     @setEvalBranchQuota(10_000);
@@ -421,6 +409,7 @@ pub fn ObjectRepr(comptime T: type) type {
         Rml.int => Rml.Int,
         Rml.float => Rml.Float,
         Rml.char => Rml.Char,
+        NativeFunction => Rml.Procedure,
         else => switch (tInfo) {
             .bool => Rml.Bool,
 
@@ -459,6 +448,7 @@ pub fn toObject(rml: *Rml, origin: Origin, value: anytype) OOM! ObjectRepr(@Type
         Rml.char => Rml.Char.wrap(rml, origin, value),
         Rml.str => Rml.Obj([]const u8).wrap(rml, origin, value),
         Rml.Object => return value.clone(),
+        NativeFunction => Rml.Procedure.wrap(rml, origin, .{ .native = value }),
         else => switch (tInfo) {
             .bool =>
                 Rml.Bool.wrap(rml, origin, value),
@@ -507,6 +497,7 @@ pub fn toObjectConst(rml: *Rml, origin: Origin, comptime value: anytype) OOM! Ob
         Rml.char => Rml.Char.wrap(rml, origin, value),
         Rml.str => Rml.Obj([]const u8).wrap(rml, origin, value),
         Rml.Object => value.clone(),
+        NativeFunction => Rml.Procedure.wrap(rml, origin, .{ .native = value }),
         else => switch (tInfo) {
             .bool =>
                 Rml.Bool.wrap(rml, origin, value),
@@ -548,15 +539,17 @@ pub fn wrapNativeFunction(rml: *Rml, origin: Origin, comptime value: anytype) OO
     const info = @typeInfo(T).@"fn";
 
     return Rml.Procedure.wrap(rml, origin, .{ .native = struct {
-        pub fn method (interpreter: Rml.Interpreter, callOrigin: Origin, args: []Object) Result! Object {
+        pub fn method (interpreter: Rml.Interpreter, callOrigin: Origin, args: []const Object) Result! Object {
             if (args.len != info.params.len) {
-                return error.InvalidArgumentCount;
+                try interpreter.data.abort(callOrigin, error.InvalidArgumentCount, "expected {} arguments, got {}", .{info.params.len, args.len});
             }
 
             var nativeArgs: std.meta.ArgsTuple(T) = undefined;
 
             inline for (info.params, 0..) |param, i| {
-                nativeArgs[i] = try fromObject(param.type.?, interpreter.getRml(), args[i]);
+                nativeArgs[i] = fromObject(param.type.?, interpreter.getRml(), args[i]) catch |err| {
+                    try interpreter.data.abort(callOrigin, err, "failed to convert argument {} from rml to native", .{i});
+                };
             }
 
             const nativeResult = nativeResult: {
@@ -564,7 +557,9 @@ pub fn wrapNativeFunction(rml: *Rml, origin: Origin, comptime value: anytype) OO
                 break :nativeResult if (comptime TypeUtils.causesErrors(T)) try r else r;
             };
 
-            const objWrapper = try toObject(interpreter.getRml(), callOrigin, nativeResult);
+            const objWrapper = toObject(interpreter.getRml(), callOrigin, nativeResult) catch |err| {
+                try interpreter.data.abort(callOrigin, err, "failed to convert result from native to rml", .{});
+            };
             defer objWrapper.deinit();
 
             return objWrapper.typeErase();

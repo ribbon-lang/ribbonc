@@ -35,6 +35,7 @@ pub const BUILTIN_NAMESPACES = .{
 pub const array = @import("array.zig");
 pub const bindgen = @import("bindgen.zig");
 pub const block = @import("block.zig");
+pub const BUILTIN = @import("BUILTIN.zig");
 pub const env = @import("env.zig");
 pub const interpreter = @import("interpreter.zig");
 pub const map = @import("map.zig");
@@ -69,6 +70,7 @@ pub const Int = Obj(i64);
 pub const Float = Obj(f64);
 pub const Char = Obj(TextUtils.Char);
 pub const Env = env.Env;
+pub const NativeFunction = bindgen.NativeFunction;
 pub const Interpreter = interpreter.Interpreter;
 pub const Parser = parser.Parser;
 pub const Pattern = pattern.Pattern;
@@ -108,11 +110,24 @@ test {
 storage: Storage,
 cwd: ?std.fs.Dir,
 out: ?std.io.AnyWriter,
+global_env: Env = undefined,
 main_interpreter: Interpreter = undefined,
+diagnostic: ?*?Diagnostic = null,
+
+
+pub const Diagnostic = struct {
+    pub const MAX_LENGTH = 256;
+
+    err: Error,
+    error_origin: Origin,
+    message_len: usize = 0,
+    message_mem: [MAX_LENGTH]u8 = std.mem.zeroes([MAX_LENGTH]u8),
+};
+
 
 
 /// caller must close cwd and out
-pub fn init(allocator: std.mem.Allocator, cwd: ?std.fs.Dir, out: ?std.io.AnyWriter, args: []const []const u8) OOM! *Rml {
+pub fn init(allocator: std.mem.Allocator, cwd: ?std.fs.Dir, out: ?std.io.AnyWriter, diagnostic: ?*?Diagnostic, args: []const []const u8) OOM! *Rml {
     const self = try allocator.create(Rml);
     errdefer allocator.destroy(self);
 
@@ -120,47 +135,51 @@ pub fn init(allocator: std.mem.Allocator, cwd: ?std.fs.Dir, out: ?std.io.AnyWrit
         .storage = try Storage.init(allocator),
         .cwd = cwd,
         .out = out,
+        .diagnostic = diagnostic,
     };
     errdefer self.storage.deinit();
 
-    self.storage.origin = try Origin.fromStr(self, "(system)");
+    self.storage.origin = try Origin.fromStr(self, "system");
 
     log.debug("initializing interpreter ...", .{});
-    var envDeinit = false;
-    const namespace_env = try Env.init(self, self.storage.origin);
-    errdefer if (!envDeinit) namespace_env.deinit();
 
-    bindgen.bindNamespaces(self, namespace_env, BUILTIN_NAMESPACES) catch |err| switch (err) {
+    self.global_env = try Env.init(self, self.storage.origin);
+    errdefer self.global_env.deinit();
+
+    const namespace_env = try Env.init(self, self.storage.origin);
+    errdefer namespace_env.deinit();
+
+    bindgen.bindObjectNamespaces(self, namespace_env, BUILTIN_NAMESPACES) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         else => @panic(@errorName(err)),
     };
 
-    const main_env = try Env.init(self, self.storage.origin);
-    errdefer if (!envDeinit) main_env.deinit();
-
-    self.main_interpreter = interpreter: {
-        if (Interpreter.init(self, self.storage.origin, .{namespace_env, main_env})) |x| {
-            log.debug("... interpreter ready", .{});
-            break :interpreter x;
-        } else |err| {
-            log.err("... failed to initialize interpreter", .{});
-            return err;
-        }
+    bindgen.bindGlobals(self, self.global_env, BUILTIN) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        else => @panic(@errorName(err)),
     };
-    errdefer {
-        envDeinit = true;
-        self.main_interpreter.deinit();
-    }
 
     // TODO args
     _ = args;
 
-    return self;
+    const main_env = try Env.init(self, self.storage.origin);
+    main_env.data.parent = downgradeCast(self.global_env);
+    errdefer main_env.deinit();
+
+    if (Interpreter.init(self, self.storage.origin, .{namespace_env, main_env})) |x| {
+        log.debug("... interpreter ready", .{});
+        self.main_interpreter = x;
+        return self;
+    } else |err| {
+        log.err("... failed to initialize interpreter", .{});
+        return err;
+    }
 }
 
 pub fn deinit(self: *Rml) MemoryLeak! void {
     log.debug("deinitializing Rml", .{});
 
+    self.global_env.deinit();
     self.main_interpreter.deinit();
     self.storage.deinit();
 

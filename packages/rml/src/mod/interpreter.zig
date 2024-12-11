@@ -32,7 +32,6 @@ pub const EvalError = error {
     UnboundSymbol,
     InvalidArgumentCount,
 };
-
 pub const Memory = struct {
     namespace_env: Env,
     evaluation_env: Env,
@@ -55,6 +54,27 @@ pub const Memory = struct {
         evaluation.debug("deinitializing Interpreter{x}", .{@intFromPtr(self)});
         self.namespace_env.deinit();
         self.evaluation_env.deinit();
+    }
+
+    pub fn abort(self: ptr(Memory), origin: Origin, err: Error, comptime fmt: []const u8, args: anytype) Error! noreturn {
+        const diagnostic = getRml(self).diagnostic orelse return err;
+
+        var diag = Rml.Diagnostic {
+            .err = err,
+            .error_origin = origin,
+        };
+
+        // the error produced is only NoSpaceLeft, if the buffer is too small, so give the length of the buffer
+        diag.message_len = len: {
+            break :len (std.fmt.bufPrintZ(&diag.message_mem, fmt, args) catch {
+                log.warn("Diagnostic message too long, truncating", .{});
+                break :len Rml.Diagnostic.MAX_LENGTH;
+            }).len;
+        };
+
+        diagnostic.* = diag;
+
+        return err;
     }
 
     pub fn eval(self: ptr(Memory), expr: Object) Result! Object {
@@ -174,7 +194,7 @@ pub const Memory = struct {
                 },
             }
         } else {
-            return error.TypeError;
+            try self.abort(callOrigin, error.TypeError, "expected a procedure, got {s}: {s}", .{Rml.TypeId.name(function.getHeader().type_id), function});
         }
     }
 };
