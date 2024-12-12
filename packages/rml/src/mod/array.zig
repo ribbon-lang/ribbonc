@@ -9,7 +9,7 @@ const Obj = Rml.Obj;
 const Object = Rml.Object;
 const Writer = Rml.Writer;
 const getObj = Rml.getObj;
-const getHeader = Rml.getHeader;
+const getTypeId = Rml.getTypeId;
 const getRml = Rml.getRml;
 const forceObj = Rml.forceObj;
 
@@ -25,7 +25,7 @@ pub fn TypedArray (comptime T: type) type {
         unmanaged: Unmanaged = .{},
 
         pub fn onCompare(self: ptr(Self), other: Object) Ordering {
-            var ord = Rml.compare(getHeader(self).type_id, other.getHeader().type_id);
+            var ord = Rml.compare(getTypeId(self), other.getTypeId());
             if (ord == .Equal) {
                 const otherObj = forceObj(Self, other);
                 defer otherObj.deinit();
@@ -44,11 +44,34 @@ pub fn TypedArray (comptime T: type) type {
             self.unmanaged.deinit(rml);
         }
 
+        /// Length of the array.
+        /// Pointers to elements in this slice are invalidated by various functions of this ArrayList in accordance with the respective documentation.
+        /// In all cases, "invalidated" means that the memory has been passed to an allocator's resize or free function.
+        pub fn length(self: *const Self) usize {
+            return self.unmanaged.length();
+        }
+
+        /// Contents of the array.
+        pub fn items(self: *const Self) []Obj(T) {
+            return self.unmanaged.items();
+        }
+
+        /// Get an element of the array.
+        pub fn get(self: *const Self, index: usize) ?Obj(T) {
+            return self.unmanaged.get(index);
+        }
+
         /// Extend the array by 1 element.
         /// Allocates more memory as necessary.
         /// Invalidates element pointers if additional memory is needed.
         pub fn append(self: ptr(Self), val: Obj(T)) OOM! void {
             try self.unmanaged.append(getRml(self), val);
+        }
+
+        /// Append the slice of items to the array. Allocates more memory as necessary.
+        /// Invalidates element pointers if additional memory is needed.
+        pub fn appendSlice(self: ptr(Self), slice: []const Obj(T)) OOM! void {
+            try self.unmanaged.appendSlice(getRml(self), slice);
         }
     };
 }
@@ -80,6 +103,10 @@ pub fn TypedArrayUnmanaged (comptime T: type) type {
             self.native_array.deinit(rml.storage.object);
         }
 
+        pub fn clone(self: *const Self, rml: *Rml) OOM! Self {
+            return Self{ .native_array = try self.native_array.clone(rml.storage.object) };
+        }
+
         /// Length of the array.
         pub fn length(self: *const Self) usize {
             return self.native_array.items.len;
@@ -90,6 +117,12 @@ pub fn TypedArrayUnmanaged (comptime T: type) type {
         /// In all cases, "invalidated" means that the memory has been passed to an allocator's resize or free function.
         pub fn items(self: *const Self) []Obj(T) {
             return self.native_array.items;
+        }
+
+        /// Get an element of the array.
+        pub fn get(self: *const Self, index: usize) ?Obj(T) {
+            return if (index < self.native_array.items.len) self.native_array.items[index].clone()
+            else null;
         }
 
         /// Extend the array by 1 element.

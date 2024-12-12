@@ -22,6 +22,7 @@ pub fn TupleArray(comptime N: comptime_int, comptime T: type) type {
 pub fn zero(comptime T: type) T {
     return switch (@typeInfo(T)) {
         .@"struct" => .{},
+        .@"union" => .{},
         .pointer => &.{},
         .array => |info| [1]info.child {zero(info.child)} ** info.len,
         .@"enum" => @enumFromInt(0),

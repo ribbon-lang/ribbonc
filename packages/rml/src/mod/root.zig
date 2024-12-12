@@ -80,6 +80,7 @@ pub const Wk = object.Wk;
 pub const Weak = object.Weak;
 pub const getObj = object.getObj;
 pub const getHeader = object.getHeader;
+pub const getOrigin = object.getOrigin;
 pub const getTypeId = object.getTypeId;
 pub const getRml = object.getRml;
 pub const forceObj = object.forceObj;
@@ -109,10 +110,30 @@ diagnostic: ?*?Diagnostic = null,
 pub const Diagnostic = struct {
     pub const MAX_LENGTH = 256;
 
-    err: Error,
     error_origin: Origin,
+
     message_len: usize = 0,
     message_mem: [MAX_LENGTH]u8 = std.mem.zeroes([MAX_LENGTH]u8),
+
+    pub fn formatter(self: Diagnostic, err: anyerror) Formatter {
+        return .{
+            .err = err,
+            .diag = self,
+        };
+    }
+
+    pub const Formatter = struct {
+        err: anyerror,
+        diag: Diagnostic,
+
+        pub fn log(self: Formatter, logger: anytype) void {
+            logger.err("{s} {}: {s}", .{@errorName(self.err), self.diag.error_origin, self.diag.message_mem[0..self.diag.message_len]});
+        }
+
+        pub fn format(self: Formatter, comptime _: []const u8, _: std.fmt.FormatOptions, w: anytype) Error! void {
+            w.print("{s} {}: {s}", .{@errorName(self.err), self.diag.error_origin,self. diag.message_mem[0..self.diag.message_len]}) catch |err| return Rml.errorCast(err);
+        }
+    };
 };
 
 

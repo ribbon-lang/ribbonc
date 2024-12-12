@@ -10,10 +10,15 @@ const Obj = Rml.Obj;
 const Object = Rml.Object;
 const Writer = Rml.Writer;
 const getHeader = Rml.getHeader;
+const getOrigin = Rml.getOrigin;
+const getTypeId = Rml.getTypeId;
 const getObj = Rml.getObj;
 const getRml = Rml.getRml;
 const forceObj = Rml.forceObj;
 
+
+pub const Table = Rml.map.TypedMap(Rml.Symbol, Rml.ObjData);
+pub const TableUnmanaged = Rml.map.TypedMapUnmanaged(Rml.Symbol, Rml.ObjData);
 
 pub const Map = TypedMap(Rml.object.ObjData, Rml.object.ObjData);
 pub const MapUnmanaged = TypedMapUnmanaged(Rml.object.ObjData, Rml.object.ObjData);
@@ -30,7 +35,7 @@ pub fn TypedMap (comptime K: type, comptime V: type) type {
 
 
         pub fn onCompare(a: ptr(Self), other: Object) Ordering {
-            var ord = Rml.compare(getHeader(a).type_id, other.getHeader().type_id);
+            var ord = Rml.compare(getTypeId(a), other.getTypeId());
             if (ord == .Equal) {
                 const b = forceObj(Self, other);
                 defer b.deinit();
@@ -56,7 +61,7 @@ pub fn TypedMap (comptime K: type, comptime V: type) type {
         }
 
         /// Find the value associated with a key
-        pub fn get(self: ptr(Self), key: Obj(K)) ?Object {
+        pub fn get(self: ptr(Self), key: Obj(K)) ?Obj(V) {
             return self.unmanaged.get(key);
         }
 
@@ -72,7 +77,7 @@ pub fn TypedMap (comptime K: type, comptime V: type) type {
 
         /// Returns the backing array of keys in this map. Modifying the map may invalidate this array.
         /// Modifying this array in a way that changes key hashes or key equality puts the map into an unusable state until reIndex is called.
-        pub fn keys(self: ptr(Self)) []Object {
+        pub fn keys(self: ptr(Self)) []Obj(K) {
             return self.unmanaged.keys();
         }
 
@@ -83,13 +88,25 @@ pub fn TypedMap (comptime K: type, comptime V: type) type {
             return self.unmanaged.values();
         }
 
+        /// Convert a map to an array of key-value pairs.
+        pub fn toArray(self: ptr(Self)) OOM! Obj(Rml.Array) {
+            const rml = getRml(self);
+            var pairs = try self.unmanaged.toArray(rml);
+            errdefer pairs.deinit(rml);
+            return Obj(Rml.Array).wrap(rml, getOrigin(self), .{ .unmanaged = pairs });
+        }
+
         /// Recomputes stored hashes and rebuilds the key indexes.
         /// If the underlying keys have been modified directly,
         /// call this method to recompute the denormalized metadata
         /// necessary for the operation of the methods of this map that lookup entries by key.
         pub fn reIndex(self: ptr(Self)) OOM! void {
+            return self.unmanaged.reIndex(getRml(self));
+        }
+
+        pub fn copyFrom(self: ptr(Self), other: Obj(Self)) OOM! void {
             const rml = getRml(self);
-            return self.unmanaged.reIndex(rml);
+            return self.unmanaged.copyFrom(rml, &other.data.unmanaged);
         }
     };
 }
@@ -189,6 +206,26 @@ pub fn TypedMapUnmanaged (comptime K: type, comptime V: type) type {
         /// necessary for the operation of the methods of this map that lookup entries by key.
         pub fn reIndex(self: *Self, rml: *Rml) OOM! void {
             return self.native_map.reIndex(rml.storage.object);
+        }
+
+        /// Convert a map to an array of key-value pairs.
+        pub fn toArray(self: *Self, rml: *Rml) OOM! Rml.array.ArrayUnmanaged {
+            var it = self.iter();
+
+            var out: Rml.array.ArrayUnmanaged = .{};
+            errdefer out.deinit(rml);
+
+            while (it.next()) |entry| {
+                var pair: Rml.array.ArrayUnmanaged = .{};
+                errdefer pair.deinit(rml);
+
+                try pair.append(rml, entry.key_ptr.clone().typeEraseLeak());
+                try pair.append(rml, entry.value_ptr.clone().typeEraseLeak());
+
+                try out.append(rml, (try Obj(Rml.Array).wrap(rml, entry.key_ptr.getOrigin(), .{ .unmanaged = pair })).typeEraseLeak());
+            }
+
+            return out;
         }
 
         pub fn clone(self: *Self, rml: *Rml) OOM! Self {

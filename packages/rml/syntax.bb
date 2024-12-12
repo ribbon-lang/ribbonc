@@ -23,19 +23,19 @@
 
 ; full pattern syntax
 
-_                           ;wildcard
-symbol                      ;variable
-1 'c' "foo"                 ;literal
-() [] {}                    ;interchangeable block syntax
-~() ~[] ~{}                 ;literal block syntax
-$() $[] ${}                 ;not-a-block syntax
-*[] *{} *(foo?) *(@foo x y) ;array, map, procedural literal syntax
-'foo '(foo)                 ;value-wise quotation
-`foo `(foo)                 ;pattern-wise quotation
-,foo ,@foo                  ;unquote, unquote-splicing
-(as symbol patt)            ;aliasing
-(? patt)                    ;optional
-(* patt)                    ;zero or more
-(+ patt)                    ;one or more
-(! patt)                    ;negation
-(| patt patt)               ;alternation
+_                    ;wildcard
+x y z                ;variable
+nil true 1 'c' "foo" ;literal
+() [] {}             ;interchangeable block syntax
+~() ~[] ~{}          ;literal block syntax
+$() $[] ${}          ;not-a-block syntax
+*(foo?) *(@foo x y)  ;procedural literal syntax
+'foo '(foo)          ;value-wise quotation
+`foo `(foo)          ;pattern-wise quotation
+,foo ,@foo           ;unquote, unquote-splicing
+(as symbol patt)     ;aliasing ;outer block is not-a-block
+(? patt)             ;optional ;outer block is not-a-block
+(* patt)             ;zero or more ;outer block is not-a-block
+(+ patt)             ;one or more ;outer block is not-a-block
+(! patt)             ;negation ;outer block is not-a-block
+(| patt patt)        ;alternation ;outer block is not-a-block

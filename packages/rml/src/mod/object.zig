@@ -249,6 +249,10 @@ pub fn ObjMemory (comptime T: type) type {
             return @ptrCast(&self.header);
         }
 
+        pub fn getTypeId(self: *Self) TypeId {
+            return self.getHeader().type_id;
+        }
+
         pub fn getData(self: ptr(Self)) ptr(T) {
             return @ptrCast(&self.data);
         }
@@ -286,7 +290,7 @@ pub fn Wk(comptime T: type) type {
 
         pub fn deinit(self: Self) void {
             if (self.memory) |m| {
-                refcount.debug("Wk({s})/deinit", .{TypeId.name(m.getHeader().type_id)});
+                refcount.debug("Wk({s})/deinit", .{TypeId.name(m.getTypeId())});
                 m.getHeader().decrWeakRefCount();
             }
         }
@@ -383,7 +387,7 @@ pub fn Obj(comptime T: type) type {
         }
 
         pub fn deinit(self: Self) void {
-            refcount.debug("deinit Obj({s})", .{TypeId.name(self.getHeader().type_id)});
+            refcount.debug("deinit Obj({s})", .{TypeId.name(self.getTypeId())});
             self.getHeader().decrRefCount();
         }
 
@@ -395,11 +399,19 @@ pub fn Obj(comptime T: type) type {
             return @ptrCast(&getMemory(self).header);
         }
 
+        pub fn getTypeId(self: Self) TypeId {
+            return self.getHeader().type_id;
+        }
+
+        pub fn getOrigin(self: Self) Origin {
+            return self.getHeader().origin;
+        }
+
         pub fn getRml(self: Self) *Rml {
             return self.getHeader().rml;
         }
 
-        pub fn onCompare(self: Self, other: Object) Error! Ordering {
+        pub fn onCompare(self: Self, other: Object) Ordering {
             return self.getHeader().onCompare(other.getHeader());
         }
 
@@ -421,9 +433,14 @@ pub fn getHeader(p: anytype) ptr(Header) {
     return obj.getHeader();
 }
 
+pub fn getOrigin(p: anytype) Origin {
+    const obj = Obj(@typeInfo(@TypeOf(p)).pointer.child) { .data = p };
+    return obj.getOrigin();
+}
+
 pub fn getTypeId(p: anytype) TypeId {
     const obj = Obj(@typeInfo(@TypeOf(p)).pointer.child) { .data = p };
-    return obj.getHeader().type_id;
+    return obj.getTypeId();
 }
 
 pub fn getRml(p: anytype) *Rml {
@@ -436,8 +453,25 @@ pub fn castObj(comptime T: type, obj: Object) ?Obj(T) {
     else return null;
 }
 
+pub fn castStringSlice(obj: Object) ?[]const u8 {
+    return if (isType(Rml.String, obj)) {
+        const x = forceObj(Rml.String, obj);
+        defer x.deinit();
+        return x.data.text();
+    } else null;
+}
+
+
+pub fn castSymbolSlice(obj: Object) ?Rml.str {
+    return if (isType(Symbol, obj)){
+        const x = forceObj(Symbol, obj);
+        defer x.deinit();
+        return x.data.str;
+    } else null;
+}
+
 pub fn isType(comptime T: type, obj: Object) bool {
-    return MiscUtils.equal(obj.getHeader().type_id, TypeId.of(T));
+    return MiscUtils.equal(obj.getTypeId(), TypeId.of(T));
 }
 
 pub fn isUserdata(obj: Object) bool {
@@ -457,7 +491,7 @@ pub fn isBuiltinType(comptime T: type) bool {
 }
 
 pub fn isBuiltin(obj: Object) bool {
-    const typeId = obj.getHeader().type_id;
+    const typeId = obj.getTypeId();
 
     inline for (comptime std.meta.fields(@TypeOf(Rml.BUILTIN_TYPES))) |builtin| {
         if (Rml.equal(typeId, TypeId.of(@field(Rml.BUILTIN_TYPES, builtin.name)))) return true;
@@ -467,7 +501,7 @@ pub fn isBuiltin(obj: Object) bool {
 }
 
 pub fn isValue(obj: Object) bool {
-    const typeId = obj.getHeader().type_id;
+    const typeId = obj.getTypeId();
 
     inline for (comptime std.meta.fields(@TypeOf(Rml.VALUE_TYPES))) |value| {
         if (Rml.equal(typeId, TypeId.of(@field(Rml.VALUE_TYPES, value.name)))) return true;
@@ -477,7 +511,7 @@ pub fn isValue(obj: Object) bool {
 }
 
 pub fn isAtom(obj: Object) bool {
-    const typeId = obj.getHeader().type_id;
+    const typeId = obj.getTypeId();
 
     inline for (comptime std.meta.fields(@TypeOf(Rml.ATOM_TYPES))) |atom| {
         if (Rml.equal(typeId, TypeId.of(@field(Rml.ATOM_TYPES, atom.name)))) return true;
@@ -487,7 +521,7 @@ pub fn isAtom(obj: Object) bool {
 }
 
 pub fn isData(obj: Object) bool {
-    const typeId = obj.getHeader().type_id;
+    const typeId = obj.getTypeId();
 
     inline for (comptime std.meta.fields(@TypeOf(Rml.DATA_TYPES))) |data| {
         if (Rml.equal(typeId, TypeId.of(@field(Rml.DATA_TYPES, data.name)))) return true;
@@ -497,7 +531,7 @@ pub fn isData(obj: Object) bool {
 }
 
 pub fn isObject(obj: Object) bool {
-    const typeId = obj.getHeader().type_id;
+    const typeId = obj.getTypeId();
 
     inline for (comptime std.meta.fields(@TypeOf(Rml.OBJECT_TYPES))) |object| {
         if (Rml.equal(typeId, TypeId.of(@field(Rml.OBJECT_TYPES, object.name)))) return true;
@@ -507,7 +541,7 @@ pub fn isObject(obj: Object) bool {
 }
 
 pub fn isSource(obj: Object) bool {
-    const typeId = obj.getHeader().type_id;
+    const typeId = obj.getTypeId();
 
     inline for (comptime std.meta.fields(@TypeOf(Rml.SOURCE_TYPES))) |source| {
         if (Rml.equal(typeId, TypeId.of(@field(Rml.SOURCE_TYPES, source.name)))) return true;
@@ -517,7 +551,7 @@ pub fn isSource(obj: Object) bool {
 }
 
 pub fn isCollection(obj: Object) bool {
-    const typeId = obj.getHeader().type_id;
+    const typeId = obj.getTypeId();
 
     inline for (comptime std.meta.fields(@TypeOf(Rml.COLLECTION_TYPES))) |collection| {
         if (Rml.equal(typeId, TypeId.of(@field(Rml.COLLECTION_TYPES, collection.name)))) return true;
@@ -564,4 +598,18 @@ pub fn coerceBool(obj: Object) Bool {
     } else {
         return true;
     }
+}
+
+pub fn coerceArray(obj: Object) OOM! ?Obj(Rml.Array) {
+    if (castObj(Rml.Array, obj)) |x| return x
+    else if (castObj(Rml.Map, obj)) |x| {
+        defer x.deinit();
+        return try x.data.toArray();
+    } else if (castObj(Rml.Set, obj)) |x| {
+        defer x.deinit();
+        return try x.data.toArray();
+    } else if (castObj(Rml.Block, obj)) |x| {
+        defer x.deinit();
+        return try x.data.toArray();
+    } else return null;
 }

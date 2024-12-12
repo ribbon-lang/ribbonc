@@ -10,12 +10,15 @@ const Obj = Rml.Obj;
 const Object = Rml.Object;
 const Writer = Rml.Writer;
 const getHeader = Rml.getHeader;
+const getOrigin = Rml.getOrigin;
+const getTypeId = Rml.getTypeId;
 const getObj = Rml.getObj;
 const getRml = Rml.getRml;
 const forceObj = Rml.forceObj;
 
 
 pub const Set = TypedSet(Rml.object.ObjData);
+pub const SetUnmanaged = TypedSetUnmanaged(Rml.object.ObjData);
 
 pub fn TypedSet (comptime K: type) type {
     return struct {
@@ -25,7 +28,7 @@ pub fn TypedSet (comptime K: type) type {
 
 
         pub fn onCompare(a: ptr(Self), other: Object) Ordering {
-            var ord = Rml.compare(getHeader(a).type_id, other.getHeader().type_id);
+            var ord = Rml.compare(getTypeId(a), other.getTypeId());
             if (ord == .Equal) {
                 const b = forceObj(Self, other);
                 defer b.deinit();
@@ -40,14 +43,12 @@ pub fn TypedSet (comptime K: type) type {
         }
 
         pub fn onDeinit(self: ptr(Self)) void {
-            const rml = getRml(self);
-            self.unmanaged.deinit(rml);
+            self.unmanaged.deinit(getRml(self));
         }
 
         /// Set a key
         pub fn set(self: ptr(Self), key: Obj(K)) OOM! void {
-            const rml = getRml(self);
-            return self.unmanaged.set(rml, key);
+            return self.unmanaged.set(getRml(self), key);
         }
 
         /// Find a local copy matching a key
@@ -76,8 +77,17 @@ pub fn TypedSet (comptime K: type) type {
         /// call this method to recompute the denormalized metadata
         /// necessary for the operation of the methods of this map that lookup entries by key.
         pub fn reIndex(self: ptr(Self)) OOM! void {
+            return self.unmanaged.reIndex(getRml(self));
+        }
+
+        /// Clones and returns the backing array of values in this map.
+        pub fn toArray(self: ptr(Self)) OOM! Obj(Rml.Array) {
             const rml = getRml(self);
-            return self.unmanaged.reIndex(rml);
+
+            var array = try self.unmanaged.toArray(rml);
+            errdefer array.deinit(rml);
+
+            return Obj(Rml.Array).wrap(rml, getOrigin(self), .{ .unmanaged = array });
         }
     };
 }
@@ -102,10 +112,10 @@ pub fn TypedSetUnmanaged  (comptime K: type) type {
         }
 
         pub fn format(self: *const Self, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) Error! void {
-            var it = self.iter();
-            while (it.next()) |entry| {
-                writer.print("({} {})", .{entry.key_ptr.*, entry.value_ptr.*}) catch |err| return Rml.errorCast(err);
-                if (it.index < it.len) {
+            const ks = self.keys();
+            for (ks, 0..) |key, i| {
+                writer.print("{}", .{key}) catch |err| return Rml.errorCast(err);
+                if (i < ks.len - 1) {
                     writer.writeAll(" ") catch |err| return Rml.errorCast(err);
                 }
             }
@@ -143,11 +153,6 @@ pub fn TypedSetUnmanaged  (comptime K: type) type {
             return self.native_map.contains(key);
         }
 
-        /// Returns an iterator over the pairs in this map. Modifying the map may invalidate this iterator.
-        pub fn iter(self: *const Self) NativeIter {
-            return self.native_map.iterator();
-        }
-
         /// Returns the backing array of keys in this map. Modifying the map may invalidate this array.
         /// Modifying this array in a way that changes key hashes or key equality puts the map into an unusable state until reIndex is called.
         pub fn keys(self: *const Self) []Obj(K) {
@@ -162,20 +167,29 @@ pub fn TypedSetUnmanaged  (comptime K: type) type {
             return self.native_map.reIndex(rml.storage.object);
         }
 
+        /// Clones and returns the backing array of values in this map.
+        pub fn toArray(self: *Self, rml: *Rml) OOM! Rml.array.ArrayUnmanaged {
+            var array = Rml.array.ArrayUnmanaged {};
+            errdefer array.deinit(rml);
+
+            for (self.keys()) |key| {
+                try array.append(rml, key.clone());
+            }
+
+            return array;
+        }
+
         pub fn clone(self: *Self, rml: *Rml) OOM! Self {
             const newMap = Self { .native_map = try self.native_map.clone(rml.storage.object) };
-            var it = newMap.iter();
-            while (it.next()) |entry| {
-                entry.key_ptr.getHeader().incrRefCount();
-                entry.value_ptr.getHeader().incrRefCount();
+            for (self.keys()) |key| {
+                key.getHeader().incrRefCount();
             }
             return newMap;
         }
 
         pub fn copyFrom(self: *Self, rml: *Rml, other: *Self) OOM! void {
-            var it = other.iter();
-            while (it.next()) |entry| {
-                try self.set(rml, entry.key_ptr.clone(), entry.value_ptr.clone());
+            for (other.keys()) |key| {
+                try self.set(rml, key);
             }
         }
     };

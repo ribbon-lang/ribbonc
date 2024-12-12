@@ -54,7 +54,7 @@ pub const Parser = struct {
     }
 
     pub fn onCompare(a: ptr(Parser), other: Object) Ordering {
-        var ord = Rml.compare(getTypeId(a), other.getHeader().type_id);
+        var ord = Rml.compare(getTypeId(a), other.getTypeId());
 
         if (ord == .Equal) {
             const b = forceObj(Parser, other);
@@ -262,7 +262,7 @@ pub const Parser = struct {
         const origin = self.getOrigin(start, self.pos);
 
         const block: Obj(Rml.Block) = try .wrap(rml, origin, .{
-            .block_kind = blockKind,
+            .kind = blockKind,
             .array = array
         });
 

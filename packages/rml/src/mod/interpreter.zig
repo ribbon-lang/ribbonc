@@ -28,11 +28,12 @@ const downgradeCast = Rml.downgradeCast;
 pub const evaluation = std.log.scoped(.evaluation);
 
 
-pub const Result = Signal || Error;
+pub const Result = Signal || Error || Rml.parser.SyntaxError;
 pub const Signal = error { Terminate };
 pub const EvalError = error {
     TypeError,
     UnboundSymbol,
+    SymbolAlreadyBound,
     InvalidArgumentCount,
 };
 pub const Interpreter = struct {
@@ -67,11 +68,17 @@ pub const Interpreter = struct {
         self.evaluation_env.data.parent = downgradeCast(rml.global_env);
     }
 
+    pub fn castObj(self: ptr(Interpreter), comptime T: type, object: Object) Error! Obj(T) {
+        if (Rml.castObj(T, object)) |x| return x
+        else {
+            try self.abort(object.getOrigin(), error.TypeError, "expected `{s}`, got `{s}`", .{@typeName(T), Rml.TypeId.name(object.getTypeId())});
+        }
+    }
+
     pub fn abort(self: ptr(Interpreter), origin: Origin, err: Error, comptime fmt: []const u8, args: anytype) Error! noreturn {
         const diagnostic = getRml(self).diagnostic orelse return err;
 
         var diag = Rml.Diagnostic {
-            .err = err,
             .error_origin = origin,
         };
 
@@ -111,7 +118,7 @@ pub const Interpreter = struct {
     }
 
     pub fn evalCheck(self: ptr(Interpreter), expr: Object, workDone: ?*bool) Result! Object {
-        const exprTypeId = expr.getHeader().type_id;
+        const exprTypeId = expr.getTypeId();
 
         if (Rml.equal(exprTypeId, Rml.TypeId.of(Symbol))) {
             if (workDone) |x| x.* = true;
@@ -122,7 +129,7 @@ pub const Interpreter = struct {
             evaluation.debug("looking up symbol {}", .{symbol});
 
             return self.lookup(symbol) orelse {
-                try self.abort(expr.getHeader().origin, error.UnboundSymbol, "no symbol `{s}` in evaluation environment", .{symbol});
+                try self.abort(expr.getOrigin(), error.UnboundSymbol, "no symbol `{s}` in evaluation environment", .{symbol});
             };
         } else if (Rml.equal(exprTypeId, Rml.TypeId.of(Block))) {
             if (workDone) |x| x.* = true;
@@ -130,7 +137,7 @@ pub const Interpreter = struct {
             const block = forceObj(Block, expr);
             defer block.deinit();
 
-            switch (block.data.block_kind) {
+            switch (block.data.kind) {
                 .doc => {
                     evaluation.debug("running doc", .{});
                     return self.runProgram(block);
@@ -144,7 +151,7 @@ pub const Interpreter = struct {
                     const function_obj = try self.eval(function);
                     defer function_obj.deinit();
 
-                    return self.invoke(block.getHeader().origin, function_obj, args);
+                    return self.invoke(block.getOrigin(), function_obj, args);
                 },
             }
         } else if (Rml.equal(exprTypeId, Rml.TypeId.of(Rml.quote.Quote))) {
@@ -168,15 +175,15 @@ pub const Interpreter = struct {
                 .to_quote => {
                     evaluation.debug("evaluating to_quote quote", .{});
                     const val = try self.eval(body);
-                    return (try Obj(Quote).init(getRml(self), body.getHeader().origin, .{.basic, val})).typeEraseLeak();
+                    return (try Obj(Quote).init(getRml(self), body.getOrigin(), .{.basic, val})).typeEraseLeak();
                 },
                 .to_quasi => {
                     evaluation.debug("evaluating to_quasi quote", .{});
                     const val = try self.eval(body);
-                    return (try Obj(Quote).init(getRml(self), body.getHeader().origin, .{.quasi, val})).typeEraseLeak();
+                    return (try Obj(Quote).init(getRml(self), body.getOrigin(), .{.quasi, val})).typeEraseLeak();
                 },
                 else => {
-                    try self.abort(expr.getHeader().origin, error.TypeError, "unexpected {}", .{kind});
+                    try self.abort(expr.getOrigin(), error.TypeError, "unexpected {}", .{kind});
                 },
             }
         }
@@ -193,7 +200,7 @@ pub const Interpreter = struct {
     pub fn runProgram(self: ptr(Interpreter), program: Obj(Rml.Block)) Result! Object {
         const rml = getRml(self);
 
-        var result: Object = (try Obj(Nil).init(rml, program.getHeader().origin)).typeEraseLeak();
+        var result: Object = (try Obj(Nil).init(rml, program.getOrigin())).typeEraseLeak();
         errdefer result.deinit();
 
         const exprs = program.data.array.items();
@@ -209,7 +216,7 @@ pub const Interpreter = struct {
     }
 
     pub fn invoke(self: ptr(Interpreter), callOrigin: Origin, function: Object, args: []const Object) Result! Object {
-        const functionTypeId = function.getHeader().type_id;
+        const functionTypeId = function.getTypeId();
 
         if (Rml.equal(functionTypeId, Rml.TypeId.of(Rml.procedure.Procedure))) {
             const procedure = forceObj(Rml.procedure.Procedure, function);
@@ -227,7 +234,7 @@ pub const Interpreter = struct {
                 },
             }
         } else {
-            try self.abort(callOrigin, error.TypeError, "expected a procedure, got {s}: {s}", .{Rml.TypeId.name(function.getHeader().type_id), function});
+            try self.abort(callOrigin, error.TypeError, "expected a procedure, got {s}: {s}", .{Rml.TypeId.name(function.getTypeId()), function});
         }
     }
 };

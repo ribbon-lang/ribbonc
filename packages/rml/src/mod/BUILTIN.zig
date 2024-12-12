@@ -85,7 +85,7 @@ pub fn @"+"(interpreter: ptr(Interpreter), origin: Origin, args: []const Object)
 
             return (try Obj(Char).wrap(char.getRml(), origin, char.data.*)).typeEraseLeak();
         } else {
-            try interpreter.abort(origin, error.TypeError, "expected int | float | char, found {s}", .{TypeId.name(sum.getHeader().type_id)});
+            try interpreter.abort(origin, error.TypeError, "expected int | float | char, found {s}", .{TypeId.name(sum.getTypeId())});
         }
     }
 
@@ -122,7 +122,7 @@ pub fn @"-"(interpreter: ptr(Interpreter), origin: Origin, args: []const Object)
 
             return (try Obj(Char).wrap(char.getRml(), origin, char.data.*)).typeEraseLeak();
         } else {
-            try interpreter.abort(origin, error.TypeError, "expected int | float | char, found {s}", .{TypeId.name(sum.getHeader().type_id)});
+            try interpreter.abort(origin, error.TypeError, "expected int | float | char, found {s}", .{TypeId.name(sum.getTypeId())});
         }
     }
 
@@ -211,7 +211,7 @@ pub fn bnot(interpreter: ptr(Interpreter), origin: Origin, args: []const Object)
     } else if (castObj(Char, args[0])) |c| {
         return (try Obj(Char).wrap(c.getRml(), origin, ~c.data.*)).typeEraseLeak();
     } else {
-        try interpreter.abort(origin, error.TypeError, "expected int | char, found {s}", .{TypeId.name(args[0].getHeader().type_id)});
+        try interpreter.abort(origin, error.TypeError, "expected int | char, found {s}", .{TypeId.name(args[0].getTypeId())});
     }
 }
 
@@ -354,7 +354,7 @@ fn arithCastReduce(
                 acc.deinit();
                 acc.* = int2.typeErase();
             } else {
-                try interpreter.abort(origin, error.TypeError, "expected " ++ expect ++ " for argument {}, found {s}", .{i + offset, TypeId.name(arg.getHeader().type_id)});
+                try interpreter.abort(origin, error.TypeError, "expected " ++ expect ++ " for argument {}, found {s}", .{i + offset, TypeId.name(arg.getTypeId())});
             }
         } else if (@hasDecl(Ops, "float") and isType(Float, acc.*)) {
             const float = forceObj(Float, acc.*);
@@ -385,7 +385,7 @@ fn arithCastReduce(
                 acc.deinit();
                 acc.* = float2.typeErase();
             } else {
-                try interpreter.abort(origin, error.TypeError, "expected " ++ expect ++ " for argument {}, found {s}", .{i + offset, TypeId.name(arg.getHeader().type_id)});
+                try interpreter.abort(origin, error.TypeError, "expected " ++ expect ++ " for argument {}, found {s}", .{i + offset, TypeId.name(arg.getTypeId())});
             }
         } else if (@hasDecl(Ops, "char") and isType(Char, acc.*)) {
             const char = forceObj(Char, acc.*);
@@ -418,10 +418,10 @@ fn arithCastReduce(
                 acc.deinit();
                 acc.* = char3.typeErase();
             } else {
-                try interpreter.abort(origin, error.TypeError, "expected " ++ expect ++ " for argument {}, found {s}", .{i + offset, TypeId.name(arg.getHeader().type_id)});
+                try interpreter.abort(origin, error.TypeError, "expected " ++ expect ++ " for argument {}, found {s}", .{i + offset, TypeId.name(arg.getTypeId())});
             }
         } else {
-            try interpreter.abort(origin, error.TypeError, "expected " ++ expect ++ " for argument {}, found {s}", .{i, TypeId.name(acc.getHeader().type_id)});
+            try interpreter.abort(origin, error.TypeError, "expected " ++ expect ++ " for argument {}, found {s}", .{i, TypeId.name(acc.getTypeId())});
         }
     }
 

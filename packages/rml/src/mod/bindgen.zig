@@ -26,6 +26,7 @@ const Procedure = Rml.Procedure;
 const Interpreter = Rml.Interpreter;
 const getObj = Rml.getObj;
 const getHeader = Rml.getHeader;
+const getTypeId = Rml.getTypeId;
 const getRml = Rml.getRml;
 const forceObj = Rml.forceObj;
 const downgradeCast = Rml.downgradeCast;
@@ -69,7 +70,7 @@ pub fn Support(comptime T: type) type {
         pub const onCompare = switch (@typeInfo(T)) {
             else => struct {
                 pub fn onCompare(a: ptr(T), obj: Object) Ordering {
-                    var ord = Rml.compare(getHeader(a).type_id, obj.getHeader().type_id);
+                    var ord = Rml.compare(getTypeId(a), obj.getTypeId());
 
                     if (ord == .Equal) {
                         const b = forceObj(T, obj);
@@ -392,7 +393,7 @@ pub fn fromObject(comptime T: type, _: *Rml, value: Object) Error! T {
     switch (tInfo) {
         .pointer => |info| {
             if (info.alignment == Rml.object.OBJ_ALIGN) {
-                if (!Rml.equal(Rml.TypeId.of(T), value.getHeader().type_id)) {
+                if (!Rml.equal(Rml.TypeId.of(T), value.getTypeId())) {
                     return error.TypeError;
                 }
 
@@ -406,7 +407,7 @@ pub fn fromObject(comptime T: type, _: *Rml, value: Object) Error! T {
             if (comptime std.mem.startsWith(u8, @typeName(T), "object.Obj")) {
                 const O = @typeInfo(tInfo.@"struct".fields[0].type).pointer.child;
 
-                if (!Rml.equal(Rml.TypeId.of(O), value.getHeader().type_id)) {
+                if (!Rml.equal(Rml.TypeId.of(O), value.getTypeId())) {
                     return error.TypeError;
                 }
 

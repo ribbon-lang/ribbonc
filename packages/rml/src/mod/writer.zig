@@ -23,7 +23,7 @@ pub const Writer = struct {
     }
 
     pub fn onCompare(self: ptr(Writer), other: Object) Ordering {
-        var ord = Rml.compare(getHeader(self).type_id, other.getHeader().type_id);
+        var ord = Rml.compare(getHeader(self).type_id, other.getTypeId());
         if (ord == .Equal) {
             const b = forceObj(Writer, other);
             defer b.deinit();

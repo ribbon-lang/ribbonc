@@ -13,6 +13,7 @@ const getObj = Rml.getObj;
 const getTypeId = Rml.getTypeId;
 const forceObj = Rml.forceObj;
 const getRml = Rml.getRml;
+const getOrigin = Rml.getOrigin;
 
 
 pub const BlockKind = enum {
@@ -20,6 +21,11 @@ pub const BlockKind = enum {
     curly,
     square,
     paren,
+
+    pub fn compare(a: BlockKind, b: BlockKind) Ordering {
+        if (a == .doc or b == .doc) return .Equal;
+        return Rml.compare(@intFromEnum(a), @intFromEnum(b));
+    }
 
     pub fn toOpenStr(self: BlockKind) []const u8 {
         return switch (self) {
@@ -41,11 +47,11 @@ pub const BlockKind = enum {
 };
 
 pub const Block = struct {
-    block_kind: BlockKind = .doc,
+    kind: BlockKind = .doc,
     array: Rml.array.ArrayUnmanaged = .{},
 
-    pub fn onInit(self: ptr(Block), block_kind: BlockKind, data: []const Object) OOM! void {
-        self.block_kind = block_kind;
+    pub fn onInit(self: ptr(Block), kind: BlockKind, data: []const Object) OOM! void {
+        self.kind = kind;
         try self.appendSlice(data);
     }
 
@@ -54,13 +60,13 @@ pub const Block = struct {
     }
 
     pub fn onCompare(a: ptr(Block), other: Object) Ordering {
-        var ord = Rml.compare(getTypeId(a), other.getHeader().type_id);
+        var ord = Rml.compare(getTypeId(a), other.getTypeId());
 
         if (ord == .Equal) {
             const b = forceObj(Block, other);
             defer b.deinit();
 
-            ord = Rml.compare(a.block_kind, b.data.block_kind);
+            ord = Rml.compare(a.kind, b.data.kind);
 
             if (ord == .Equal) {
                 ord = Rml.compare(a.array, b.data.array);
@@ -71,9 +77,9 @@ pub const Block = struct {
     }
 
     pub fn onFormat(self: ptr(Block), writer: Obj(Writer)) Error! void {
-        try writer.data.writeAll(self.block_kind.toOpenStr());
+        try writer.data.writeAll(self.kind.toOpenStr());
         try writer.data.print("{}", .{self.array});
-        try writer.data.writeAll(self.block_kind.toCloseStr());
+        try writer.data.writeAll(self.kind.toCloseStr());
     }
 
     /// Length of the block.
@@ -86,6 +92,11 @@ pub const Block = struct {
     /// In all cases, "invalidated" means that the memory has been passed to an allocator's resize or free function.
     pub fn items(self: ptr(Block)) []Object {
         return self.array.items();
+    }
+
+    /// Convert a block to an array.
+    pub fn toArray(self: ptr(Block)) OOM! Obj(Rml.Array) {
+        return try Obj(Rml.Array).wrap(getRml(self), getOrigin(self), .{ .unmanaged = try self.array.clone(getRml(self)) });
     }
 
     /// Extend the block by 1 element.

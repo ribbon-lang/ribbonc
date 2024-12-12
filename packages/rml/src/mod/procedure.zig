@@ -44,7 +44,7 @@ pub const Procedure = union(ProcedureKind) {
     }
 
     pub fn onCompare(self: ptr(Procedure), other: Object) Ordering {
-        return Rml.compare(getHeader(self).type_id, other.getHeader().type_id);
+        return Rml.compare(getHeader(self).type_id, other.getTypeId());
     }
 
     pub fn onFormat(self: ptr(Procedure), writer: Rml.Obj(Writer)) Error! void {

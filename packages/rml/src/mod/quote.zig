@@ -59,7 +59,7 @@ pub const Quote = struct {
     }
 
     pub fn onCompare(self: ptr(Quote), other: Object) Ordering {
-        var ord = Rml.compare(getTypeId(self), other.getHeader().type_id);
+        var ord = Rml.compare(getTypeId(self), other.getTypeId());
 
         if (ord == .Equal) {
             const other_quote = forceObj(Quote, other);

@@ -28,14 +28,12 @@ pub const SymbolAlreadyBound = error {SymbolAlreadyBound};
 
 pub const MyId = enum(usize) {_};
 
-pub const Table = Rml.map.TypedMapUnmanaged(Symbol, Rml.ObjData);
-
 pub const Env = struct {
     parent: Weak = Weak.Null,
-    table: Table = .{},
+    table: Rml.map.TableUnmanaged = .{},
 
     pub fn onCompare(a: ptr(Env), other: Object) Ordering {
-        var ord = Rml.compare(getTypeId(a), other.getHeader().type_id);
+        var ord = Rml.compare(getTypeId(a), other.getTypeId());
 
         if (ord == .Equal) {
             const b = forceObj(Env, other);
@@ -92,6 +90,14 @@ pub const Env = struct {
                     else @panic(@errorName(err));
                 };
             }
+        }
+    }
+
+
+    pub fn copyFrom(self: ptr(Env), env: Obj(Env)) (OOM || SymbolAlreadyBound)! void {
+        var it = env.data.table.iter();
+        while (it.next()) |entry| {
+            try self.bind(entry.key_ptr.clone(), entry.value_ptr.clone());
         }
     }
 

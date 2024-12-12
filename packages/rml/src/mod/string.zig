@@ -49,12 +49,16 @@ pub const String = struct {
     }
 };
 
-pub const StringUnmanaged = struct {
-    native_string: std.ArrayListUnmanaged(u8) = .{},
+pub const NativeString = std.ArrayListUnmanaged(u8);
+pub const NativeWriter = NativeString.Writer;
 
-    pub fn format(self: *const StringUnmanaged, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) Error! void {
+pub const StringUnmanaged = struct {
+    native_string: NativeString = .{},
+
+
+    pub fn format(self: *const StringUnmanaged, comptime _: []const u8, _: std.fmt.FormatOptions, w: anytype) Error! void {
         // TODO: escape non-ascii & control etc Chars
-        writer.print("\"{s}\"", .{self.native_string.items}) catch |err| return Rml.errorCast(err);
+        w.print("\"{s}\"", .{self.native_string.items}) catch |err| return Rml.errorCast(err);
     }
 
     pub fn deinit(self: *StringUnmanaged, rml: *Rml) void {
@@ -81,6 +85,10 @@ pub const StringUnmanaged = struct {
 
     pub fn makeInternedSlice(self: *StringUnmanaged, rml: *Rml) OOM! []const u8 {
         return try rml.storage.interner.get(self.native_string.items);
+    }
+
+    pub fn writer(self: *StringUnmanaged, rml: *Rml) NativeWriter {
+        return self.native_string.writer(rml.storage.object);
     }
 };
 

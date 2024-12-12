@@ -56,10 +56,45 @@ pub fn main () !void {
         parser.deinit();
     }
 
+    const pattern: Rml.Obj(Rml.Pattern) = try .wrap(rml, rml.storage.origin, .{
+        .value_literal = (try Rml.Obj(Rml.Int).wrap(rml, rml.storage.origin, 10)).typeEraseLeak()
+    });
+    defer {
+        log.debug("Deinitializing pattern", .{});
+        pattern.deinit();
+    }
+
+    const input = try Rml.Obj(Rml.Int).wrap(rml, rml.storage.origin, 10);
+    defer {
+        log.debug("Deinitializing input", .{});
+        input.deinit();
+    }
+    var patternDiag: ?Rml.Diagnostic = null;
+    const patternResult = pattern.data.run(rml.main_interpreter.data, &patternDiag, input.typeEraseLeak()) catch |err| {
+        log.err("on runPattern, {s}", .{@errorName(err)});
+        if (diagnostic) |diag| {
+            log.err("{s} {}: {s}", .{@errorName(err), diag.error_origin, diag.message_mem[0..diag.message_len]});
+        } else {
+            log.err("requested diagnostic is null", .{});
+        }
+        return err;
+    };
+    if (patternResult) |outEnv| {
+        defer outEnv.deinit();
+        log.info("patternResult: {}", .{outEnv});
+    } else {
+        if (patternDiag) |diag| {
+            log.err("PatternError {}: {s}", .{diag.error_origin, diag.message_mem[0..diag.message_len]});
+        } else {
+            log.err("requested patternDiag is null", .{});
+        }
+        return error.PatternError;
+    }
+
     while (parser.data.next() catch |err| {
         log.err("on parseDocument, {s}", .{@errorName(err)});
         if (diagnostic) |diag| {
-            log.err("{s} {}: {s}", .{@errorName(diag.err), diag.error_origin, diag.message_mem[0..diag.message_len]});
+            log.err("{s} {}: {s}", .{@errorName(err), diag.error_origin, diag.message_mem[0..diag.message_len]});
         } else {
             log.err("requested diagnostic is null", .{});
         }
@@ -76,7 +111,7 @@ pub fn main () !void {
         } else |err| {
             log.err("on eval, {s}", .{@errorName(err)});
             if (diagnostic) |diag| {
-                log.err("{s} {}: {s}", .{@errorName(diag.err), diag.error_origin, diag.message_mem[0..diag.message_len]});
+                log.err("{s} {}: {s}", .{@errorName(err), diag.error_origin, diag.message_mem[0..diag.message_len]});
             } else {
                 log.err("requested diagnostic is null", .{});
             }
