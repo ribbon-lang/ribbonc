@@ -25,7 +25,7 @@ pub const ObjData = extern struct { data: u8 align(OBJ_ALIGN) };
 pub fn ptr(comptime T: type) type { return *align(OBJ_ALIGN) T; }
 pub fn const_ptr(comptime T: type) type { return *const align(OBJ_ALIGN) T; }
 
-pub const PropertySet = map.MemoryUnmanaged(ObjData, ObjData);
+pub const PropertySet = map.MapUnmanaged;
 
 pub const Header = struct {
     rml: *Rml,
@@ -398,6 +398,14 @@ pub fn Obj(comptime T: type) type {
         pub fn getRml(self: Self) *Rml {
             return self.getHeader().rml;
         }
+
+        pub fn onCompare(self: Self, other: Object) Error! Ordering {
+            return self.getHeader().onCompare(other.getHeader());
+        }
+
+        pub fn onFormat(self: Self, writer: Obj(Writer)) Error! void {
+            return self.getHeader().onFormat(writer);
+        }
     };
 }
 
@@ -432,27 +440,100 @@ pub fn isType(comptime T: type, obj: Object) bool {
     return MiscUtils.equal(obj.getHeader().type_id, TypeId.of(T));
 }
 
-pub fn isObjectType(comptime T: type) bool {
-    return switch (T) { // TODO: this should be generated
-        Rml.Nil,
-        Rml.Bool,
-        Rml.Int,
-        Rml.Char,
-        Rml.Float,
-        Rml.Array,
-        Rml.Block,
-        Rml.Env,
-        Rml.Interpreter,
-        Rml.Map,
-        Rml.Parser,
-        Rml.Pattern,
-        Rml.Procedure,
-        Rml.String,
-        Rml.Symbol,
-        Rml.Writer,
-        => true,
-        else => false,
+pub fn isUserdata(obj: Object) bool {
+    return !isBuiltin(obj);
+}
+
+pub fn isBuiltinType(comptime T: type) bool {
+    return comptime {
+        const typeId = TypeId.of(T);
+
+        for (std.meta.fields(@TypeOf(Rml.BUILTIN_TYPES))) |builtin| {
+            if (Rml.equal(typeId, TypeId.of(@field(Rml.BUILTIN_TYPES, builtin.name)))) return true;
+        }
+
+        return false;
     };
+}
+
+pub fn isBuiltin(obj: Object) bool {
+    const typeId = obj.getHeader().type_id;
+
+    inline for (comptime std.meta.fields(@TypeOf(Rml.BUILTIN_TYPES))) |builtin| {
+        if (Rml.equal(typeId, TypeId.of(@field(Rml.BUILTIN_TYPES, builtin.name)))) return true;
+    }
+
+    return false;
+}
+
+pub fn isValue(obj: Object) bool {
+    const typeId = obj.getHeader().type_id;
+
+    inline for (comptime std.meta.fields(@TypeOf(Rml.VALUE_TYPES))) |value| {
+        if (Rml.equal(typeId, TypeId.of(@field(Rml.VALUE_TYPES, value.name)))) return true;
+    }
+
+    return false;
+}
+
+pub fn isAtom(obj: Object) bool {
+    const typeId = obj.getHeader().type_id;
+
+    inline for (comptime std.meta.fields(@TypeOf(Rml.ATOM_TYPES))) |atom| {
+        if (Rml.equal(typeId, TypeId.of(@field(Rml.ATOM_TYPES, atom.name)))) return true;
+    }
+
+    return false;
+}
+
+pub fn isData(obj: Object) bool {
+    const typeId = obj.getHeader().type_id;
+
+    inline for (comptime std.meta.fields(@TypeOf(Rml.DATA_TYPES))) |data| {
+        if (Rml.equal(typeId, TypeId.of(@field(Rml.DATA_TYPES, data.name)))) return true;
+    }
+
+    return false;
+}
+
+pub fn isObject(obj: Object) bool {
+    const typeId = obj.getHeader().type_id;
+
+    inline for (comptime std.meta.fields(@TypeOf(Rml.OBJECT_TYPES))) |object| {
+        if (Rml.equal(typeId, TypeId.of(@field(Rml.OBJECT_TYPES, object.name)))) return true;
+    }
+
+    return false;
+}
+
+pub fn isSource(obj: Object) bool {
+    const typeId = obj.getHeader().type_id;
+
+    inline for (comptime std.meta.fields(@TypeOf(Rml.SOURCE_TYPES))) |source| {
+        if (Rml.equal(typeId, TypeId.of(@field(Rml.SOURCE_TYPES, source.name)))) return true;
+    }
+
+    return false;
+}
+
+pub fn isCollection(obj: Object) bool {
+    const typeId = obj.getHeader().type_id;
+
+    inline for (comptime std.meta.fields(@TypeOf(Rml.COLLECTION_TYPES))) |collection| {
+        if (Rml.equal(typeId, TypeId.of(@field(Rml.COLLECTION_TYPES, collection.name)))) return true;
+    }
+
+    return false;
+}
+
+pub fn isObjectType(comptime T: type) bool {
+    const typeId = TypeId.of(T);
+
+    inline for (comptime std.meta.fields(Rml.OBJECT_TYPES)) |field| {
+        if (Rml.equal(typeId, TypeId.of(@field(Rml.COLLECTION_TYPES, field.name)))) return true;
+    }
+
+    return false;
 }
 
 pub fn forceObj(comptime T: type, obj: Object) Obj(T) {

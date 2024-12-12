@@ -28,6 +28,8 @@ pub const object = @import("object.zig");
 pub const parser = @import("parser.zig");
 pub const pattern = @import("pattern.zig");
 pub const procedure = @import("procedure.zig");
+pub const quote = @import("quote.zig");
+pub const set = @import("set.zig");
 pub const source = @import("source.zig");
 pub const Storage = @import("Storage.zig");
 pub const string = @import("string.zig");
@@ -59,6 +61,8 @@ pub const Interpreter = interpreter.Interpreter;
 pub const Parser = parser.Parser;
 pub const Pattern = pattern.Pattern;
 pub const Procedure = procedure.Procedure;
+pub const Quote = quote.Quote;
+pub const Set = set.Set;
 pub const String = string.String;
 pub const Symbol = symbol.Symbol;
 pub const Map = map.Map;
@@ -79,8 +83,10 @@ pub const getHeader = object.getHeader;
 pub const getTypeId = object.getTypeId;
 pub const getRml = object.getRml;
 pub const forceObj = object.forceObj;
+pub const isAtom = object.isAtom;
 pub const isType = object.isType;
-pub const isObjectType = object.isObjectType;
+pub const isBuiltin = object.isBuiltin;
+pub const isBuiltinType = object.isBuiltinType;
 pub const castObj = object.castObj;
 pub const upgradeCast = object.upgradeCast;
 pub const downgradeCast = object.downgradeCast;
@@ -94,6 +100,7 @@ test {
 storage: Storage,
 cwd: ?std.fs.Dir,
 out: ?std.io.AnyWriter,
+namespace_env: Obj(Env) = undefined,
 global_env: Obj(Env) = undefined,
 main_interpreter: Obj(Interpreter) = undefined,
 diagnostic: ?*?Diagnostic = null,
@@ -111,18 +118,41 @@ pub const Diagnostic = struct {
 
 pub const BUILTIN = @import("BUILTIN.zig");
 
-pub const BUILTIN_NAMESPACES = .{
-    .Array = Array,
-    .Block = Block,
-    .Env = Env,
-    .Interpreter = Interpreter,
-    .Map = Map,
-    .Parser = Parser,
-    .Pattern = Pattern,
-    .Procedure = Procedure,
+pub const BUILTIN_TYPES = TypeUtils.structConcat(.{VALUE_TYPES, OBJECT_TYPES});
+
+pub const VALUE_TYPES = TypeUtils.structConcat(.{ATOM_TYPES, DATA_TYPES});
+
+pub const ATOM_TYPES = .{
+    .Nil = Nil,
+    .Bool = Bool,
+    .Int = Int,
+    .Float = Float,
+    .Char = Char,
+
     .String = String,
     .Symbol = Symbol,
+};
+
+pub const DATA_TYPES = .{
+    .Procedure = Procedure,
+    .Interpreter = Interpreter,
+    .Parser = Parser,
+    .Pattern = Pattern,
     .Writer = Writer,
+};
+
+pub const OBJECT_TYPES = TypeUtils.structConcat(.{SOURCE_TYPES, COLLECTION_TYPES});
+
+pub const SOURCE_TYPES = .{
+    .Block = Block,
+    .Quote = Quote,
+};
+
+pub const COLLECTION_TYPES = .{
+    .Env = Env,
+    .Map = Map,
+    .Set = Set,
+    .Array = Array,
 };
 
 
@@ -146,10 +176,10 @@ pub fn init(allocator: std.mem.Allocator, cwd: ?std.fs.Dir, out: ?std.io.AnyWrit
     self.global_env = try Obj(Env).init(self, self.storage.origin);
     errdefer self.global_env.deinit();
 
-    const namespace_env = try Obj(Env).init(self, self.storage.origin);
-    errdefer namespace_env.deinit();
+    self.namespace_env = try Obj(Env).init(self, self.storage.origin);
+    errdefer self.namespace_env.deinit();
 
-    bindgen.bindObjectNamespaces(self, namespace_env, BUILTIN_NAMESPACES) catch |err| switch (err) {
+    bindgen.bindObjectNamespaces(self, self.namespace_env, BUILTIN_TYPES) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         else => @panic(@errorName(err)),
     };
@@ -162,11 +192,7 @@ pub fn init(allocator: std.mem.Allocator, cwd: ?std.fs.Dir, out: ?std.io.AnyWrit
     // TODO args
     _ = args;
 
-    const main_env = try Obj(Env).init(self, self.storage.origin);
-    main_env.data.parent = downgradeCast(self.global_env);
-    errdefer main_env.deinit();
-
-    if (Obj(Interpreter).init(self, self.storage.origin, .{namespace_env, main_env})) |x| {
+    if (Obj(Interpreter).init(self, self.storage.origin, .{})) |x| {
         log.debug("... interpreter ready", .{});
         self.main_interpreter = x;
         return self;
@@ -179,6 +205,7 @@ pub fn init(allocator: std.mem.Allocator, cwd: ?std.fs.Dir, out: ?std.io.AnyWrit
 pub fn deinit(self: *Rml) MemoryLeak! void {
     log.debug("deinitializing Rml", .{});
 
+    self.namespace_env.deinit();
     self.global_env.deinit();
     self.main_interpreter.deinit();
     self.storage.deinit();
@@ -230,4 +257,8 @@ pub fn errorCast(err: anyerror) Error {
         log.err("unexpected error in errorCast: {s}", .{@errorName(err)});
         return error.Unexpected;
     }
+}
+
+pub fn lookupNamespace(sym: Obj(Symbol)) ?Object {
+    return sym.getRml().namespace_env.data.get(sym);
 }

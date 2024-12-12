@@ -15,18 +15,13 @@ const getRml = Rml.getRml;
 const forceObj = Rml.forceObj;
 
 
-pub const Map = TypedMap(Rml.object.ObjData, Rml.object.ObjData);
-pub const MapUnmanaged = TypedMapUnmanaged(Rml.object.ObjData, Rml.object.ObjData);
+pub const Set = TypedSet(Rml.object.ObjData);
 
-pub fn TypedMap (comptime K: type, comptime V: type) type {
+pub fn TypedSet (comptime K: type) type {
     return struct {
         const Self = @This();
 
-        pub const NativeIter = NativeMap.Iterator;
-        pub const NativeMap = std.ArrayHashMapUnmanaged(Obj(K), Obj(V), Rml.SimpleHashContext, true);
-
-
-        unmanaged: TypedMapUnmanaged(K, V) = .{},
+        unmanaged: TypedSetUnmanaged (K) = .{},
 
 
         pub fn onCompare(a: ptr(Self), other: Object) Ordering {
@@ -49,14 +44,14 @@ pub fn TypedMap (comptime K: type, comptime V: type) type {
             self.unmanaged.deinit(rml);
         }
 
-        /// Set the value associated with a key
-        pub fn set(self: ptr(Self), key: Obj(K), v: Obj(V)) OOM! void {
+        /// Set a key
+        pub fn set(self: ptr(Self), key: Obj(K)) OOM! void {
             const rml = getRml(self);
-            return self.unmanaged.set(rml, key, v);
+            return self.unmanaged.set(rml, key);
         }
 
-        /// Find the value associated with a key
-        pub fn get(self: ptr(Self), key: Obj(K)) ?Object {
+        /// Find a local copy matching a key
+        pub fn get(self: ptr(Self), key: Obj(K)) ?Obj(K) {
             return self.unmanaged.get(key);
         }
 
@@ -76,13 +71,6 @@ pub fn TypedMap (comptime K: type, comptime V: type) type {
             return self.unmanaged.keys();
         }
 
-        /// Returns the backing array of values in this map.
-        /// Modifying the map may invalidate this array.
-        /// It is permitted to modify the values in this array.
-        pub fn values(self: ptr(Self)) []Obj(V) {
-            return self.unmanaged.values();
-        }
-
         /// Recomputes stored hashes and rebuilds the key indexes.
         /// If the underlying keys have been modified directly,
         /// call this method to recompute the denormalized metadata
@@ -94,24 +82,20 @@ pub fn TypedMap (comptime K: type, comptime V: type) type {
     };
 }
 
-pub fn TypedMapUnmanaged (comptime K: type, comptime V: type) type {
+pub fn TypedSetUnmanaged  (comptime K: type) type {
     return struct {
         const Self = @This();
 
-        native_map: NativeMap = .{},
+        native_map: NativeSet = .{},
 
-        pub const NativeIter = NativeMap.Iterator;
-        pub const NativeMap = std.ArrayHashMapUnmanaged(Obj(K), Obj(V), Rml.SimpleHashContext, true);
+        pub const NativeIter = NativeSet.Iterator;
+        pub const NativeSet = std.ArrayHashMapUnmanaged(Obj(K), void, Rml.SimpleHashContext, true);
 
         pub fn compare(self: Self, other: Self) Ordering {
             var ord = Rml.compare(self.keys().len, other.keys().len);
 
             if (ord == .Equal) {
                 ord = Rml.compare(self.keys(), other.keys());
-            }
-
-            if (ord == .Equal) {
-                ord = Rml.compare(self.values(), other.values());
             }
 
             return ord;
@@ -130,29 +114,23 @@ pub fn TypedMapUnmanaged (comptime K: type, comptime V: type) type {
         pub fn deinit(self: *Self, rml: *Rml) void {
             var it = self.native_map.iterator();
 
-            while (it.next()) |entry| {
-                entry.key_ptr.deinit();
-                entry.value_ptr.deinit();
-            }
+            while (it.next()) |entry| entry.key_ptr.deinit();
             self.native_map.deinit(rml.storage.object);
         }
 
-        /// Set the value associated with a key
-        pub fn set(self: *Self, rml: *Rml, key: Obj(K), val: Obj(V)) OOM! void {
+        /// Set a key
+        pub fn set(self: *Self, rml: *Rml, key: Obj(K)) OOM! void {
             if (self.native_map.getEntry(key)) |entry| {
                 entry.key_ptr.deinit();
                 entry.key_ptr.* = key;
-
-                entry.value_ptr.deinit();
-                entry.value_ptr.* = val;
             } else {
-                try self.native_map.put(rml.storage.object, key, val);
+                try self.native_map.put(rml.storage.object, key, {});
             }
         }
 
-        /// Find the value associated with a key
-        pub fn get(self: *const Self, key: Obj(K)) ?Obj(V) {
-            return if (self.native_map.get(key)) |v| v.clone() else null;
+        /// Find a local copy matching a given key
+        pub fn get(self: *const Self, key: Obj(K)) ?Obj(K) {
+            return if (self.native_map.getEntry(key)) |entry| entry.key_ptr.clone() else null;
         }
 
         /// Returns the number of key-value pairs in the map
@@ -174,13 +152,6 @@ pub fn TypedMapUnmanaged (comptime K: type, comptime V: type) type {
         /// Modifying this array in a way that changes key hashes or key equality puts the map into an unusable state until reIndex is called.
         pub fn keys(self: *const Self) []Obj(K) {
             return self.native_map.keys();
-        }
-
-        /// Returns the backing array of values in this map.
-        /// Modifying the map may invalidate this array.
-        /// It is permitted to modify the values in this array.
-        pub fn values(self: *const Self) []Obj(V) {
-            return self.native_map.values();
         }
 
         /// Recomputes stored hashes and rebuilds the key indexes.

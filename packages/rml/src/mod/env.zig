@@ -28,7 +28,7 @@ pub const SymbolAlreadyBound = error {SymbolAlreadyBound};
 
 pub const MyId = enum(usize) {_};
 
-pub const Table = Rml.map.MemoryUnmanaged(Rml.symbol.Symbol, Rml.ObjData);
+pub const Table = Rml.map.TypedMapUnmanaged(Symbol, Rml.ObjData);
 
 pub const Env = struct {
     parent: Weak = Weak.Null,

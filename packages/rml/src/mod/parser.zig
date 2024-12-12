@@ -17,6 +17,7 @@ const castObj = Rml.castObj;
 const forceObj = Rml.forceObj;
 const String = Rml.String;
 const Symbol = Rml.Symbol;
+const Quote = Rml.Quote;
 const Map = Rml.Map;
 const Array = Rml.Array;
 const Writer = Rml.Writer;
@@ -74,6 +75,22 @@ pub const Parser = struct {
     }
 
 
+    pub fn next(self: ptr(Parser)) Error! ?Object {
+        const rml = getRml(self);
+
+        var properties = try self.scan() orelse PropertySet{};
+        defer properties.deinit(rml);
+
+        if (try self.parseAnyBlockClosing()) {
+            return null;
+        }
+
+        const obj = try self.parseObject() orelse return self.failed();
+        try obj.getHeader().properties.copyFrom(rml, &properties);
+
+        return obj;
+    }
+
 
     pub fn setOffset(self: ptr(Parser), offset: Pos) void {
         self.posOffset = offset;
@@ -96,23 +113,14 @@ pub const Parser = struct {
         };
     }
 
-    pub fn parseDocument(self: ptr(Parser)) Error! Obj(Rml.Block) {
-        parsing.debug("parseDocument", .{});
-        errdefer parsing.debug("parseDocument failed", .{});
-
-        const result = try self.parseBlockTail(self.pos, .doc);
-
-        parsing.debug("result: {}", .{result});
-
-        return result;
-    }
-
     pub fn parseObject(self: ptr(Parser)) Error! ?Object {
         parsing.debug("parseObject {?u}", .{self.peekChar() catch null});
         errdefer parsing.debug("parseObject failed", .{});
 
-        const result = try self.parseAtom()
-        orelse if (try self.parseBlock()) |x| erase: { defer x.deinit(); break :erase x.typeErase(); } else null;
+        const result
+             = try self.parseAtom()
+        orelse if (try self.parseAnyBlock()) |x| x.typeEraseLeak() else null
+        orelse if (try self.parseAnyQuote()) |x| x.typeEraseLeak() else null;
 
         parsing.debug("parseObject result: {?}", .{result});
 
@@ -123,24 +131,85 @@ pub const Parser = struct {
         parsing.debug("parseAtom", .{});
         errdefer parsing.debug("parseAtom failed", .{});
 
-        const result = (if (try self.parseInt()) |x| erase: { defer x.deinit(); break :erase x.typeErase(); } else null)
-        orelse (if (try self.parseFloat()) |x| erase: { defer x.deinit(); break :erase x.typeErase(); } else null)
-        orelse (if (try self.parseChar()) |x| erase: { defer x.deinit(); break :erase x.typeErase(); } else null)
-        orelse (if (try self.parseString()) |x| erase: { defer x.deinit(); break :erase x.typeErase(); } else null)
-        orelse (if (try self.parseSymbol()) |x| erase: { defer x.deinit(); break :erase x.typeErase(); } else null);
+        const result
+             = (if (try self.parseInt()) |x| x.typeEraseLeak() else null)
+        orelse (if (try self.parseFloat()) |x| x.typeEraseLeak() else null)
+        orelse (if (try self.parseChar()) |x| x.typeEraseLeak() else null)
+        orelse (if (try self.parseString()) |x| x.typeEraseLeak() else null)
+        orelse (if (try self.parseSymbol()) |x| x.typeEraseLeak() else null);
 
         parsing.debug("parseAtom result: {?}", .{result});
 
         return result;
     }
 
-    pub fn parseBlock(self: ptr(Parser)) Error! ?Obj(Rml.Block) {
+    pub fn parseQuote(self: ptr(Parser), quoteKind: Rml.quote.QuoteKind) Error! ?Obj(Rml.Quote) {
+        parsing.debug("parseQuote", .{});
+        errdefer parsing.debug("parseQuote failed", .{});
+
+        const rml = getRml(self);
+        const start = self.pos;
+
+        if (!try self.parseQuoteOpening(quoteKind)) {
+            parsing.debug("parseQuote stop: no quote kind", .{});
+            return null;
+        }
+
+        const body = try self.parseObject() orelse return self.failed();
+
+        const result: Obj(Quote) = try .wrap(rml, self.getOrigin(start, self.pos), .{ .kind = quoteKind, .body = body });
+
+        parsing.debug("parseQuote result: {?}", .{result});
+
+        return result;
+    }
+
+    pub fn parseAnyQuote(self: ptr(Parser)) Error! ?Obj(Rml.Quote) {
+        parsing.debug("parseQuote", .{});
+        errdefer parsing.debug("parseQuote failed", .{});
+
+        const rml = getRml(self);
+        const start = self.pos;
+
+        const quoteKind = try self.parseAnyQuoteOpening() orelse return null;
+
+        parsing.debug("got quote opening {s}", .{quoteKind.toStr()});
+
+        const body = try self.parseObject() orelse return self.failed();
+
+        const result: Obj(Quote) = try .wrap(rml, self.getOrigin(start, self.pos), .{ .kind = quoteKind, .body = body });
+
+        parsing.debug("parseQuote result: {?}", .{result});
+
+        return result;
+    }
+
+    pub fn parseBlock(self: ptr(Parser), blockKind: Rml.block.BlockKind) Error! ?Obj(Rml.Block) {
+        parsing.debug("parseBlock", .{});
+        errdefer parsing.debug("parseBlock failed", .{});
+
+        const start = self.pos;
+
+        if (!try self.parseBlockOpening(blockKind)) {
+            return null;
+        }
+
+        const result = try self.parseBlockTail(start, blockKind);
+
+        parsing.debug("parseBlock result: {?}", .{result});
+
+        return result;
+    }
+
+    pub fn parseAnyBlock(self: ptr(Parser)) Error! ?Obj(Rml.Block) {
         parsing.debug("parseBlock", .{});
         errdefer parsing.debug("parseBlock failed", .{});
 
         const start = self.pos;
 
         const blockKind = try self.parseAnyBlockOpening() orelse return null;
+
+        parsing.debug("got block opening {s}", .{blockKind.toOpenStr()});
 
         const result = try self.parseBlockTail(start, blockKind);
 
@@ -211,9 +280,47 @@ pub const Parser = struct {
         return block;
     }
 
-    pub fn parseAnyBlockOpening(self: ptr(Parser)) Error! ?Rml.block.BlockKind {
-        const start = self.pos;
+    pub fn parseQuoteOpening(self: ptr(Parser), kind : Rml.quote.QuoteKind) Error! bool {
+        const openStr = kind.toStr();
 
+        std.debug.assert(!std.mem.eql(u8, openStr, ""));
+
+        return try self.expectSlice(openStr);
+    }
+
+    pub fn parseAnyQuoteOpening(self: ptr(Parser)) Error! ?Rml.quote.QuoteKind {
+        inline for (comptime std.meta.fieldNames(Rml.quote.QuoteKind)) |quoteKindName| {
+            const quoteKind = @field(Rml.quote.QuoteKind, quoteKindName);
+            const openStr = comptime quoteKind.toStr();
+
+            if (comptime std.mem.eql(u8, openStr, "")) @compileError("QuoteKind." ++ quoteKindName ++ ".toStr() must not return an empty string");
+
+            if (try self.expectSlice(openStr)) {
+                parsing.debug("got quote opening {s}", .{openStr});
+                return quoteKind;
+            }
+        }
+
+        return null;
+    }
+
+    pub fn parseBlockOpening(self: ptr(Parser), kind: Rml.block.BlockKind) Error! bool {
+        const openStr = kind.toOpenStr();
+
+        if (std.mem.eql(u8, openStr, "")) {
+            parsing.debug("checking for bof", .{});
+            const is = self.isBof();
+            parsing.debug("bof: {}", .{is});
+            return is;
+        } else {
+            parsing.debug("checking for {s}", .{openStr});
+            const is = try self.expectSlice(openStr);
+            parsing.debug("{s}: {}", .{openStr, is});
+            return is;
+        }
+    }
+
+    pub fn parseAnyBlockOpening(self: ptr(Parser)) Error! ?Rml.block.BlockKind {
         inline for (comptime std.meta.fieldNames(Rml.block.BlockKind)) |blockKindName| {
             const blockKind = @field(Rml.block.BlockKind, blockKindName);
             const openStr = comptime blockKind.toOpenStr();
@@ -221,11 +328,11 @@ pub const Parser = struct {
             if (comptime std.mem.eql(u8, openStr, "")) continue;
 
             if (try self.expectSlice(openStr)) {
+                parsing.debug("got block opening {s}", .{openStr});
                 return blockKind;
             }
         }
 
-        self.reset(start);
         return null;
     }
 
@@ -242,6 +349,25 @@ pub const Parser = struct {
             const is = try self.expectSlice(closeStr);
             parsing.debug("{s}: {}", .{closeStr, is});
             return is;
+        }
+    }
+
+    pub fn parseAnyBlockClosing(self: ptr(Parser)) Error! bool {
+        inline for (comptime std.meta.fieldNames(Rml.block.BlockKind)) |blockKindName| {
+            const blockKind = @field(Rml.block.BlockKind, blockKindName);
+            const closeStr = comptime blockKind.toCloseStr();
+
+            if (comptime std.mem.eql(u8, closeStr, "")) {
+                parsing.debug("checking for eof", .{});
+                const is = self.isEof();
+                parsing.debug("eof: {}", .{is});
+                return is;
+            } else {
+                parsing.debug("checking for {s}", .{closeStr});
+                const is = try self.expectSlice(closeStr);
+                parsing.debug("{s}: {}", .{closeStr, is});
+                return is;
+            }
         }
     }
 
@@ -469,6 +595,25 @@ pub const Parser = struct {
         return null;
     }
 
+    pub fn expectAnySlice(self: ptr(Parser), slices: []const []const u8) Error! ?[]const u8 {
+        const start = self.pos;
+
+        slices: for (slices) |slice| {
+            for (slice) |ch| {
+                if (try self.peekChar() != ch) {
+                    self.reset(start);
+                    continue :slices;
+                }
+
+                try self.advChar();
+            }
+
+            return slice;
+        }
+
+        return null;
+    }
+
     pub fn expectSlice(self: ptr(Parser), slice: []const u8) Error! bool {
         for (slice) |ch| {
             if (try self.peekChar() != ch) {
@@ -606,6 +751,10 @@ pub const Parser = struct {
         return try @call(.auto, callback, .{self} ++ args) orelse {
             return self.failed();
         };
+    }
+
+    pub fn isBof(self: ptr(Parser)) bool {
+        return self.pos.offset == 0;
     }
 
     pub fn isEof(self: ptr(Parser)) bool {

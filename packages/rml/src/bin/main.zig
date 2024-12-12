@@ -44,10 +44,11 @@ pub fn main () !void {
     }
 
     log.info("test start", .{});
-    log.debug("namespace_env: {}", .{rml.main_interpreter.data.namespace_env});
+    log.debug("namespace_env: {}", .{rml.namespace_env});
+    log.debug("global_env: {}", .{rml.global_env});
     log.debug("evaluation_env: {}", .{rml.main_interpreter.data.evaluation_env});
 
-    const srcText: []const u8 = "(print-ln \"Hello, world!\" (or nil 10))";
+    const srcText: []const u8 = "(print-ln \"Hello, world!\" (or nil `10))";
 
     const parser: Rml.Obj(Rml.Parser) = try .init(rml, rml.storage.origin, .{"test.rml", try Rml.Obj(Rml.String).init(rml, rml.storage.origin, .{srcText})});
     defer {
@@ -55,7 +56,7 @@ pub fn main () !void {
         parser.deinit();
     }
 
-    const expr = parser.data.parseDocument() catch |err| {
+    while (parser.data.next() catch |err| {
         log.err("on parseDocument, {s}", .{@errorName(err)});
         if (diagnostic) |diag| {
             log.err("{s} {}: {s}", .{@errorName(diag.err), diag.error_origin, diag.message_mem[0..diag.message_len]});
@@ -63,21 +64,24 @@ pub fn main () !void {
             log.err("requested diagnostic is null", .{});
         }
         return err;
-    };
-    defer expr.deinit();
+    }) |expr| {
+        defer expr.deinit();
 
-    log.info("expr: {}", .{expr});
+        log.info("expr: {}", .{expr});
 
-    if (rml.main_interpreter.data.runProgram(expr)) |res| {
-        defer res.deinit();
+        if (rml.main_interpreter.data.eval(expr)) |res| {
+            defer res.deinit();
 
-        log.info("result: {}", .{res});
-    } else |err| {
-        log.err("on eval, {s}", .{@errorName(err)});
-        if (diagnostic) |diag| {
-            log.err("{s} {}: {s}", .{@errorName(diag.err), diag.error_origin, diag.message_mem[0..diag.message_len]});
-        } else {
-            log.err("requested diagnostic is null", .{});
+            log.info("result: {}", .{res});
+        } else |err| {
+            log.err("on eval, {s}", .{@errorName(err)});
+            if (diagnostic) |diag| {
+                log.err("{s} {}: {s}", .{@errorName(diag.err), diag.error_origin, diag.message_mem[0..diag.message_len]});
+            } else {
+                log.err("requested diagnostic is null", .{});
+            }
+            diagnostic = null;
+            return err;
         }
     }
 }

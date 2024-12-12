@@ -13,12 +13,16 @@ const ptr = Rml.ptr;
 const Nil = Rml.Nil;
 const Env = Rml.Env;
 const Symbol = Rml.Symbol;
+const Block = Rml.Block;
+const Quote = Rml.Quote;
 const Writer = Rml.Writer;
 const getObj = Rml.getObj;
+const getHeader = Rml.getHeader;
 const getTypeId = Rml.getTypeId;
 const getRml = Rml.getRml;
 const castObj = Rml.castObj;
 const forceObj = Rml.forceObj;
+const downgradeCast = Rml.downgradeCast;
 
 
 pub const evaluation = std.log.scoped(.evaluation);
@@ -32,13 +36,15 @@ pub const EvalError = error {
     InvalidArgumentCount,
 };
 pub const Interpreter = struct {
-    namespace_env: Obj(Env),
     evaluation_env: Obj(Env),
 
-    pub fn onInit(self: ptr(Interpreter), namespace_env: Obj(Env), evaluation_env: Obj(Env)) OOM! void {
+    pub fn onInit(self: ptr(Interpreter)) OOM! void {
+        const rml = getRml(self);
+
         evaluation.debug("initializing Obj(Interpreter){x}", .{@intFromPtr(self)});
-        self.namespace_env = namespace_env;
-        self.evaluation_env = evaluation_env;
+
+        self.evaluation_env = try Obj(Env).init(getRml(self), getHeader(self).origin);
+        self.evaluation_env.data.parent = downgradeCast(rml.global_env);
     }
 
     pub fn onCompare(a: ptr(Interpreter), other: Object) Ordering {
@@ -51,8 +57,14 @@ pub const Interpreter = struct {
 
     pub fn onDeinit(self: ptr(Interpreter)) void {
         evaluation.debug("deinitializing Obj(Interpreter){x}", .{@intFromPtr(self)});
-        self.namespace_env.deinit();
         self.evaluation_env.deinit();
+    }
+
+    pub fn reset(self: ptr(Interpreter)) OOM! void {
+        const rml = getRml(self);
+        self.evaluation_env.deinit();
+        self.evaluation_env = try Obj(Env).init(rml, getHeader(self).origin);
+        self.evaluation_env.data.parent = downgradeCast(rml.global_env);
     }
 
     pub fn abort(self: ptr(Interpreter), origin: Origin, err: Error, comptime fmt: []const u8, args: anytype) Error! noreturn {
@@ -101,10 +113,21 @@ pub const Interpreter = struct {
     pub fn evalCheck(self: ptr(Interpreter), expr: Object, workDone: ?*bool) Result! Object {
         const exprTypeId = expr.getHeader().type_id;
 
-        if (Rml.equal(exprTypeId, Rml.TypeId.of(Rml.block.Block))) {
+        if (Rml.equal(exprTypeId, Rml.TypeId.of(Symbol))) {
             if (workDone) |x| x.* = true;
 
-            const block = forceObj(Rml.block.Block, expr);
+            const symbol = forceObj(Symbol, expr);
+            defer symbol.deinit();
+
+            evaluation.debug("looking up symbol {}", .{symbol});
+
+            return self.lookup(symbol) orelse {
+                try self.abort(expr.getHeader().origin, error.UnboundSymbol, "no symbol `{s}` in evaluation environment", .{symbol});
+            };
+        } else if (Rml.equal(exprTypeId, Rml.TypeId.of(Block))) {
+            if (workDone) |x| x.* = true;
+
+            const block = forceObj(Block, expr);
             defer block.deinit();
 
             switch (block.data.block_kind) {
@@ -112,7 +135,7 @@ pub const Interpreter = struct {
                     evaluation.debug("running doc", .{});
                     return self.runProgram(block);
                 },
-                .paren => {
+                else => {
                     const items = block.data.array.items();
                     evaluation.debug("performing call {any}", .{items});
                     const function = items[0];
@@ -123,29 +146,44 @@ pub const Interpreter = struct {
 
                     return self.invoke(block.getHeader().origin, function_obj, args);
                 },
-                else => return error.TypeError,
             }
-        } else if (Rml.equal(exprTypeId, Rml.TypeId.of(Rml.symbol.Symbol))) {
+        } else if (Rml.equal(exprTypeId, Rml.TypeId.of(Rml.quote.Quote))) {
             if (workDone) |x| x.* = true;
 
-            const symbol = forceObj(Rml.symbol.Symbol, expr);
-            defer symbol.deinit();
+            const quote = forceObj(Rml.quote.Quote, expr);
+            defer quote.deinit();
 
-            evaluation.debug("looking up symbol {}", .{symbol});
+            const kind = quote.data.kind;
+            const body = quote.data.body;
 
-            return self.lookup(symbol) orelse {
-                evaluation.err("unbound symbol {}", .{symbol});
-                return error.UnboundSymbol;
-            };
+            switch (kind) {
+                .basic => {
+                    evaluation.debug("evaluating basic quote", .{});
+                    return body.clone();
+                },
+                .quasi => {
+                    evaluation.debug("evaluating quasi quote", .{});
+                    return Rml.quote.runQuasi(self, body);
+                },
+                .to_quote => {
+                    evaluation.debug("evaluating to_quote quote", .{});
+                    const val = try self.eval(body);
+                    return (try Obj(Quote).init(getRml(self), body.getHeader().origin, .{.basic, val})).typeEraseLeak();
+                },
+                .to_quasi => {
+                    evaluation.debug("evaluating to_quasi quote", .{});
+                    const val = try self.eval(body);
+                    return (try Obj(Quote).init(getRml(self), body.getHeader().origin, .{.quasi, val})).typeEraseLeak();
+                },
+                else => {
+                    try self.abort(expr.getHeader().origin, error.TypeError, "unexpected {}", .{kind});
+                },
+            }
         }
 
         evaluation.debug("cannot evaluate further", .{});
 
         return expr.clone();
-    }
-
-    pub fn lookupNamespace(self: ptr(Interpreter), symbol: Obj(Symbol)) ?Object {
-        return self.namespace_env.data.get(symbol);
     }
 
     pub fn lookup(self: ptr(Interpreter), symbol: Obj(Symbol)) ?Object {

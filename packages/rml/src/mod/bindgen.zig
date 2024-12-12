@@ -29,7 +29,7 @@ const getHeader = Rml.getHeader;
 const getRml = Rml.getRml;
 const forceObj = Rml.forceObj;
 const downgradeCast = Rml.downgradeCast;
-const isObjectType = Rml.isObjectType;
+const isBuiltinType = Rml.isBuiltinType;
 
 
 pub fn bindGlobals(rml: *Rml, env: Obj(Env), comptime globals: type) (OOM || SymbolAlreadyBound)! void {
@@ -268,6 +268,12 @@ pub const NativeFunction = *const fn (ptr(Interpreter), Origin, []const Object) 
 pub fn Namespace(comptime T: type) type {
     @setEvalBranchQuota(10_000);
     const BaseMethods = BaseMethods: {
+        if (!TypeUtils.supportsDecls(T)) break :BaseMethods @Type(.{.@"struct" = std.builtin.Type.Struct {
+            .layout = .auto,
+            .fields = &.{},
+            .decls = &.{},
+            .is_tuple = false,
+        }});
         const Api = Api: {
             const ApiEntry = struct { type: type, name: [:0]const u8 };
             const decls = std.meta.declarations(T);
@@ -431,7 +437,7 @@ pub fn ObjectRepr(comptime T: type) type {
             .pointer => |info|
                 if (@typeInfo(info.child) == .@"fn") Obj(Procedure)
                 else if (info.alignment == Rml.object.OBJ_ALIGN) ObjectRepr(info.child)
-                     else if (info.size == .One and isObjectType(info.child)) Obj(info.child)
+                     else if (info.size == .One and isBuiltinType(info.child)) Obj(info.child)
                         else Obj(T),
 
             .@"struct" =>
@@ -473,7 +479,7 @@ pub fn toObject(rml: *Rml, origin: Origin, value: anytype) OOM! ObjectRepr(@Type
             .pointer => |info|
                 if (@typeInfo(info.child) == .@"fn") @compileError("wrap functions with wrapNativeFunction")
                 else if (comptime info.alignment == Rml.object.OBJ_ALIGN) getObj(value)
-                     else if (comptime info.size == .One and isObjectType(info.child)) Obj(T).wrap(rml, origin, value.*)
+                     else if (comptime info.size == .One and isBuiltinType(info.child)) Obj(T).wrap(rml, origin, value.*)
                         else Obj(T).wrap(rml, origin, value),
 
             .@"struct" =>
@@ -523,8 +529,11 @@ pub fn toObjectConst(rml: *Rml, origin: Origin, comptime value: anytype) OOM! Ob
             .pointer => |info|
                 if (@typeInfo(info.child) == .@"fn") wrapNativeFunction(rml, origin, value)
                 else if (comptime info.alignment == Rml.object.OBJ_ALIGN) getObj(value)
-                     else if (comptime info.size == .One and isObjectType(info.child)) Obj(info.child).wrap(rml, origin, value.*)
-                        else Obj(T).wrap(rml, origin, value),
+                     else if (comptime info.size == .One and isBuiltinType(info.child)) Obj(info.child).wrap(rml, origin, value.*)
+                        else x: { // TODO: remove compileLog when not frequently adding builtins
+                            @compileLog("not builtin type: " ++ @typeName(info.child));
+                            break :x Obj(T).wrap(rml, origin, value);
+                        },
 
             .@"struct", .@"union", =>
                 Obj(T).wrap(rml, origin, value),
