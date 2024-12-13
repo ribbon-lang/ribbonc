@@ -149,8 +149,8 @@ pub const ATOM_TYPES = .{
     .Int = Int,
     .Float = Float,
     .Char = Char,
-
     .String = String,
+
     .Symbol = Symbol,
 };
 

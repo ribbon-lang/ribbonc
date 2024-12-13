@@ -23,6 +23,45 @@ const coerceBool = Rml.coerceBool;
 
 pub const nil = Nil{};
 
+/// Create a function closure
+pub const fun = Rml.Procedure {
+    .native_macro = &struct {
+        pub fn fun(interpreter: ptr(Interpreter), origin: Origin, args: []const Object) Result! Object {
+            if (args.len < 1) try interpreter.abort(origin, error.InvalidArgumentCount, "expected at least 1 argument, found 0", .{});
+
+            const rml = getRml(interpreter);
+
+            var diag: ?Rml.Diagnostic = null;
+            const pattern = Rml.Pattern.parse(args[0], &diag) catch |err| if (err == error.SyntaxError) {
+                if (diag) |d| {
+                    try interpreter.abort(origin, error.PatternError, "cannot parse pattern `{}`: {}", .{args[0], d.formatter(error.SyntaxError)});
+                } else {
+                    Rml.log.err("requested pattern parse diagnostic is null", .{});
+                    try interpreter.abort(origin, error.PatternError, "cannot parse pattern `{}`", .{args[0]});
+                }
+            } else return err;
+            errdefer pattern.deinit();
+
+            if (pattern.data.* != .block) {
+                try interpreter.abort(origin, error.TypeError, "expected block pattern, found {}", .{pattern});
+            }
+
+            if (pattern.data.block.data.kind != .doc) {
+                try interpreter.abort(origin, error.InvalidArgument, "expected doc block pattern, found {}", .{pattern});
+            }
+
+            var body: Rml.array.ArrayUnmanaged = .{};
+            errdefer body.deinit(rml);
+
+            for (args[1..]) |arg| {
+                try body.append(rml, arg.clone());
+            }
+
+            return (try Obj(Rml.Procedure).wrap(rml, origin, .{.function = .{.argument_pattern = pattern, .body = body}})).typeEraseLeak();
+        }
+    }.fun,
+};
+
 /// Print any number of arguments followed by a new line
 pub fn @"print-ln"(interpreter: ptr(Interpreter), origin: Origin, args: []const Object) Result! Object {
     const rml = getRml(interpreter);

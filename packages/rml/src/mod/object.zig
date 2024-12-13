@@ -453,21 +453,9 @@ pub fn castObj(comptime T: type, obj: Object) ?Obj(T) {
     else return null;
 }
 
-pub fn castStringSlice(obj: Object) ?[]const u8 {
-    return if (isType(Rml.String, obj)) {
-        const x = forceObj(Rml.String, obj);
-        defer x.deinit();
-        return x.data.text();
-    } else null;
-}
-
-
-pub fn castSymbolSlice(obj: Object) ?Rml.str {
-    return if (isType(Symbol, obj)){
-        const x = forceObj(Symbol, obj);
-        defer x.deinit();
-        return x.data.str;
-    } else null;
+pub fn castObjLeak(comptime T: type, obj: Object) ?Obj(T) {
+    if (isType(T, obj)) return forceObjLeak(T, obj)
+    else return null;
 }
 
 pub fn isType(comptime T: type, obj: Object) bool {
@@ -572,6 +560,10 @@ pub fn isObjectType(comptime T: type) bool {
 
 pub fn forceObj(comptime T: type, obj: Object) Obj(T) {
     obj.getHeader().incrRefCount();
+    return forceObjLeak(T, obj);
+}
+
+pub fn forceObjLeak(comptime T: type, obj: Object) Obj(T) {
     return .{.data = @ptrCast(obj.data)};
 }
 

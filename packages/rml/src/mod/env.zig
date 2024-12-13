@@ -22,9 +22,11 @@ const castObj = Rml.castObj;
 const forceObj = Rml.forceObj;
 const upgradeCast = Rml.upgradeCast;
 
-
+pub const SymbolError  = UnboundSymbol || SymbolAlreadyBound;
 pub const UnboundSymbol = error {UnboundSymbol};
 pub const SymbolAlreadyBound = error {SymbolAlreadyBound};
+
+pub const Domain = Rml.set.TypedSetUnmanaged(Symbol);
 
 pub const MyId = enum(usize) {_};
 

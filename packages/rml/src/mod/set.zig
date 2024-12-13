@@ -173,7 +173,7 @@ pub fn TypedSetUnmanaged  (comptime K: type) type {
             errdefer array.deinit(rml);
 
             for (self.keys()) |key| {
-                try array.append(rml, key.clone());
+                try array.append(rml, key.clone().typeEraseLeak());
             }
 
             return array;
@@ -187,7 +187,7 @@ pub fn TypedSetUnmanaged  (comptime K: type) type {
             return newMap;
         }
 
-        pub fn copyFrom(self: *Self, rml: *Rml, other: *Self) OOM! void {
+        pub fn copyFrom(self: *Self, rml: *Rml, other: *const Self) OOM! void {
             for (other.keys()) |key| {
                 try self.set(rml, key);
             }

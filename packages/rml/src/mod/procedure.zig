@@ -25,11 +25,11 @@ pub const ProcedureKind = enum {
 
 pub const ProcedureBody = struct {
     argument_pattern: Obj(Pattern),
-    body: Obj(Block),
+    body: Rml.array.ArrayUnmanaged,
 
     pub fn deinit(self: *ProcedureBody) void {
+        self.body.deinit(self.argument_pattern.getRml());
         self.argument_pattern.deinit();
-        self.body.deinit();
     }
 };
 

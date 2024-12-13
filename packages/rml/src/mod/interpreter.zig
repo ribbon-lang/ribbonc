@@ -32,6 +32,7 @@ pub const Result = Signal || Error || Rml.parser.SyntaxError;
 pub const Signal = error { Terminate };
 pub const EvalError = error {
     TypeError,
+    PatternError,
     UnboundSymbol,
     SymbolAlreadyBound,
     InvalidArgumentCount,
@@ -137,10 +138,15 @@ pub const Interpreter = struct {
             const block = forceObj(Block, expr);
             defer block.deinit();
 
+            if (block.data.array.length() == 0) {
+                evaluation.debug("empty block", .{});
+                return expr.clone();
+            }
+
             switch (block.data.kind) {
                 .doc => {
                     evaluation.debug("running doc", .{});
-                    return self.runProgram(block);
+                    return self.runProgram(block.getOrigin(), block.data.items());
                 },
                 else => {
                     const items = block.data.array.items();
@@ -197,19 +203,17 @@ pub const Interpreter = struct {
         return self.evaluation_env.data.get(symbol);
     }
 
-    pub fn runProgram(self: ptr(Interpreter), program: Obj(Rml.Block)) Result! Object {
+    pub fn runProgram(self: ptr(Interpreter), origin: Origin, program: []const Object) Result! Object {
         const rml = getRml(self);
 
-        var result: Object = (try Obj(Nil).init(rml, program.getOrigin())).typeEraseLeak();
+        var result: Object = (try Obj(Nil).init(rml, origin)).typeEraseLeak();
         errdefer result.deinit();
 
-        const exprs = program.data.array.items();
-
-        for (exprs) |expr| {
-            const result_obj = try self.eval(expr);
+        for (program) |srcObj| {
+            const resultObj = try self.eval(srcObj);
 
             result.deinit();
-            result = result_obj;
+            result = resultObj;
         }
 
         return result;
@@ -224,7 +228,37 @@ pub const Interpreter = struct {
 
             switch (procedure.data.*) {
                 .macro => { unreachable; },
-                .function => { unreachable; },
+                .function => |func| {
+                    Rml.log.debug("running function {}", .{getRml(self).storage.object_count});
+                    defer Rml.log.debug("done running function {}", .{getRml(self).storage.object_count});
+
+                    var eArgs = try Obj(Rml.Block).wrap(getRml(self), callOrigin, .{ .kind = .doc, .array = try self.evalAll(args) });
+                    defer eArgs.deinit();
+
+                    var diag: ?Rml.Diagnostic = null;
+                    const table: ?Obj(Rml.map.Table) = try func.argument_pattern.data.run(self, &diag, eArgs.typeEraseLeak());
+                    if (table) |tbl| {
+                        defer tbl.deinit();
+
+                        const oldEnv = self.evaluation_env;
+                        defer {
+                            self.evaluation_env.deinit();
+                            self.evaluation_env = oldEnv;
+                        }
+
+                        self.evaluation_env = try Obj(Env).wrap(getRml(self), callOrigin, Env {
+                            .parent = downgradeCast(oldEnv),
+                            .table = try tbl.data.unmanaged.clone(getRml(self)),
+                        });
+
+                        return self.runProgram(function.getOrigin(), func.body.items());
+                    } else if (diag) |d| {
+                        try self.abort(callOrigin, error.PatternError, "{}", .{d.formatter(error.PatternError)});
+                    } else {
+                        evaluation.err("requested pattern diagnostic is null", .{});
+                        try self.abort(callOrigin, error.PatternError, "pattern failed to match (`{}` vs `{}`)", .{func.argument_pattern, eArgs});
+                    }
+                },
                 .native_macro => |func| return func(self, callOrigin, args),
                 .native_function => |func| {
                     var eArgs = try self.evalAll(args);

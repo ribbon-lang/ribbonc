@@ -44,51 +44,29 @@ pub fn main () !void {
     }
 
     log.info("test start", .{});
+
+
+    Rml.object.refcount.debug("test start object_count: {}", .{rml.storage.object_count});
+    defer Rml.object.refcount.debug("test end object_count: {}", .{rml.storage.object_count});
+
     log.debug("namespace_env: {}", .{rml.namespace_env});
     log.debug("global_env: {}", .{rml.global_env});
     log.debug("evaluation_env: {}", .{rml.main_interpreter.data.evaluation_env});
 
-    const srcText: []const u8 = "(print-ln \"Hello, world!\" (or nil `10))";
 
-    const parser: Rml.Obj(Rml.Parser) = try .init(rml, rml.storage.origin, .{"test.rml", try Rml.Obj(Rml.String).init(rml, rml.storage.origin, .{srcText})});
+    const srcText: []const u8 = try std.fs.cwd().readFileAlloc(rml.storage.object, "test.bb", std.math.maxInt(u16));
+    defer rml.storage.object.free(srcText);
+
+    const parser: Rml.Obj(Rml.Parser) = try .init(rml, rml.storage.origin, .{"test.bb", try Rml.Obj(Rml.String).init(rml, rml.storage.origin, .{srcText})});
     defer {
         log.debug("Deinitializing parser", .{});
         parser.deinit();
     }
 
-    const pattern: Rml.Obj(Rml.Pattern) = try .wrap(rml, rml.storage.origin, .{
-        .value_literal = (try Rml.Obj(Rml.Int).wrap(rml, rml.storage.origin, 10)).typeEraseLeak()
-    });
-    defer {
-        log.debug("Deinitializing pattern", .{});
-        pattern.deinit();
-    }
-
-    const input = try Rml.Obj(Rml.Int).wrap(rml, rml.storage.origin, 10);
+    const input: Rml.Obj(Rml.Int) = try .wrap(rml, rml.storage.origin, 10);
     defer {
         log.debug("Deinitializing input", .{});
         input.deinit();
-    }
-    var patternDiag: ?Rml.Diagnostic = null;
-    const patternResult = pattern.data.run(rml.main_interpreter.data, &patternDiag, input.typeEraseLeak()) catch |err| {
-        log.err("on runPattern, {s}", .{@errorName(err)});
-        if (diagnostic) |diag| {
-            log.err("{s} {}: {s}", .{@errorName(err), diag.error_origin, diag.message_mem[0..diag.message_len]});
-        } else {
-            log.err("requested diagnostic is null", .{});
-        }
-        return err;
-    };
-    if (patternResult) |outEnv| {
-        defer outEnv.deinit();
-        log.info("patternResult: {}", .{outEnv});
-    } else {
-        if (patternDiag) |diag| {
-            log.err("PatternError {}: {s}", .{diag.error_origin, diag.message_mem[0..diag.message_len]});
-        } else {
-            log.err("requested patternDiag is null", .{});
-        }
-        return error.PatternError;
     }
 
     while (parser.data.next() catch |err| {
@@ -96,7 +74,7 @@ pub fn main () !void {
         if (diagnostic) |diag| {
             log.err("{s} {}: {s}", .{@errorName(err), diag.error_origin, diag.message_mem[0..diag.message_len]});
         } else {
-            log.err("requested diagnostic is null", .{});
+            log.err("requested parser diagnostic is null", .{});
         }
         return err;
     }) |expr| {
@@ -113,9 +91,11 @@ pub fn main () !void {
             if (diagnostic) |diag| {
                 log.err("{s} {}: {s}", .{@errorName(err), diag.error_origin, diag.message_mem[0..diag.message_len]});
             } else {
-                log.err("requested diagnostic is null", .{});
+                log.err("requested interpreter diagnostic is null", .{});
             }
+
             diagnostic = null;
+
             return err;
         }
     }

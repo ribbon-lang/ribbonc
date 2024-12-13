@@ -34,7 +34,7 @@ const Char = Rml.Char;
 pub const parsing = std.log.scoped(.parsing);
 
 
-pub const SyntaxError = error{ UnexpectedInput, UnexpectedEOF } || TextUtils.Error;
+pub const SyntaxError = error{ SyntaxError, UnexpectedInput, UnexpectedEOF } || TextUtils.Error;
 
 pub const Parser = struct {
     input: Obj(String),
@@ -233,7 +233,7 @@ pub const Parser = struct {
 
         while (true) {
             if (self.isEof() and blockKind != .doc) {
-                return SyntaxError.UnexpectedEOF;
+                return error.UnexpectedEOF;
             }
 
             if (try self.parseBlockClosing(blockKind)) {
@@ -490,10 +490,10 @@ pub const Parser = struct {
                     try self.advChar();
                     break :ch ch;
                 } else {
-                    return SyntaxError.UnexpectedInput;
+                    return error.UnexpectedInput;
                 }
             } else {
-                return SyntaxError.UnexpectedEOF;
+                return error.UnexpectedEOF;
             }
         };
 
@@ -536,13 +536,13 @@ pub const Parser = struct {
 
             const i =
                 if (ch == '\\') try self.require(Char, expectEscape, .{})
-                else if (!TextUtils.isControl(ch)) try self.nextChar() orelse return SyntaxError.UnexpectedEOF
-                else return SyntaxError.UnexpectedInput;
+                else if (!TextUtils.isControl(ch)) try self.nextChar() orelse return error.UnexpectedEOF
+                else return error.UnexpectedInput;
 
             try textBuffer.append(rml, i);
         }
 
-        return SyntaxError.UnexpectedEOF;
+        return error.UnexpectedEOF;
     }
 
 
@@ -553,7 +553,7 @@ pub const Parser = struct {
 
         while (try self.peekChar()) |ch| {
             switch (ch) {
-                inline '(', ')', ';', ',', '#', '\'', '`', '"', '\\', => break,
+                inline '(', ')', '[', ']', '{', '}', ';', ',', '#', '\'', '`', '"', '\\', => break,
 
                 else => if (TextUtils.isSpace(ch) or TextUtils.isControl(ch)) break,
             }
@@ -741,9 +741,9 @@ pub const Parser = struct {
 
     pub fn failed(self: ptr(Parser)) Error {
         if (self.isEof()) {
-            return SyntaxError.UnexpectedEOF;
+            return error.UnexpectedEOF;
         } else {
-            return SyntaxError.UnexpectedInput;
+            return error.UnexpectedInput;
         }
     }
 
