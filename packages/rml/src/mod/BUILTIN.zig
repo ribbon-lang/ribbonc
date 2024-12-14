@@ -23,10 +23,45 @@ const coerceBool = Rml.coerceBool;
 
 pub const nil = Nil{};
 
+/// Create a local binding
+pub const local = Rml.Procedure {
+    .native_macro = &struct {
+        pub fn fun(interpreter: ptr(Interpreter), origin: Origin, args: []const Object) Result! Object {
+            Rml.interpreter.evaluation.info("local {}: {any}", .{origin, args});
+
+            if (args.len < 1) try interpreter.abort(origin, error.InvalidArgumentCount, "expected at least 1 argument, found 0", .{});
+
+            const sym = try interpreter.castObj(Rml.Symbol, args[0]);
+            errdefer sym.deinit();
+
+            const body = args[1..];
+
+            const obj =
+                if (body.len == 1) single: {
+                    const bod = body[0];
+                    if (Rml.castObj(Rml.Block, bod)) |b| {
+                        defer b.deinit();
+
+                        break :single try interpreter.runProgram(origin, b.data.array.items());
+                    } else {
+                        break :single try interpreter.eval(bod);
+                    }
+                } else try interpreter.runProgram(origin, body);
+            errdefer obj.deinit();
+
+            try interpreter.evaluation_env.data.bind(sym, obj);
+
+            return (try Obj(Nil).init(getRml(interpreter), origin)).typeEraseLeak();
+        }
+    }.fun,
+};
+
 /// Create a function closure
 pub const fun = Rml.Procedure {
     .native_macro = &struct {
         pub fn fun(interpreter: ptr(Interpreter), origin: Origin, args: []const Object) Result! Object {
+            Rml.interpreter.evaluation.info("fun {}: {any}", .{origin, args});
+
             if (args.len < 1) try interpreter.abort(origin, error.InvalidArgumentCount, "expected at least 1 argument, found 0", .{});
 
             const rml = getRml(interpreter);
