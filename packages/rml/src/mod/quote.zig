@@ -88,7 +88,5 @@ pub const Quote = struct {
 
 
 pub fn runQuasi(interpreter: ptr(Interpreter), body: Object) !Object {
-    if (isAtom(body)) return body;
-
-    MiscUtils.todo(noreturn, interpreter);
+    MiscUtils.todo(noreturn, .{interpreter, body});
 }

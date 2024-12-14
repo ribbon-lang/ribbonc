@@ -69,23 +69,89 @@ pub fn main () !void {
         input.deinit();
     }
 
-    while (parser.data.next() catch |err| {
-        log.err("on parseDocument, {s}", .{@errorName(err)});
-        if (diagnostic) |diag| {
-            log.err("{s} {}: {s}", .{@errorName(err), diag.error_origin, diag.message_mem[0..diag.message_len]});
-        } else {
-            log.err("requested parser diagnostic is null", .{});
+    var lineMem: Rml.array.ArrayUnmanaged = .{};
+    defer lineMem.deinit(rml);
+
+    while (!parser.data.isEof()) {
+        const startPos = parser.data.pos;
+
+        const start = parser.data.peek() catch |err| {
+            if (diagnostic) |diag| {
+                log.err("{s} {}: {s}", .{@errorName(err), diag.error_origin, diag.message_mem[0..diag.message_len]});
+            } else {
+                log.err("requested parser diagnostic is null", .{});
+            }
+            return err;
+        } orelse @panic("not eof, but peek got null");
+        defer start.deinit();
+
+        log.debug("gathering line", .{});
+        const line =
+            line: while (next: {
+                log.debug("getting next sourceExpr", .{});
+                const next = parser.data.next() catch |err| {
+                    if (diagnostic) |diag| {
+                        log.err("{s} {}: {s}", .{@errorName(err), diag.error_origin, diag.message_mem[0..diag.message_len]});
+                    } else {
+                        log.err("requested parser diagnostic is null", .{});
+                    }
+                    return err;
+                };
+                log.debug("next: {?}", .{next});
+                break :next next;
+            }) |sourceExpr| {
+                log.debug("got sourceExpr {}", .{sourceExpr});
+
+                const next: ?Rml.Object = parser.data.peek() catch |err| {
+                    if (diagnostic) |diag| {
+                        log.err("{s} {}: {s}", .{@errorName(err), diag.error_origin, diag.message_mem[0..diag.message_len]});
+                    } else {
+                        log.err("requested parser diagnostic is null", .{});
+                    }
+                    return err;
+                };
+                defer if (next) |x| x.deinit();
+
+                try lineMem.append(rml, sourceExpr);
+                log.debug("added to lineMem", .{});
+
+                var nxt = next orelse {
+                    log.debug("next is null; break", .{});
+                    break :line lineMem.items();
+                };
+
+                log.debug("next: {}", .{nxt});
+
+                const startRange = start.getHeader().origin.range.?;
+                const nxtRange = nxt.getHeader().origin.range.?;
+
+                log.debug("startRange: {}, nxtRange: {}", .{startRange, nxtRange});
+
+                if (nxtRange.start.?.line > startRange.end.?.line) {
+                    if (nxtRange.start.?.column <= startRange.start.?.column) {
+                        log.debug("break!", .{});
+                        break :line lineMem.items();
+                    }
+                }
+
+                log.debug("continue!", .{});
+            } else {
+                @panic("peek not null but next got null?");
+            };
+        defer {
+            log.debug("clearing lineMem", .{});
+            lineMem.clear(rml);
         }
-        return err;
-    }) |expr| {
-        defer expr.deinit();
 
-        log.info("expr: {}", .{expr});
+        const lineOrigin = parser.data.getOrigin(startPos, parser.data.pos);
 
-        if (rml.main_interpreter.data.eval(expr)) |res| {
-            defer res.deinit();
+        log.info("line {}: {any}", .{lineOrigin, line});
 
-            log.info("result: {}", .{res});
+        if (rml.main_interpreter.data.runProgram(lineOrigin, line)) |result| {
+            log.debug("i'm not dead i swear", .{});
+            defer result.deinit();
+
+            log.info("result: {}", .{result});
         } else |err| {
             log.err("on eval, {s}", .{@errorName(err)});
             if (diagnostic) |diag| {

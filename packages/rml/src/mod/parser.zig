@@ -41,7 +41,8 @@ pub const Parser = struct {
     filename: str,
     pos: Pos,
     posOffset: Pos,
-    peekCache: ?Char,
+    peekCache: ?Object,
+    charPeekCache: ?Char,
 
     pub fn onInit(self: ptr(Parser), filename: str, input: Obj(String)) OOM! void {
         parsing.debug("creating Parser{x}", .{@intFromPtr(self)});
@@ -51,6 +52,7 @@ pub const Parser = struct {
         self.pos = Pos { .line = 0, .column = 0, .offset = 0 };
         self.posOffset = Pos { .line = 1, .column = 1, .offset = 0 };
         self.peekCache = null;
+        self.charPeekCache = null;
     }
 
     pub fn onCompare(a: ptr(Parser), other: Object) Ordering {
@@ -71,11 +73,18 @@ pub const Parser = struct {
     }
 
     pub fn onDeinit(self: ptr(Parser)) void {
+        if (self.peekCache) |obj| obj.deinit();
         self.input.deinit();
     }
 
+    pub fn peek(self: ptr(Parser)) Error! ?Object {
+        if (self.peekCache) |cachedObject| {
+            parsing.debug("peek: using cached object", .{});
+            return cachedObject.clone();
+        }
 
-    pub fn next(self: ptr(Parser)) Error! ?Object {
+        parsing.debug("peek: parsing object", .{});
+
         const rml = getRml(self);
 
         var properties = try self.scan() orelse PropertySet{};
@@ -88,7 +97,18 @@ pub const Parser = struct {
         const obj = try self.parseObject() orelse return self.failed();
         try obj.getHeader().properties.copyFrom(rml, &properties);
 
-        return obj;
+        self.peekCache = obj;
+
+        return obj.clone();
+    }
+
+    pub fn next(self: ptr(Parser)) Error! ?Object {
+        const result = try self.peek() orelse return null;
+        defer result.deinit(); // same as deiniting the cached object
+
+        self.peekCache = null;
+
+        return result;
     }
 
 
@@ -736,7 +756,7 @@ pub const Parser = struct {
 
     pub fn reset(self: ptr(Parser), pos: Pos) void {
         self.pos = pos;
-        self.peekCache = null;
+        self.charPeekCache = null;
     }
 
     pub fn failed(self: ptr(Parser)) Error {
@@ -766,20 +786,25 @@ pub const Parser = struct {
             return null;
         }
 
-        if (self.peekCache) |ch| {
+        if (self.charPeekCache) |ch| {
             return ch;
         } else {
             const len = try TextUtils.sequenceLengthByte(self.input.data.text()[self.pos.offset]);
             const slice = self.input.data.text()[self.pos.offset .. self.pos.offset + len];
 
             const ch = try TextUtils.decode(slice);
-            self.peekCache = ch;
+            self.charPeekCache = ch;
 
             return ch;
         }
     }
 
     pub fn nextChar(self: ptr(Parser)) Error! ?Char {
+        if (self.peekCache != null) {
+            parsing.err("Parser.nextChar: peekCache is not null", .{});
+            return error.Unexpected;
+        }
+
         if (try self.peekChar()) |ch| {
             switch (ch) {
                 '\n' => {
@@ -794,7 +819,7 @@ pub const Parser = struct {
                 },
             }
 
-            self.peekCache = null;
+            self.charPeekCache = null;
 
             return ch;
         } else {

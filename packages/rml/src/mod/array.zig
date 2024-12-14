@@ -107,6 +107,14 @@ pub fn TypedArrayUnmanaged (comptime T: type) type {
             return Self{ .native_array = try self.native_array.clone(rml.storage.object) };
         }
 
+        pub fn clear(self: *Self, rml: *Rml) void {
+            for (self.native_array.items) |obj| {
+                obj.deinit();
+            }
+
+            self.native_array.clearAndFree(rml.storage.object);
+        }
+
         /// Length of the array.
         pub fn length(self: *const Self) usize {
             return self.native_array.items.len;

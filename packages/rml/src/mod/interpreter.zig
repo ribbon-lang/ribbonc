@@ -97,106 +97,117 @@ pub const Interpreter = struct {
     }
 
     pub fn eval(self: ptr(Interpreter), expr: Object) Result! Object {
-        return self.evalCheck(expr, null);
+        var offset: usize = 0;
+        return self.evalCheck(expr.getOrigin(), &.{expr}, &offset, null);
     }
 
     pub fn evalAll(self: ptr(Interpreter), exprs: []const Object) Result! Rml.array.ArrayUnmanaged {
-        return self.evalAllCheck(exprs, null);
-    }
-
-    pub fn evalAllCheck(self: ptr(Interpreter), exprs: []const Object, workDone: ?*bool) Result! Rml.array.ArrayUnmanaged {
         const rml = getRml(self);
 
-        var arr: Rml.array.ArrayUnmanaged = .{};
-        errdefer arr.deinit(rml);
+        var results: Rml.array.ArrayUnmanaged = .{};
+        errdefer results.deinit(rml);
 
         for (exprs) |expr| {
-            const result = try self.evalCheck(expr, workDone);
-            try arr.append(rml, result);
+            const value = try self.eval(expr);
+
+            try results.append(rml, value);
         }
 
-        return arr;
+        return results;
     }
 
-    pub fn evalCheck(self: ptr(Interpreter), expr: Object, workDone: ?*bool) Result! Object {
-        const exprTypeId = expr.getTypeId();
+    pub fn evalCheck(self: ptr(Interpreter), origin: Origin, program: []const Object, offset: *usize, workDone: ?*bool) Result! Object {
+        evaluation.debug("evalCheck {}:{any} @ {}", .{origin, program, offset.*});
 
-        if (Rml.equal(exprTypeId, Rml.TypeId.of(Symbol))) {
-            if (workDone) |x| x.* = true;
+        const expr = if (offset.* < program.len) expr: {
+            const out = program[offset.*];
+            offset.* += 1;
+            break :expr out.clone();
+        } else (try Obj(Nil).init(getRml(self), getHeader(self).origin)).typeEraseLeak();
+        defer expr.deinit();
 
-            const symbol = forceObj(Symbol, expr);
-            defer symbol.deinit();
+        const value = try value: {
+            if (Rml.castObj(Symbol, expr)) |symbol| {
+                defer symbol.deinit();
 
-            evaluation.debug("looking up symbol {}", .{symbol});
+                if (workDone) |x| x.* = true;
 
-            return self.lookup(symbol) orelse {
-                try self.abort(expr.getOrigin(), error.UnboundSymbol, "no symbol `{s}` in evaluation environment", .{symbol});
-            };
-        } else if (Rml.equal(exprTypeId, Rml.TypeId.of(Block))) {
-            if (workDone) |x| x.* = true;
+                evaluation.debug("looking up symbol {}", .{symbol});
 
-            const block = forceObj(Block, expr);
-            defer block.deinit();
+                break :value self.lookup(symbol) orelse {
+                    try self.abort(origin, error.UnboundSymbol, "no symbol `{s}` in evaluation environment", .{symbol});
+                };
+            } else if (Rml.castObj(Block, expr)) |block| {
+                defer block.deinit();
 
-            if (block.data.array.length() == 0) {
-                evaluation.debug("empty block", .{});
-                return expr.clone();
+                if (block.data.array.length() == 0) {
+                    evaluation.debug("empty block", .{});
+                    break :value expr.clone();
+                }
+
+                if (workDone) |x| x.* = true;
+
+                switch (block.data.kind) {
+                    .doc, .curly => {
+                        evaluation.debug("running block", .{});
+                        break :value self.runProgram(block.getOrigin(), block.data.items());
+                    },
+                    else => {
+                        const items = block.data.array.items();
+                        evaluation.debug("performing call {any}", .{items});
+
+                        var subOffset: usize = 0;
+                        break :value self.evalCheck(origin, items, &subOffset, workDone);
+                    },
+                }
+            } else if (Rml.castObj(Rml.Quote, expr)) |quote| {
+                defer quote.deinit();
+
+                if (workDone) |x| x.* = true;
+
+                const kind = quote.data.kind;
+                const body = quote.data.body;
+
+                switch (kind) {
+                    .basic => {
+                        evaluation.debug("evaluating basic quote", .{});
+                        break :value body.clone();
+                    },
+                    .quasi => {
+                        evaluation.debug("evaluating quasi quote", .{});
+                        break :value Rml.quote.runQuasi(self, body);
+                    },
+                    .to_quote => {
+                        evaluation.debug("evaluating to_quote quote", .{});
+                        const val = try self.eval(body);
+                        break :value (try Obj(Quote).init(getRml(self), body.getOrigin(), .{.basic, val})).typeEraseLeak();
+                    },
+                    .to_quasi => {
+                        evaluation.debug("evaluating to_quasi quote", .{});
+                        const val = try self.eval(body);
+                        break :value (try Obj(Quote).init(getRml(self), body.getOrigin(), .{.quasi, val})).typeEraseLeak();
+                    },
+                    else => {
+                        try self.abort(expr.getOrigin(), error.TypeError, "unexpected {}", .{kind});
+                    },
+                }
             }
 
-            switch (block.data.kind) {
-                .doc => {
-                    evaluation.debug("running doc", .{});
-                    return self.runProgram(block.getOrigin(), block.data.items());
-                },
-                else => {
-                    const items = block.data.array.items();
-                    evaluation.debug("performing call {any}", .{items});
-                    const function = items[0];
-                    const args = items[1..];
+            evaluation.debug("cannot evaluate further: {}", .{expr});
 
-                    const function_obj = try self.eval(function);
-                    defer function_obj.deinit();
+            break :value expr.clone();
+        };
 
-                    return self.invoke(block.getOrigin(), function_obj, args);
-                },
-            }
-        } else if (Rml.equal(exprTypeId, Rml.TypeId.of(Rml.quote.Quote))) {
-            if (workDone) |x| x.* = true;
+        if (Rml.isType(Rml.Procedure, value)) {
+            defer value.deinit();
 
-            const quote = forceObj(Rml.quote.Quote, expr);
-            defer quote.deinit();
+            const args = program[offset.*..];
+            offset.* = program.len;
 
-            const kind = quote.data.kind;
-            const body = quote.data.body;
-
-            switch (kind) {
-                .basic => {
-                    evaluation.debug("evaluating basic quote", .{});
-                    return body.clone();
-                },
-                .quasi => {
-                    evaluation.debug("evaluating quasi quote", .{});
-                    return Rml.quote.runQuasi(self, body);
-                },
-                .to_quote => {
-                    evaluation.debug("evaluating to_quote quote", .{});
-                    const val = try self.eval(body);
-                    return (try Obj(Quote).init(getRml(self), body.getOrigin(), .{.basic, val})).typeEraseLeak();
-                },
-                .to_quasi => {
-                    evaluation.debug("evaluating to_quasi quote", .{});
-                    const val = try self.eval(body);
-                    return (try Obj(Quote).init(getRml(self), body.getOrigin(), .{.quasi, val})).typeEraseLeak();
-                },
-                else => {
-                    try self.abort(expr.getOrigin(), error.TypeError, "unexpected {}", .{kind});
-                },
-            }
+            return self.invoke(origin, value, args);
+        } else {
+            return value;
         }
-
-        evaluation.debug("cannot evaluate further", .{});
-
-        return expr.clone();
     }
 
     pub fn lookup(self: ptr(Interpreter), symbol: Obj(Symbol)) ?Object {
@@ -204,26 +215,30 @@ pub const Interpreter = struct {
     }
 
     pub fn runProgram(self: ptr(Interpreter), origin: Origin, program: []const Object) Result! Object {
+        evaluation.debug("runProgram {}:{any}", .{origin, program});
+
         const rml = getRml(self);
 
-        var result: Object = (try Obj(Nil).init(rml, origin)).typeEraseLeak();
-        errdefer result.deinit();
+        var last: Object = (try Obj(Rml.Nil).init(rml, origin)).typeEraseLeak();
+        errdefer last.deinit();
 
-        for (program) |srcObj| {
-            const resultObj = try self.eval(srcObj);
+        evaluation.debug("runProgram - begin loop", .{});
 
-            result.deinit();
-            result = resultObj;
+        var offset: usize = 0;
+        while (offset < program.len) {
+            const value = try self.evalCheck(origin, program, &offset, null);
+
+            last.deinit();
+            last = value;
         }
 
-        return result;
+        evaluation.debug("runProgram - end loop: {}", .{last});
+
+        return last;
     }
 
-    pub fn invoke(self: ptr(Interpreter), callOrigin: Origin, function: Object, args: []const Object) Result! Object {
-        const functionTypeId = function.getTypeId();
-
-        if (Rml.equal(functionTypeId, Rml.TypeId.of(Rml.procedure.Procedure))) {
-            const procedure = forceObj(Rml.procedure.Procedure, function);
+    pub fn invoke(self: ptr(Interpreter), callOrigin: Origin, callable: Object, args: []const Object) Result! Object {
+        if (Rml.castObj(Rml.procedure.Procedure, callable)) |procedure| {
             defer procedure.deinit();
 
             switch (procedure.data.*) {
@@ -251,12 +266,14 @@ pub const Interpreter = struct {
                             .table = try tbl.data.unmanaged.clone(getRml(self)),
                         });
 
-                        return self.runProgram(function.getOrigin(), func.body.items());
+                        return self.runProgram(procedure.getOrigin(), func.body.items());
                     } else if (diag) |d| {
-                        try self.abort(callOrigin, error.PatternError, "{}", .{d.formatter(error.PatternError)});
+                        try self.abort(callOrigin, error.PatternError,
+                            "pattern failed to match (`{}` vs `{}`):\n\t{}", .{func.argument_pattern, eArgs, d.formatter(error.PatternError)});
                     } else {
                         evaluation.err("requested pattern diagnostic is null", .{});
-                        try self.abort(callOrigin, error.PatternError, "pattern failed to match (`{}` vs `{}`)", .{func.argument_pattern, eArgs});
+                        try self.abort(callOrigin, error.PatternError,
+                            "pattern failed to match (`{}` vs `{}`)", .{func.argument_pattern, eArgs});
                     }
                 },
                 .native_macro => |func| return func(self, callOrigin, args),
@@ -268,7 +285,7 @@ pub const Interpreter = struct {
                 },
             }
         } else {
-            try self.abort(callOrigin, error.TypeError, "expected a procedure, got {s}: {s}", .{Rml.TypeId.name(function.getTypeId()), function});
+            try self.abort(callOrigin, error.TypeError, "expected a procedure, got {s}: {s}", .{Rml.TypeId.name(callable.getTypeId()), callable});
         }
     }
 };
