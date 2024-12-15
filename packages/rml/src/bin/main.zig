@@ -77,83 +77,22 @@ pub fn main () !void {
         log.debug("Deinitializing input", .{});
         input.deinit();
     }
-
-    var lineMem: Rml.array.ArrayUnmanaged = .{};
-    defer lineMem.deinit(rml);
-
-    while (!parser.data.isEof()) {
-        const startPos = parser.data.buffer_pos;
-
-        const start = parser.data.peek() catch |err| {
-            if (diagnostic) |diag| {
-                log.err("{s} {}: {s}", .{@errorName(err), diag.error_origin, diag.message_mem[0..diag.message_len]});
-            } else {
-                log.err("requested parser diagnostic is null", .{});
-            }
-            return err;
-        } orelse @panic("not eof, but peek got null");
-        defer start.deinit();
-
-        log.debug("gathering line", .{});
-        const line =
-            line: while (next: {
-                log.debug("getting next sourceExpr", .{});
-                const next = parser.data.next() catch |err| {
-                    if (diagnostic) |diag| {
-                        log.err("{s} {}: {s}", .{@errorName(err), diag.error_origin, diag.message_mem[0..diag.message_len]});
-                    } else {
-                        log.err("requested parser diagnostic is null", .{});
-                    }
-                    return err;
-                };
-                log.debug("next: {?}", .{next});
-                break :next next;
-            }) |sourceExpr| {
-                log.debug("got sourceExpr {}", .{sourceExpr});
-
-                try lineMem.append(rml, sourceExpr);
-                log.debug("added to lineMem {}", .{sourceExpr});
-
-                const next: ?Rml.Object = parser.data.peek() catch |err| {
-                    if (diagnostic) |diag| {
-                        log.err("{s} {}: {s}", .{@errorName(err), diag.error_origin, diag.message_mem[0..diag.message_len]});
-                    } else {
-                        log.err("requested parser diagnostic is null", .{});
-                    }
-                    return err;
-                };
-                defer if (next) |x| x.deinit();
-
-                var nxt = next orelse {
-                    log.debug("next is null; break", .{});
-                    break :line lineMem.items();
-                };
-
-                log.debug("next: {}", .{nxt});
-
-                const nxtRange = nxt.getHeader().origin.range.?;
-
-                log.debug("startPos: {}, nxtRange: {}", .{parser.data.offsetPos(startPos), nxtRange});
-
-                if (!Rml.parser.isIndentationDomain(parser.data.offsetPos(startPos), nxtRange)) {
-                    log.debug("not domain", .{});
-                    break :line lineMem.items();
-                } else log.debug("domain", .{});
-
-                log.debug("continue!", .{});
-            } else {
-                @panic("peek not null but next got null?");
-            };
-        defer {
-            log.debug("clearing lineMem", .{});
-            lineMem.clear();
+    while (parser.data.nextBlob() catch |err| {
+        if (diagnostic) |diag| {
+            log.err("{s} {}: {s}", .{@errorName(err), diag.error_origin, diag.message_mem[0..diag.message_len]});
+        } else {
+            log.err("requested interpreter diagnostic is null", .{});
         }
 
-        const lineOrigin = parser.data.getOrigin(startPos, parser.data.buffer_pos);
+        diagnostic = null;
 
-        log.info("line {}: ⧼{}⧽", .{lineOrigin, lineMem});
+        return err;
+    }) |blob| {
+        defer blob.deinit();
 
-        if (rml.main_interpreter.data.runProgram(lineOrigin, line)) |result| {
+        log.debug("blob{}: ⧼{}⧽", .{blob.getHeader().origin, blob});
+
+        if (rml.main_interpreter.data.runProgram(blob.getOrigin(), blob.data.items())) |result| {
             defer result.deinit();
 
             if (!Rml.isType(Rml.Nil, result)) {

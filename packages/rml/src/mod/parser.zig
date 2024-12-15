@@ -142,15 +142,16 @@ pub const Parser = struct {
     }
 
     pub fn getOrigin(self: ptr(Parser), start: ?Pos, end: ?Pos) Origin {
-        const a = if (start) |x| self.offsetPos(x)
-        else null;
+        return self.getOffsetOrigin(
+            if (start) |x| self.offsetPos(x) else null,
+            if (end) |x| self.offsetPos(x) else null,
+        );
+    }
 
-        const b = if (end) |x| self.offsetPos(x)
-        else null;
-
+    pub fn getOffsetOrigin(self: ptr(Parser), start: ?Pos, end: ?Pos) Origin {
         return Origin {
             .filename = self.filename,
-            .range = Range { .start = a, .end = b },
+            .range = Range { .start = start, .end = end },
         };
     }
 
@@ -263,6 +264,43 @@ pub const Parser = struct {
         return result;
     }
 
+    pub fn nextBlob(self: ptr(Parser)) Error! ?Obj(Rml.Array) {
+        return self.nextBlobWith(&self.peek_cache);
+    }
+
+    pub fn nextBlobWith(self: ptr(Parser), peekCache: *?Object) Error! ?Obj(Rml.Array) {
+        var blob: Rml.array.ArrayUnmanaged = .{};
+        errdefer blob.deinit(getRml(self));
+
+        const first = try self.peekWith(peekCache) orelse {
+            return null;
+        };
+        defer first.deinit();
+
+        blob: while (next: {
+            const nxt = try self.nextWith(peekCache);
+            break :next nxt;
+        }) |sourceExpr| {
+            try blob.append(getRml(self), sourceExpr);
+
+            const nxt: ?Rml.Object = try self.peekWith(peekCache);
+            defer if (nxt) |x| x.deinit();
+
+            var n = nxt orelse break :blob;
+
+            if (!isIndentationDomain(first.getOrigin().range.?.start.?, n.getOrigin().range.?.start.?)) {
+                break :blob;
+            }
+        }
+
+        const last = blob.last().?;
+        defer last.deinit();
+
+        const blobOrigin = self.getOffsetOrigin(first.getOrigin().range.?.start.?, last.getOrigin().range.?.end.?);
+
+        return try Rml.Obj(Rml.Array).wrap(getRml(self), blobOrigin, .{ .unmanaged = blob });
+    }
+
     fn parseBlockTail(self: ptr(Parser), start: Pos, blockKind: Rml.block.BlockKind) Error! Obj(Rml.Block) {
         const rml = getRml(self);
 
@@ -282,10 +320,6 @@ pub const Parser = struct {
         var lineMem: Rml.array.ArrayUnmanaged = .{};
         defer lineMem.deinit(rml);
 
-
-
-        parsing.debug("parseBlockTail start `{s}`", .{self.input.data.text()[self.buffer_pos.offset..]});
-
         while (true) {
             if (self.isEof() and blockKind != .doc) {
                 return error.UnexpectedEOF;
@@ -295,72 +329,24 @@ pub const Parser = struct {
                 tailProperties = try properties.clone(rml);
                 break;
             }
-            const startPos = self.buffer_pos;
 
-            const startObj = try self.peekWith(&peekCache) orelse
-                try self.failed(self.getOrigin(self.buffer_pos, null),
-                    "expected `{s}` or object", .{blockKind.toCloseStr()});
-            defer startObj.deinit();
-
-            parsing.debug("gathering line", .{});
             {
-                const line =
-                    line: while (next: {
-                        parsing.debug("getting next sourceExpr", .{});
-                        const nxt = try self.nextWith(&peekCache);
-                        parsing.debug("next: {?}", .{nxt});
-                        break :next nxt;
-                    }) |sourceExpr| {
-                        parsing.debug("got sourceExpr {}", .{sourceExpr});
+                const blob = try self.nextBlobWith(&peekCache) orelse {
+                    try self.failed(self.getOrigin(self.buffer_pos, null), "expected object", .{});
+                };
+                defer blob.deinit();
 
-                        const nextExpr: ?Rml.Object = try self.peekWith(&peekCache);
-                        defer if (nextExpr) |x| x.deinit();
-
-                        try lineMem.append(rml, sourceExpr);
-                        parsing.debug("added to lineMem {}", .{sourceExpr});
-
-                        var nxt = nextExpr orelse {
-                            parsing.debug("next is null; break", .{});
-                            break :line lineMem.items();
-                        };
-
-                        parsing.debug("next: {}", .{nxt});
-
-                        const nxtRange = nxt.getHeader().origin.range.?;
-
-                        parsing.debug("startPos: {}, nxtRange: {}", .{self.offsetPos(startPos), nxtRange});
-
-                        if (!isIndentationDomain(self.offsetPos(startPos), nxtRange)) {
-                            parsing.debug("not domain", .{});
-                            break :line lineMem.items();
-                        } else parsing.debug("domain", .{});
-
-                        parsing.debug("continue!", .{});
-                    } else {
-                        @panic("peek not null but next got null?");
-                    };
-                defer {
-                    parsing.debug("clearing lineMem", .{});
-                    lineMem.clear();
-                }
-
-                const lineOrigin = self.getOrigin(startPos, self.buffer_pos);
-
-                parsing.debug("line {}: {any}", .{lineOrigin, line});
-
-                if (line.len > 1) {
-                    const obj: Obj(Rml.Block) = try .init(rml, lineOrigin, .{.doc});
-                    defer parsing.debug("obj refcount: {}", .{obj.getHeader().ref_count});
+                if (blob.data.length() > 1) {
+                    const obj: Obj(Rml.Block) = try .init(rml, blob.getOrigin(), .{.doc});
                     defer obj.deinit();
 
-                    for (line) |x| try obj.data.append(x.clone());
+                    for (blob.data.items()) |x| try obj.data.append(x.clone());
 
                     try obj.getHeader().properties.copyFrom(rml, &properties);
 
                     try array.append(rml, obj.typeErase());
                 } else {
-                    defer parsing.debug("line[0] refcount: {}", .{line[0].getHeader().ref_count});
-                    try array.append(rml, line[0].clone());
+                    try array.append(rml, blob.data.items()[0].clone());
                 }
             }
 
@@ -1005,10 +991,13 @@ pub const Parser = struct {
 };
 
 
-pub fn isIndentationDomain(start: Pos, range: Range) bool {
-    return ( range.start.?.line == start.line
-        and range.start.?.column >= start.column
-    ) or ( range.start.?.line > start.line
-        and range.start.?.indentation > start.indentation
+pub fn isIndentationDomain(start: Pos, pos: Pos) bool {
+    log.debug("isIndentationDomain? {} {}", .{ start, pos });
+    const value = ( pos.line == start.line
+        and pos.column >= start.column
+    ) or ( pos.line > start.line
+        and pos.indentation > start.indentation
     );
+    log.debug("isIndentationDomain: {}", .{ value });
+    return value;
 }

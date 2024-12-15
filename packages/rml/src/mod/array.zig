@@ -127,6 +127,12 @@ pub fn TypedArrayUnmanaged (comptime T: type) type {
             return self.native_array.items;
         }
 
+        /// Get the last element of the array.
+        pub fn last(self: *const Self) ?Obj(T) {
+            return if (self.native_array.items.len > 0) self.native_array.items[self.native_array.items.len - 1].clone()
+            else null;
+        }
+
         /// Get an element of the array.
         pub fn get(self: *const Self, index: usize) ?Obj(T) {
             return if (index < self.native_array.items.len) self.native_array.items[index].clone()
