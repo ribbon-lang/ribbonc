@@ -766,8 +766,11 @@ pub const Parser = struct {
     }
 
     pub fn expectSlice(self: ptr(Parser), slice: []const u8) Error! bool {
+        const start = self.buffer_pos;
+
         for (slice) |ch| {
             if (try self.peekChar() != ch) {
+                self.reset(start);
                 return false;
             }
 

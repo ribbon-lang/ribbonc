@@ -280,7 +280,7 @@ pub fn runPattern(
                     "expected `{}`, got `{}`", .{patt, input});
             },
             .quasi => {
-                const w = try Rml.quote.runQuasi(interpreter, quote.data.body);
+                const w = try Rml.quote.runQuasi(interpreter, quote.data.body, null);
                 defer w.deinit();
 
                 if (w.onCompare(input) != .Equal) return patternAbort(diag, input.getOrigin(),
@@ -303,10 +303,7 @@ pub fn runPattern(
                 const q = try Obj(Rml.Quote).wrap(getRml(interpreter), quote.getOrigin(), .{ .kind = .quasi, .body = v});
                 defer q.deinit();
 
-                const w = try Rml.quote.runQuasi(interpreter, q.typeEraseLeak());
-                defer w.deinit();
-
-                if (w.onCompare(input) != .Equal) return patternAbort(diag, input.getOrigin(),
+                if (q.onCompare(input) != .Equal) return patternAbort(diag, input.getOrigin(),
                     "expected `{}`, got `{}`", .{q, input});
             },
             .unquote, .unquote_splice => try interpreter.abort(quote.getOrigin(), error.UnexpectedInput,

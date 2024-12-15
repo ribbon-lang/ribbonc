@@ -126,7 +126,7 @@ pub const Interpreter = struct {
         } else (try Obj(Nil).init(getRml(self), getHeader(self).origin)).typeEraseLeak();
         defer expr.deinit();
 
-        const value = try value: {
+        const value = value: {
             if (Rml.castObj(Symbol, expr)) |symbol| {
                 defer symbol.deinit();
 
@@ -148,38 +148,13 @@ pub const Interpreter = struct {
                 if (workDone) |x| x.* = true;
 
                 evaluation.debug("running block", .{});
-                break :value self.runProgram(block.getOrigin(), block.data.items());
+                break :value try self.runProgram(block.getOrigin(), block.data.items());
             } else if (Rml.castObj(Rml.Quote, expr)) |quote| {
                 defer quote.deinit();
 
                 if (workDone) |x| x.* = true;
 
-                const kind = quote.data.kind;
-                const body = quote.data.body;
-
-                switch (kind) {
-                    .basic => {
-                        evaluation.debug("evaluating basic quote", .{});
-                        break :value body.clone();
-                    },
-                    .quasi => {
-                        evaluation.debug("evaluating quasi quote", .{});
-                        break :value Rml.quote.runQuasi(self, body);
-                    },
-                    .to_quote => {
-                        evaluation.debug("evaluating to_quote quote", .{});
-                        const val = try self.eval(body);
-                        break :value (try Obj(Quote).init(getRml(self), body.getOrigin(), .{.basic, val})).typeEraseLeak();
-                    },
-                    .to_quasi => {
-                        evaluation.debug("evaluating to_quasi quote", .{});
-                        const val = try self.eval(body);
-                        break :value (try Obj(Quote).init(getRml(self), body.getOrigin(), .{.quasi, val})).typeEraseLeak();
-                    },
-                    else => {
-                        try self.abort(expr.getOrigin(), error.TypeError, "unexpected {}", .{kind});
-                    },
-                }
+                break :value try quote.data.run(self);
             }
 
             evaluation.debug("cannot evaluate further: {}", .{expr});
