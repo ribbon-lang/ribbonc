@@ -177,7 +177,7 @@ pub const Parser = struct {
         orelse (if (try self.parseFloat()) |x| x.typeEraseLeak() else null)
         orelse (if (try self.parseChar()) |x| x.typeEraseLeak() else null)
         orelse (if (try self.parseString()) |x| x.typeEraseLeak() else null)
-        orelse (if (try self.parseSymbol()) |x| x.typeEraseLeak() else null);
+        orelse try self.parseSymbolic();
 
         parsing.debug("parseAtom result: {?}", .{result});
 
@@ -684,6 +684,31 @@ pub const Parser = struct {
         return error.UnexpectedEOF;
     }
 
+    pub fn parseSymbolic(self: ptr(Parser)) Error! ?Object {
+        const sym = try self.parseSymbol() orelse return null;
+        defer sym.deinit();
+
+        const BUILTIN_SYMS = .{
+            .@"nil" = Rml.Nil{},
+            .@"nan" = std.math.nan(Rml.Float),
+            .@"inf" = std.math.inf(Rml.Float),
+            .@"+inf" = std.math.inf(Rml.Float),
+            .@"-inf" = -std.math.inf(Rml.Float),
+            .@"true" = true,
+            .@"false" = false,
+        };
+
+        inline for (comptime std.meta.fieldNames(@TypeOf(BUILTIN_SYMS))) |builtinSym| {
+            if (std.mem.eql(u8, builtinSym, sym.data.str)) {
+                const obj = try Rml.bindgen.toObjectConst(getRml(self), sym.getOrigin(), @field(BUILTIN_SYMS, builtinSym));
+                defer obj.deinit();
+
+                return obj.typeErase();
+            }
+        }
+
+        return sym.typeErase();
+    }
 
     pub fn parseSymbol(self: ptr(Parser)) Error! ?Obj(Symbol) {
         const rml = getRml(self);

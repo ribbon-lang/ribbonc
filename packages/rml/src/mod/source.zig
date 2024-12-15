@@ -98,7 +98,7 @@ pub const Pos = struct {
     }
 
     pub fn format(self: Pos, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
-        try writer.print("{d}:{d}({d})", .{ self.line, self.column, self.indentation });
+        try writer.print("{d}:{d}", .{ self.line, self.column});
     }
 
     pub fn hashWith(self: Pos, hasher: anytype) void {

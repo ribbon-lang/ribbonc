@@ -71,6 +71,24 @@ pub const Pattern = union(enum) {
     // (| patt patt)        ;alternation ;outer block is not-a-block
     alternation: Obj(Array),
 
+
+    pub fn onFormat (self: ptr(Pattern), writer: Obj(Rml.Writer)) Error! void {
+        switch (self.*) {
+            .wildcard => try writer.data.writeAll("_"),
+            .symbol => try writer.data.print("{}", .{self.symbol}),
+            .block => try writer.data.print("{}", .{self.block}),
+            .value_literal => try writer.data.print("{}", .{self.value_literal}),
+            .procedure => try writer.data.print("{}", .{self.procedure}),
+            .quote => try writer.data.print("{}", .{self.quote}),
+            .alias => try writer.data.print("{{as {} {}}}", .{self.alias.sym, self.alias.sub}),
+            .sequence => try writer.data.print("{s}", .{self.sequence}),
+            .optional => try writer.data.print("{{? {s}}}", .{self.optional}),
+            .zero_or_more => try writer.data.print("{{* {s}}}", .{self.zero_or_more}),
+            .one_or_more => try writer.data.print("{{+ {s}}}", .{self.one_or_more}),
+            .alternation => try writer.data.print("{{| {s}}}", .{self.alternation}),
+        }
+    }
+
     pub fn onDeinit (self: *Pattern) void {
         switch (self.*) {
             .wildcard => {},
@@ -90,8 +108,10 @@ pub const Pattern = union(enum) {
 
     pub fn run(self: ptr(Pattern), interpreter: ptr(Rml.Interpreter), diag: ?*?Rml.Diagnostic, input: Object) Rml.Result! ?Obj(Table) {
         var offset: usize = 0;
+
         const obj = getObj(self);
         defer obj.deinit();
+
         return runPattern(interpreter, diag, input.getOrigin(), obj, input, &.{}, &offset);
     }
 
@@ -192,6 +212,7 @@ pub fn runPattern(
     offset: *usize,
 ) Rml.Result! ?Obj(Table) {
     const env: Obj(Table) = try .init(getRml(interpreter), pattern.getOrigin());
+    defer env.deinit();
 
     switch (pattern.data.*) {
         .wildcard => {},
@@ -244,7 +265,7 @@ pub fn runPattern(
         },
 
         .procedure => |procedure| {
-            const result = try interpreter.invoke(input.getOrigin(), procedure, &.{input});
+            const result = try interpreter.invoke(input.getOrigin(), pattern.typeEraseLeak(), procedure, &.{input});
             defer result.deinit();
 
             if (!coerceBool(result))
@@ -260,6 +281,8 @@ pub fn runPattern(
             },
             .quasi => {
                 const w = try Rml.quote.runQuasi(interpreter, quote.data.body);
+                defer w.deinit();
+
                 if (w.onCompare(input) != .Equal) return patternAbort(diag, input.getOrigin(),
                     "expected `{}`, got `{}`", .{w, input});
             },
@@ -441,7 +464,7 @@ pub fn runPattern(
         }
     }
 
-    return env;
+    return env.clone();
 }
 
 fn runSequence(
@@ -453,7 +476,7 @@ fn runSequence(
     offset: *usize,
 ) Rml.Result! ?Obj(Table) {
     const env: Obj(Table) = try .init(getRml(interpreter), origin);
-    errdefer env.deinit();
+    defer env.deinit();
 
     for (patterns, 0..) |patternObj, p| {
         _ = p;
@@ -480,7 +503,7 @@ fn runSequence(
 
     if (offset.* < objects.len) return patternAbort(diag, origin, "unexpected input `{}`", .{objects[offset.*]});
 
-    return env;
+    return env.clone();
 }
 
 fn patternAbort(diagnostic: ?*?Rml.Diagnostic, origin: Rml.Origin, comptime fmt: []const u8, args: anytype) ?Obj(Table) {
@@ -595,24 +618,6 @@ const BUILTIN_SYMBOLS = struct {
             if (std.mem.eql(u8, decl.name, text)) return @field(BUILTIN_SYMBOLS, decl.name);
         }
         return null;
-    }
-
-    pub fn nil(_: ?*?Rml.Diagnostic, input: Object, _: []const Object, _: *usize) (OOM || Rml.SyntaxError)! Obj(Pattern) {
-        return Obj(Pattern).wrap(input.getRml(), input.getOrigin(), .{
-            .value_literal = (try Obj(Rml.Nil).init(input.getRml(), input.getOrigin())).typeEraseLeak()
-        });
-    }
-
-    pub fn @"true"(_: ?*?Rml.Diagnostic, input: Object, _: []const Object, _: *usize) (OOM || Rml.SyntaxError)! Obj(Pattern) {
-        return Obj(Pattern).wrap(input.getRml(), input.getOrigin(), .{
-            .value_literal = (try Obj(Rml.Bool).wrap(input.getRml(), input.getOrigin(), true)).typeEraseLeak()
-        });
-    }
-
-    pub fn @"false"(_: ?*?Rml.Diagnostic, input: Object, _: []const Object, _: *usize) (OOM || Rml.SyntaxError)! Obj(Pattern) {
-        return Obj(Pattern).wrap(input.getRml(), input.getOrigin(), .{
-            .value_literal = (try Obj(Rml.Bool).wrap(input.getRml(), input.getOrigin(), false)).typeEraseLeak()
-        });
     }
 
     pub fn @"_"(_: ?*?Rml.Diagnostic, input: Object, _: []const Object, _: *usize) (OOM || Rml.SyntaxError)! Obj(Pattern) {

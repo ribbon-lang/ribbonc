@@ -147,19 +147,8 @@ pub const Interpreter = struct {
 
                 if (workDone) |x| x.* = true;
 
-                switch (block.data.kind) {
-                    .doc, .curly => {
-                        evaluation.debug("running block", .{});
-                        break :value self.runProgram(block.getOrigin(), block.data.items());
-                    },
-                    else => {
-                        const items = block.data.array.items();
-                        evaluation.debug("performing call {any}", .{items});
-
-                        var subOffset: usize = 0;
-                        break :value self.evalCheck(origin, items, &subOffset, workDone);
-                    },
-                }
+                evaluation.debug("running block", .{});
+                break :value self.runProgram(block.getOrigin(), block.data.items());
             } else if (Rml.castObj(Rml.Quote, expr)) |quote| {
                 defer quote.deinit();
 
@@ -204,7 +193,7 @@ pub const Interpreter = struct {
             const args = program[offset.*..];
             offset.* = program.len;
 
-            return self.invoke(origin, value, args);
+            return self.invoke(origin, expr, value, args);
         } else {
             return value;
         }
@@ -237,16 +226,13 @@ pub const Interpreter = struct {
         return last;
     }
 
-    pub fn invoke(self: ptr(Interpreter), callOrigin: Origin, callable: Object, args: []const Object) Result! Object {
+    pub fn invoke(self: ptr(Interpreter), callOrigin: Origin, blame: Object, callable: Object, args: []const Object) Result! Object {
         if (Rml.castObj(Rml.procedure.Procedure, callable)) |procedure| {
             defer procedure.deinit();
 
             switch (procedure.data.*) {
                 .macro => { unreachable; },
                 .function => |func| {
-                    Rml.log.debug("running function {}", .{getRml(self).storage.object_count});
-                    defer Rml.log.debug("done running function {}", .{getRml(self).storage.object_count});
-
                     var eArgs = try Obj(Rml.Block).wrap(getRml(self), callOrigin, .{ .kind = .doc, .array = try self.evalAll(args) });
                     defer eArgs.deinit();
 
@@ -269,11 +255,11 @@ pub const Interpreter = struct {
                         return self.runProgram(procedure.getOrigin(), func.body.items());
                     } else if (diag) |d| {
                         try self.abort(callOrigin, error.PatternError,
-                            "pattern failed to match (`{}` vs `{}`):\n\t{}", .{func.argument_pattern, eArgs, d.formatter(error.PatternError)});
+                            "argument pattern from {} failed to match; {} vs {}:\n\t{}", .{blame, func.argument_pattern, eArgs, d.formatter(error.PatternError)});
                     } else {
                         evaluation.err("requested pattern diagnostic is null", .{});
                         try self.abort(callOrigin, error.PatternError,
-                            "pattern failed to match (`{}` vs `{}`)", .{func.argument_pattern, eArgs});
+                            "argument pattern from {} failed to match; {} vs {}", .{blame, func.argument_pattern, eArgs});
                     }
                 },
                 .native_macro => |func| return func(self, callOrigin, args),

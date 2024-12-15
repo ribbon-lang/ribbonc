@@ -53,6 +53,15 @@ pub fn main () !void {
     log.debug("global_env: {}", .{rml.global_env});
     log.debug("evaluation_env: {}", .{rml.main_interpreter.data.evaluation_env});
 
+    try rml.main_interpreter.data.evaluation_env.data.bind(
+        try Rml.Obj(Rml.Symbol).init(rml, rml.storage.origin, .{"print-int"}),
+        (try Rml.bindgen.toObjectConst(rml, rml.storage.origin, &struct{
+            pub fn func(int: Rml.Int) void {
+                log.info("print-int: {}", .{int});
+            }
+        }.func)).typeEraseLeak(),
+    );
+
 
     const srcText: []const u8 = try std.fs.cwd().readFileAlloc(rml.storage.object, "test.bb", std.math.maxInt(u16));
     defer rml.storage.object.free(srcText);
@@ -142,7 +151,7 @@ pub fn main () !void {
 
         const lineOrigin = parser.data.getOrigin(startPos, parser.data.buffer_pos);
 
-        log.debug("line {}: {any}", .{lineOrigin, line});
+        log.info("line {}: ⧼{}⧽", .{lineOrigin, lineMem});
 
         if (rml.main_interpreter.data.runProgram(lineOrigin, line)) |result| {
             defer result.deinit();

@@ -21,7 +21,6 @@ const isType = Rml.isType;
 const coerceBool = Rml.coerceBool;
 
 
-pub const nil = Nil{};
 
 /// Create a local binding
 pub const local = Rml.Procedure {
@@ -265,7 +264,7 @@ pub fn @"*"(interpreter: ptr(Interpreter), origin: Origin, args: []const Object)
 }
 
 
-/// Perform remainder division on any number of arguments of type `int | float | char`;
+/// remainder division on any number of arguments of type `int | float | char`;
 /// it is an error to provide less than two arguments
 pub fn @"rem"(interpreter: ptr(Interpreter), origin: Origin, args: []const Object) Result! Object {
     if (args.len < 2) try interpreter.abort(origin, error.InvalidArgumentCount, "expected at least 2 arguments, found {}", .{args.len});
@@ -281,7 +280,7 @@ pub fn @"rem"(interpreter: ptr(Interpreter), origin: Origin, args: []const Objec
 }
 
 
-/// Perform exponentiation on any number of arguments of type `int | float | char`;
+/// exponentiation on any number of arguments of type `int | float | char`;
 /// it is an error to provide less than two arguments
 pub fn pow(interpreter: ptr(Interpreter), origin: Origin, args: []const Object) Result! Object {
     if (args.len < 2) try interpreter.abort(origin, error.InvalidArgumentCount, "expected at least 2 arguments, found {}", .{args.len});
@@ -297,8 +296,8 @@ pub fn pow(interpreter: ptr(Interpreter), origin: Origin, args: []const Object) 
 }
 
 
-/// Perform bitwise NOT on an argument of type `int | char`
-pub fn bnot(interpreter: ptr(Interpreter), origin: Origin, args: []const Object) Result! Object {
+/// bitwise NOT on an argument of type `int | char`
+pub fn @"bit-not"(interpreter: ptr(Interpreter), origin: Origin, args: []const Object) Result! Object {
     if (args.len != 1) try interpreter.abort(origin, error.InvalidArgumentCount, "expected 1 argument, found {}", .{args.len});
 
     if (castObj(Int, args[0])) |i| {
@@ -311,9 +310,9 @@ pub fn bnot(interpreter: ptr(Interpreter), origin: Origin, args: []const Object)
 }
 
 
-/// Perform bitwise AND on any number of arguments of type `int | char`;
+/// bitwise AND on any number of arguments of type `int | char`;
 /// it is an error to provide less than two arguments
-pub fn band(interpreter: ptr(Interpreter), origin: Origin, args: []const Object) Result! Object {
+pub fn @"bit-and"(interpreter: ptr(Interpreter), origin: Origin, args: []const Object) Result! Object {
     if (args.len < 2) try interpreter.abort(origin, error.InvalidArgumentCount, "expected at least 2 arguments, found {}", .{args.len});
 
     var sum: Object = args[0].clone();
@@ -325,9 +324,9 @@ pub fn band(interpreter: ptr(Interpreter), origin: Origin, args: []const Object)
     });
 }
 
-/// Perform bitwise OR on any number of arguments of type `int | char`;
+/// bitwise OR on any number of arguments of type `int | char`;
 /// it is an error to provide less than two arguments
-pub fn bor(interpreter: ptr(Interpreter), origin: Origin, args: []const Object) Result! Object {
+pub fn @"bit-or"(interpreter: ptr(Interpreter), origin: Origin, args: []const Object) Result! Object {
     if (args.len < 2) try interpreter.abort(origin, error.InvalidArgumentCount, "expected at least 2 arguments, found {}", .{args.len});
 
     var sum: Object = args[0].clone();
@@ -339,9 +338,9 @@ pub fn bor(interpreter: ptr(Interpreter), origin: Origin, args: []const Object) 
     });
 }
 
-/// Perform bitwise XOR on any number of arguments of type `int | char`;
+/// bitwise XOR on any number of arguments of type `int | char`;
 /// it is an error to provide less than two arguments
-pub fn bxor(interpreter: ptr(Interpreter), origin: Origin, args: []const Object) Result! Object {
+pub fn @"bit-xor"(interpreter: ptr(Interpreter), origin: Origin, args: []const Object) Result! Object {
     if (args.len < 2) try interpreter.abort(origin, error.InvalidArgumentCount, "expected at least 2 arguments, found {}", .{args.len});
 
     var sum: Object = args[0].clone();
@@ -353,9 +352,23 @@ pub fn bxor(interpreter: ptr(Interpreter), origin: Origin, args: []const Object)
     });
 }
 
-/// logical not on an argument of type `bool`
-pub fn not(b: Bool) Bool {
-    return !b;
+
+/// coerce an argument to type `bool`
+pub fn @"truthy?"(interpreter: ptr(Interpreter), origin: Origin, args: []const Object) Result! Object {
+    if (args.len != 1) {
+        try interpreter.abort(origin, error.InvalidArgumentCount, "expected 1 argument, found {}", .{args.len});
+    }
+
+    return (try Obj(Rml.Bool).wrap(getRml(interpreter), origin, Rml.coerceBool(args[0]))).typeEraseLeak();
+}
+
+/// logical NOT on an argument coerced to type `bool`
+pub fn not(interpreter: ptr(Interpreter), origin: Origin, args: []const Object) Result! Object {
+    if (args.len != 1) {
+        try interpreter.abort(origin, error.InvalidArgumentCount, "expected 1 argument, found {}", .{args.len});
+    }
+
+    return (try Obj(Rml.Bool).wrap(getRml(interpreter), origin, !Rml.coerceBool(args[0]))).typeEraseLeak();
 }
 
 /// Short-circuiting logical AND on any number of arguments of any type;

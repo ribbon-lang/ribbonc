@@ -401,22 +401,32 @@ pub fn fromObject(comptime T: type, _: *Rml, value: Object) Error! T {
                 defer obj.deinit();
 
                 return obj.data;
+            } else {
+                const obj = Rml.castObj(T, value) orelse return error.TypeError;
+                defer obj.deinit();
+                return obj.data.*;
             }
         },
         else => {
-            if (comptime std.mem.startsWith(u8, @typeName(T), "object.Obj")) {
+            if (comptime std.mem.startsWith(u8, @typeName(T), "object.Obj(")) {
                 const O = @typeInfo(tInfo.@"struct".fields[0].type).pointer.child;
 
                 if (!Rml.equal(Rml.TypeId.of(O), value.getTypeId())) {
                     return error.TypeError;
                 }
 
-                return forceObj(O, value);
+                const obj = forceObj(O, value);
+                defer obj.deinit();
+
+                return obj;
+            } else {
+                const obj = forceObj(T, value);
+                defer obj.deinit();
+
+                return obj.data.*;
             }
         },
     }
-
-    unreachable;
 }
 
 pub fn ObjectRepr(comptime T: type) type {
@@ -460,6 +470,7 @@ pub fn toObject(rml: *Rml, origin: Origin, value: anytype) OOM! ObjectRepr(@Type
     const T = @TypeOf(value);
     const tInfo = @typeInfo(T);
     return switch (T) {
+        Nil => Obj(Nil).wrap(rml, origin, value),
         Int => Obj(Int).wrap(rml, origin, value),
         Float => Obj(Float).wrap(rml, origin, value),
         Char => Obj(Char).wrap(rml, origin, value),
@@ -510,6 +521,7 @@ pub fn toObjectConst(rml: *Rml, origin: Origin, comptime value: anytype) OOM! Ob
     const T = @TypeOf(value);
     const tInfo = @typeInfo(T);
     return switch (T) {
+        Nil => Obj(Nil).wrap(rml, origin, value),
         Int => Obj(Int).wrap(rml, origin, value),
         Float => Obj(Float).wrap(rml, origin, value),
         Char => Obj(Char).wrap(rml, origin, value),
