@@ -346,7 +346,9 @@ pub const Parser = struct {
 
                     try array.append(rml, obj.typeErase());
                 } else {
-                    try array.append(rml, blob.data.items()[0].clone());
+                    const body = blob.data.items()[0].clone();
+                    body.getHeader().origin = blob.getOrigin();
+                    try array.append(rml, body);
                 }
             }
 
@@ -377,6 +379,7 @@ pub const Parser = struct {
                         array.deinit(rml);
 
                         x.data.kind = blockKind;
+                        x.getHeader().origin = origin;
                         break :block x.clone();
                     }
                 }
@@ -388,8 +391,6 @@ pub const Parser = struct {
             });
         };
         errdefer block.deinit();
-
-        parsing.debug("block refcount: {}", .{block.getHeader().ref_count});
 
         if (tailProperties.length() > 0) {
             const sym: Obj(Symbol) = try .init(rml, origin, .{"tail"});
