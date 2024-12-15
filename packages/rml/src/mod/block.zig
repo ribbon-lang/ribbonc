@@ -44,6 +44,24 @@ pub const BlockKind = enum {
             .paren => ")",
         };
     }
+
+    pub fn toOpenStrFmt(self: BlockKind) []const u8 {
+        return switch (self) {
+            .doc => "⧼",
+            .curly => "{",
+            .square => "[",
+            .paren => "(",
+        };
+    }
+
+    pub fn toCloseStrFmt(self: BlockKind) []const u8 {
+        return switch (self) {
+            .doc => "⧽",
+            .curly => "}",
+            .square => "]",
+            .paren => ")",
+        };
+    }
 };
 
 pub const Block = struct {
@@ -76,9 +94,9 @@ pub const Block = struct {
     }
 
     pub fn onFormat(self: ptr(Block), writer: Obj(Writer)) Error! void {
-        try writer.data.writeAll(self.kind.toOpenStr());
+        try writer.data.writeAll(self.kind.toOpenStrFmt());
         try writer.data.print("{}", .{self.array});
-        try writer.data.writeAll(self.kind.toCloseStr());
+        try writer.data.writeAll(self.kind.toCloseStrFmt());
     }
 
     /// Length of the block.

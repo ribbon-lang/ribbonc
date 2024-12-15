@@ -43,7 +43,7 @@ pub fn main () !void {
         rml.deinit() catch |err| log.err("on Rml.deinit, {s}", .{@errorName(err)});
     }
 
-    log.info("test start", .{});
+    log.debug("test start", .{});
 
 
     Rml.object.refcount.debug("test start object_count: {}", .{rml.storage.object_count});
@@ -103,7 +103,7 @@ pub fn main () !void {
                 log.debug("got sourceExpr {}", .{sourceExpr});
 
                 try lineMem.append(rml, sourceExpr);
-                log.info("added to lineMem {}", .{sourceExpr});
+                log.debug("added to lineMem {}", .{sourceExpr});
 
                 const next: ?Rml.Object = parser.data.peek() catch |err| {
                     if (diagnostic) |diag| {
@@ -120,16 +120,16 @@ pub fn main () !void {
                     break :line lineMem.items();
                 };
 
-                log.info("next: {}", .{nxt});
+                log.debug("next: {}", .{nxt});
 
                 const nxtRange = nxt.getHeader().origin.range.?;
 
-                log.info("startPos: {}, nxtRange: {}", .{parser.data.offsetPos(startPos), nxtRange});
+                log.debug("startPos: {}, nxtRange: {}", .{parser.data.offsetPos(startPos), nxtRange});
 
                 if (!Rml.parser.isIndentationDomain(parser.data.offsetPos(startPos), nxtRange)) {
-                    log.info("not domain", .{});
+                    log.debug("not domain", .{});
                     break :line lineMem.items();
-                } else log.info("domain", .{});
+                } else log.debug("domain", .{});
 
                 log.debug("continue!", .{});
             } else {
@@ -137,18 +137,19 @@ pub fn main () !void {
             };
         defer {
             log.debug("clearing lineMem", .{});
-            lineMem.clear(rml);
+            lineMem.clear();
         }
 
         const lineOrigin = parser.data.getOrigin(startPos, parser.data.buffer_pos);
 
-        log.info("line {}: {any}", .{lineOrigin, line});
+        log.debug("line {}: {any}", .{lineOrigin, line});
 
         if (rml.main_interpreter.data.runProgram(lineOrigin, line)) |result| {
-            log.debug("i'm not dead i swear", .{});
             defer result.deinit();
 
-            log.info("result: {}", .{result});
+            if (!Rml.isType(Rml.Nil, result)) {
+                log.info("result: {}", .{result});
+            }
         } else |err| {
             log.err("on eval, {s}", .{@errorName(err)});
             if (diagnostic) |diag| {

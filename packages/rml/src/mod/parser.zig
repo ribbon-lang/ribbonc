@@ -284,7 +284,7 @@ pub const Parser = struct {
 
 
 
-        parsing.info("parseBlockTail start `{s}`", .{self.input.data.text()[self.buffer_pos.offset..]});
+        parsing.debug("parseBlockTail start `{s}`", .{self.input.data.text()[self.buffer_pos.offset..]});
 
         while (true) {
             if (self.isEof() and blockKind != .doc) {
@@ -302,62 +302,66 @@ pub const Parser = struct {
                     "expected `{s}` or object", .{blockKind.toCloseStr()});
             defer startObj.deinit();
 
-            parsing.info("gathering line", .{});
-            const line =
-                line: while (next: {
-                    parsing.info("getting next sourceExpr", .{});
-                    const nxt = try self.nextWith(&peekCache);
-                    parsing.info("next: {?}", .{nxt});
-                    break :next nxt;
-                }) |sourceExpr| {
-                    parsing.info("got sourceExpr {}", .{sourceExpr});
+            parsing.debug("gathering line", .{});
+            {
+                const line =
+                    line: while (next: {
+                        parsing.debug("getting next sourceExpr", .{});
+                        const nxt = try self.nextWith(&peekCache);
+                        parsing.debug("next: {?}", .{nxt});
+                        break :next nxt;
+                    }) |sourceExpr| {
+                        parsing.debug("got sourceExpr {}", .{sourceExpr});
 
-                    const nextExpr: ?Rml.Object = try self.peekWith(&peekCache);
-                    defer if (nextExpr) |x| x.deinit();
+                        const nextExpr: ?Rml.Object = try self.peekWith(&peekCache);
+                        defer if (nextExpr) |x| x.deinit();
 
-                    try lineMem.append(rml, sourceExpr);
-                    parsing.info("added to lineMem {}", .{sourceExpr});
+                        try lineMem.append(rml, sourceExpr);
+                        parsing.debug("added to lineMem {}", .{sourceExpr});
 
-                    var nxt = nextExpr orelse {
-                        parsing.info("next is null; break", .{});
-                        break :line lineMem.items();
+                        var nxt = nextExpr orelse {
+                            parsing.debug("next is null; break", .{});
+                            break :line lineMem.items();
+                        };
+
+                        parsing.debug("next: {}", .{nxt});
+
+                        const nxtRange = nxt.getHeader().origin.range.?;
+
+                        parsing.debug("startPos: {}, nxtRange: {}", .{self.offsetPos(startPos), nxtRange});
+
+                        if (!isIndentationDomain(self.offsetPos(startPos), nxtRange)) {
+                            parsing.debug("not domain", .{});
+                            break :line lineMem.items();
+                        } else parsing.debug("domain", .{});
+
+                        parsing.debug("continue!", .{});
+                    } else {
+                        @panic("peek not null but next got null?");
                     };
+                defer {
+                    parsing.debug("clearing lineMem", .{});
+                    lineMem.clear();
+                }
 
-                    parsing.info("next: {}", .{nxt});
+                const lineOrigin = self.getOrigin(startPos, self.buffer_pos);
 
-                    const nxtRange = nxt.getHeader().origin.range.?;
+                parsing.debug("line {}: {any}", .{lineOrigin, line});
 
-                    parsing.info("startPos: {}, nxtRange: {}", .{self.offsetPos(startPos), nxtRange});
+                if (line.len > 1) {
+                    const obj: Obj(Rml.Block) = try .init(rml, lineOrigin, .{.doc});
+                    defer parsing.debug("obj refcount: {}", .{obj.getHeader().ref_count});
+                    defer obj.deinit();
 
-                    if (!isIndentationDomain(self.offsetPos(startPos), nxtRange)) {
-                        parsing.info("not domain", .{});
-                        break :line lineMem.items();
-                    } else parsing.info("domain", .{});
+                    for (line) |x| try obj.data.append(x.clone());
 
-                    parsing.info("continue!", .{});
+                    try obj.getHeader().properties.copyFrom(rml, &properties);
+
+                    try array.append(rml, obj.typeErase());
                 } else {
-                    @panic("peek not null but next got null?");
-                };
-            defer {
-                parsing.info("clearing lineMem", .{});
-                lineMem.clear(rml);
-            }
-
-            const lineOrigin = self.getOrigin(startPos, self.buffer_pos);
-
-            parsing.info("line {}: {any}", .{lineOrigin, line});
-
-            if (line.len > 1) {
-                const obj = try Obj(Rml.Block).init(rml, lineOrigin, .{.doc});
-                defer obj.deinit();
-
-                for (line) |x| try obj.data.append(x.clone());
-
-                try obj.getHeader().properties.copyFrom(rml, &properties);
-
-                try array.append(rml, obj.typeErase());
-            } else {
-                try array.append(rml, line[0].clone());
+                    defer parsing.debug("line[0] refcount: {}", .{line[0].getHeader().ref_count});
+                    try array.append(rml, line[0].clone());
+                }
             }
 
             if (try self.scan()) |props| {
@@ -375,10 +379,31 @@ pub const Parser = struct {
 
         const origin = self.getOrigin(start, self.buffer_pos);
 
-        const block: Obj(Rml.Block) = try .wrap(rml, origin, .{
-            .kind = blockKind,
-            .array = array
-        });
+        const block: Obj(Rml.Block) = block: {
+            if (array.length() == 1) {
+                const item = array.get(0).?;
+                defer item.deinit();
+
+                if (Rml.castObj(Rml.Block, item)) |x| {
+                    defer x.deinit();
+
+                    if (x.data.kind == .doc) {
+                        array.deinit(rml);
+
+                        x.data.kind = blockKind;
+                        break :block x.clone();
+                    }
+                }
+            }
+
+            break :block try .wrap(rml, origin, .{
+                .kind = blockKind,
+                .array = array
+            });
+        };
+        errdefer block.deinit();
+
+        parsing.debug("block refcount: {}", .{block.getHeader().ref_count});
 
         if (tailProperties.length() > 0) {
             const sym: Obj(Symbol) = try .init(rml, origin, .{"tail"});

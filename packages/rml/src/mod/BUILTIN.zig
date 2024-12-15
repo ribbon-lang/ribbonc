@@ -27,31 +27,47 @@ pub const nil = Nil{};
 pub const local = Rml.Procedure {
     .native_macro = &struct {
         pub fn fun(interpreter: ptr(Interpreter), origin: Origin, args: []const Object) Result! Object {
-            Rml.interpreter.evaluation.info("local {}: {any}", .{origin, args});
+            Rml.interpreter.evaluation.debug("local {}: {any}", .{origin, args});
 
             if (args.len < 1) try interpreter.abort(origin, error.InvalidArgumentCount, "expected at least 1 argument, found 0", .{});
 
             const sym = try interpreter.castObj(Rml.Symbol, args[0]);
             errdefer sym.deinit();
 
-            const body = args[1..];
+            const nilObj = (try Obj(Nil).init(getRml(interpreter), origin)).typeEraseLeak();
+            errdefer nilObj.deinit();
+
+            const equalSym = (try Obj(Rml.Symbol).init(getRml(interpreter), origin, .{"="})).typeEraseLeak();
+            defer equalSym.deinit();
 
             const obj =
-                if (body.len == 1) single: {
-                    const bod = body[0];
-                    if (Rml.castObj(Rml.Block, bod)) |b| {
-                        defer b.deinit();
+                if (args.len == 1) nilObj.clone()
+                else obj: {
+                    var offset: usize = 1;
+                    if (Rml.equal(args[offset], equalSym)) offset += 1;
+                    const body = args[offset..];
+                    break :obj if (body.len == 1) single: {
+                        const bod = body[0];
+                        if (Rml.castObj(Rml.Block, bod)) |b| {
+                            defer b.deinit();
 
-                        break :single try interpreter.runProgram(origin, b.data.array.items());
-                    } else {
-                        break :single try interpreter.eval(bod);
-                    }
-                } else try interpreter.runProgram(origin, body);
+                            break :single try interpreter.runProgram(origin, b.data.array.items());
+                        } else {
+                            break :single try interpreter.eval(bod);
+                        }
+                    } else try interpreter.runProgram(origin, body);
+                };
             errdefer obj.deinit();
 
-            try interpreter.evaluation_env.data.bind(sym, obj);
+            interpreter.evaluation_env.data.bind(sym, obj) catch |err| {
+                if (err == error.SymbolAlreadyBound) {
+                    try interpreter.abort(origin, error.SymbolAlreadyBound, "symbol `{}` is already bound", .{sym});
+                } else {
+                    return err;
+                }
+            };
 
-            return (try Obj(Nil).init(getRml(interpreter), origin)).typeEraseLeak();
+            return nilObj;
         }
     }.fun,
 };
@@ -60,7 +76,7 @@ pub const local = Rml.Procedure {
 pub const fun = Rml.Procedure {
     .native_macro = &struct {
         pub fn fun(interpreter: ptr(Interpreter), origin: Origin, args: []const Object) Result! Object {
-            Rml.interpreter.evaluation.info("fun {}: {any}", .{origin, args});
+            Rml.interpreter.evaluation.debug("fun {}: {any}", .{origin, args});
 
             if (args.len < 1) try interpreter.abort(origin, error.InvalidArgumentCount, "expected at least 1 argument, found 0", .{});
 
@@ -77,7 +93,7 @@ pub const fun = Rml.Procedure {
             } else return err;
             errdefer pattern.deinit();
 
-            Rml.interpreter.evaluation.info("fun pattern: {}", .{pattern});
+            Rml.interpreter.evaluation.debug("fun pattern: {}", .{pattern});
 
             if (pattern.data.* != .block) {
                 try interpreter.abort(origin, error.TypeError, "expected block pattern, found {}", .{pattern});
@@ -94,7 +110,7 @@ pub const fun = Rml.Procedure {
                 try body.append(rml, arg.clone());
             }
 
-            Rml.interpreter.evaluation.info("fun body: {any}", .{body});
+            Rml.interpreter.evaluation.debug("fun body: {any}", .{body});
 
 
             return (try Obj(Rml.Procedure).wrap(rml, origin, .{.function = .{.argument_pattern = pattern, .body = body}})).typeEraseLeak();
