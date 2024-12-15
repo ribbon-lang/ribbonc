@@ -9,4 +9,8 @@ print-ln (not true)
 
 print-ln 'foo
 
+import String
+
+print-ln (String/length "test")
+
 nil

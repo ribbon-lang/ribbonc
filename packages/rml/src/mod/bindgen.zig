@@ -393,7 +393,8 @@ pub fn fromObject(comptime T: type, _: *Rml, value: Object) Error! T {
     switch (tInfo) {
         .pointer => |info| {
             if (info.alignment == Rml.object.OBJ_ALIGN) {
-                if (!Rml.equal(Rml.TypeId.of(T), value.getTypeId())) {
+                if (!Rml.equal(Rml.TypeId.of(info.child), value.getTypeId())) {
+                    Rml.log.warn("expected {s} got {s}", .{@typeName(info.child), Rml.TypeId.name(value.getTypeId())});
                     return error.TypeError;
                 }
 

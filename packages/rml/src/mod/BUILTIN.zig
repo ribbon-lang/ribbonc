@@ -21,6 +21,40 @@ const isType = Rml.isType;
 const coerceBool = Rml.coerceBool;
 
 
+pub const import = Rml.Procedure {
+    .native_macro = &struct {
+        pub fn fun(interpreter: ptr(Interpreter), origin: Origin, args: []const Object) Result! Object {
+            if (args.len != 1) try interpreter.abort(origin, error.InvalidArgumentCount, "expected 1 argument, found {}", .{args.len});
+
+            const namespaceSym = try interpreter.castObj(Rml.Symbol, args[0]);
+            defer namespaceSym.deinit();
+
+            const namespace: Object = getRml(interpreter).namespace_env.data.get(namespaceSym) orelse {
+                try interpreter.abort(origin, error.UnboundSymbol, "namespace {} not found; available namespaces are: {any}", .{namespaceSym, getRml(interpreter).namespace_env.data.localKeys()});
+            };
+            defer namespace.deinit();
+
+            const env = try interpreter.castObj(Rml.Env, namespace);
+            defer env.deinit();
+
+            const localEnv: ptr(Rml.Env) = interpreter.evaluation_env.data;
+
+            for (env.data.localKeys()) |key| {
+                const slashSym = slashSym: {
+                    const slashStr = try std.fmt.allocPrint(getRml(interpreter).storage.object, "{}/{}", .{namespaceSym, key});
+                    defer getRml(interpreter).storage.object.free(slashStr);
+
+                    break :slashSym try Obj(Rml.Symbol).init(getRml(interpreter), origin, .{slashStr});
+                };
+
+                try localEnv.bind(slashSym, env.data.getLocal(key).?);
+            }
+
+            return (try Obj(Nil).init(getRml(interpreter), origin)).typeEraseLeak();
+        }
+    }.fun,
+};
+
 
 /// Create a local binding
 pub const local = Rml.Procedure {

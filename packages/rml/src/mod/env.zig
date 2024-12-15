@@ -194,4 +194,9 @@ pub const Env = struct {
         defer p.deinit();
         return p.data.contains(key);
     }
+
+    /// Get a slice of the local keys of this Env
+    pub fn localKeys(self: ptr(Env)) []Obj(Symbol) {
+        return self.table.keys();
+    }
 };
