@@ -7,7 +7,7 @@ export const Module = [
 ];
 
 export const Definition = [
-    "let", "def",
+    "let", "local", "global",
 ];
 
 export const Object = [
@@ -22,7 +22,7 @@ export const Effectful = [
 ];
 
 export const Special = [
-    "quote", "quasiquote", "unquote", "unquote-splicing",
+    "quote", "quasiquote", "unquote", "unquote-splice",
     "to-quote", "to-quasi",
     "apply", "gensym", "eval", "get-env",
 ]
