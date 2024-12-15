@@ -77,6 +77,8 @@ pub const fun = Rml.Procedure {
             } else return err;
             errdefer pattern.deinit();
 
+            Rml.interpreter.evaluation.info("fun pattern: {}", .{pattern});
+
             if (pattern.data.* != .block) {
                 try interpreter.abort(origin, error.TypeError, "expected block pattern, found {}", .{pattern});
             }
@@ -91,6 +93,9 @@ pub const fun = Rml.Procedure {
             for (args[1..]) |arg| {
                 try body.append(rml, arg.clone());
             }
+
+            Rml.interpreter.evaluation.info("fun body: {any}", .{body});
+
 
             return (try Obj(Rml.Procedure).wrap(rml, origin, .{.function = .{.argument_pattern = pattern, .body = body}})).typeEraseLeak();
         }

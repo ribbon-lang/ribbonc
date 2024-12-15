@@ -50,9 +50,8 @@ pub const Block = struct {
     kind: BlockKind = .doc,
     array: Rml.array.ArrayUnmanaged = .{},
 
-    pub fn onInit(self: ptr(Block), kind: BlockKind, data: []const Object) OOM! void {
+    pub fn onInit(self: ptr(Block), kind: BlockKind) OOM! void {
         self.kind = kind;
-        try self.appendSlice(data);
     }
 
     pub fn onDeinit(self: ptr(Block)) void {

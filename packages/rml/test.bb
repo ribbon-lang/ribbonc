@@ -1,4 +1,6 @@
-local foo fun(x)
+local foo fun(x) {
+    print-ln x
     + x 1
+}
 
-print-ln (foo 1)
+print-ln "woo " (foo 1)

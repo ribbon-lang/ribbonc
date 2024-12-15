@@ -73,7 +73,7 @@ pub fn main () !void {
     defer lineMem.deinit(rml);
 
     while (!parser.data.isEof()) {
-        const startPos = parser.data.pos;
+        const startPos = parser.data.buffer_pos;
 
         const start = parser.data.peek() catch |err| {
             if (diagnostic) |diag| {
@@ -102,6 +102,9 @@ pub fn main () !void {
             }) |sourceExpr| {
                 log.debug("got sourceExpr {}", .{sourceExpr});
 
+                try lineMem.append(rml, sourceExpr);
+                log.info("added to lineMem {}", .{sourceExpr});
+
                 const next: ?Rml.Object = parser.data.peek() catch |err| {
                     if (diagnostic) |diag| {
                         log.err("{s} {}: {s}", .{@errorName(err), diag.error_origin, diag.message_mem[0..diag.message_len]});
@@ -112,27 +115,21 @@ pub fn main () !void {
                 };
                 defer if (next) |x| x.deinit();
 
-                try lineMem.append(rml, sourceExpr);
-                log.debug("added to lineMem", .{});
-
                 var nxt = next orelse {
                     log.debug("next is null; break", .{});
                     break :line lineMem.items();
                 };
 
-                log.debug("next: {}", .{nxt});
+                log.info("next: {}", .{nxt});
 
-                const startRange = start.getHeader().origin.range.?;
                 const nxtRange = nxt.getHeader().origin.range.?;
 
-                log.debug("startRange: {}, nxtRange: {}", .{startRange, nxtRange});
+                log.info("startPos: {}, nxtRange: {}", .{parser.data.offsetPos(startPos), nxtRange});
 
-                if (nxtRange.start.?.line > startRange.end.?.line) {
-                    if (nxtRange.start.?.column <= startRange.start.?.column) {
-                        log.debug("break!", .{});
-                        break :line lineMem.items();
-                    }
-                }
+                if (!Rml.parser.isIndentationDomain(parser.data.offsetPos(startPos), nxtRange)) {
+                    log.info("not domain", .{});
+                    break :line lineMem.items();
+                } else log.info("domain", .{});
 
                 log.debug("continue!", .{});
             } else {
@@ -143,7 +140,7 @@ pub fn main () !void {
             lineMem.clear(rml);
         }
 
-        const lineOrigin = parser.data.getOrigin(startPos, parser.data.pos);
+        const lineOrigin = parser.data.getOrigin(startPos, parser.data.buffer_pos);
 
         log.info("line {}: {any}", .{lineOrigin, line});
 

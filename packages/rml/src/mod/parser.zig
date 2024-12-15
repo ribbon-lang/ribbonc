@@ -39,20 +39,20 @@ pub const SyntaxError = error{ SyntaxError, UnexpectedInput, UnexpectedEOF } || 
 pub const Parser = struct {
     input: Obj(String),
     filename: str,
-    pos: Pos,
-    posOffset: Pos,
-    peekCache: ?Object,
-    charPeekCache: ?Char,
+    buffer_pos: Pos,
+    rel_offset: Pos,
+    peek_cache: ?Object,
+    char_peek_cache: ?Char,
 
     pub fn onInit(self: ptr(Parser), filename: str, input: Obj(String)) OOM! void {
         parsing.debug("creating Parser{x}", .{@intFromPtr(self)});
 
         self.input = input;
         self.filename = filename;
-        self.pos = Pos { .line = 0, .column = 0, .offset = 0 };
-        self.posOffset = Pos { .line = 1, .column = 1, .offset = 0 };
-        self.peekCache = null;
-        self.charPeekCache = null;
+        self.buffer_pos = Pos { .line = 0, .column = 0, .offset = 0, .indentation = 0 };
+        self.rel_offset = Pos { .line = 1, .column = 1, .offset = 0, .indentation = 0 };
+        self.peek_cache = null;
+        self.char_peek_cache = null;
     }
 
     pub fn onCompare(a: ptr(Parser), other: Object) Ordering {
@@ -73,12 +73,29 @@ pub const Parser = struct {
     }
 
     pub fn onDeinit(self: ptr(Parser)) void {
-        if (self.peekCache) |obj| obj.deinit();
+        if (self.peek_cache) |obj| obj.deinit();
         self.input.deinit();
     }
 
     pub fn peek(self: ptr(Parser)) Error! ?Object {
-        if (self.peekCache) |cachedObject| {
+        return self.peekWith(&self.peek_cache);
+    }
+
+    pub fn offsetPos(self: ptr(Parser), pos: Pos) Pos {
+        return .{
+            .line = pos.line + self.rel_offset.line,
+            .column = pos.column + self.rel_offset.column,
+            .offset = pos.offset + self.rel_offset.offset,
+            .indentation = pos.indentation + self.rel_offset.indentation,
+        };
+    }
+
+    pub fn getOffsetPos(self: ptr(Parser)) Pos {
+        return self.offsetPos(self.buffer_pos);
+    }
+
+    pub fn peekWith(self: ptr(Parser), peek_cache: *?Object) Error! ?Object {
+        if (peek_cache.*) |cachedObject| {
             parsing.debug("peek: using cached object", .{});
             return cachedObject.clone();
         }
@@ -94,42 +111,46 @@ pub const Parser = struct {
             return null;
         }
 
-        const obj = try self.parseObject() orelse return self.failed();
+        const obj = try self.parseObject() orelse return null;
         try obj.getHeader().properties.copyFrom(rml, &properties);
 
-        self.peekCache = obj;
+        peek_cache.* = obj;
 
         return obj.clone();
     }
 
     pub fn next(self: ptr(Parser)) Error! ?Object {
-        const result = try self.peek() orelse return null;
+        return self.nextWith(&self.peek_cache);
+    }
+
+    pub fn nextWith(self: ptr(Parser), peek_cache: *?Object) Error! ?Object {
+        const result = try self.peekWith(peek_cache) orelse return null;
         defer result.deinit(); // same as deiniting the cached object
 
-        self.peekCache = null;
+        peek_cache.* = null;
 
         return result;
     }
 
 
     pub fn setOffset(self: ptr(Parser), offset: Pos) void {
-        self.posOffset = offset;
+        self.rel_offset = offset;
     }
 
     pub fn clearOffset(self: ptr(Parser)) void {
-        self.posOffset = Pos { .line = 1, .column = 1, .offset = 0 };
+        self.rel_offset = Pos { .line = 1, .column = 1, .offset = 0 };
     }
 
     pub fn getOrigin(self: ptr(Parser), start: ?Pos, end: ?Pos) Origin {
-        const a = if (start) |x| Pos{.line = x.line + self.posOffset.line, .column = x.column + self.posOffset.column, .offset = x.offset + self.posOffset.offset}
+        const a = if (start) |x| self.offsetPos(x)
         else null;
 
-        const b = if (end) |x| Pos{.line = x.line + self.posOffset.line, .column = x.column + self.posOffset.column, .offset = x.offset + self.posOffset.offset}
+        const b = if (end) |x| self.offsetPos(x)
         else null;
 
         return Origin {
             .filename = self.filename,
-            .range = Range.init(a, b),
+            .range = Range { .start = a, .end = b },
         };
     }
 
@@ -168,16 +189,18 @@ pub const Parser = struct {
         errdefer parsing.debug("parseQuote failed", .{});
 
         const rml = getRml(self);
-        const start = self.pos;
+        const start = self.buffer_pos;
 
         if (!try self.parseQuoteOpening(quoteKind)) {
             parsing.debug("parseQuote stop: no quote kind", .{});
             return null;
         }
 
-        const body = try self.parseObject() orelse return self.failed();
+        const body = try self.parseObject() orelse
+            try self.failed(self.getOrigin(self.buffer_pos, null),
+                "expected an object to follow quote operator `{s}`", .{quoteKind.toStr()});
 
-        const result: Obj(Quote) = try .wrap(rml, self.getOrigin(start, self.pos), .{ .kind = quoteKind, .body = body });
+        const result: Obj(Quote) = try .wrap(rml, self.getOrigin(start, self.buffer_pos), .{ .kind = quoteKind, .body = body });
 
         parsing.debug("parseQuote result: {?}", .{result});
 
@@ -189,15 +212,17 @@ pub const Parser = struct {
         errdefer parsing.debug("parseQuote failed", .{});
 
         const rml = getRml(self);
-        const start = self.pos;
+        const start = self.buffer_pos;
 
         const quoteKind = try self.parseAnyQuoteOpening() orelse return null;
 
         parsing.debug("got quote opening {s}", .{quoteKind.toStr()});
 
-        const body = try self.parseObject() orelse return self.failed();
+        const body = try self.parseObject() orelse
+            try self.failed(self.getOrigin(self.buffer_pos, null),
+                "expected an object to follow quote operator `{s}`", .{quoteKind.toStr()});
 
-        const result: Obj(Quote) = try .wrap(rml, self.getOrigin(start, self.pos), .{ .kind = quoteKind, .body = body });
+        const result: Obj(Quote) = try .wrap(rml, self.getOrigin(start, self.buffer_pos), .{ .kind = quoteKind, .body = body });
 
         parsing.debug("parseQuote result: {?}", .{result});
 
@@ -208,7 +233,7 @@ pub const Parser = struct {
         parsing.debug("parseBlock", .{});
         errdefer parsing.debug("parseBlock failed", .{});
 
-        const start = self.pos;
+        const start = self.buffer_pos;
 
         if (!try self.parseBlockOpening(blockKind)) {
             return null;
@@ -225,7 +250,7 @@ pub const Parser = struct {
         parsing.debug("parseBlock", .{});
         errdefer parsing.debug("parseBlock failed", .{});
 
-        const start = self.pos;
+        const start = self.buffer_pos;
 
         const blockKind = try self.parseAnyBlockOpening() orelse return null;
 
@@ -251,6 +276,16 @@ pub const Parser = struct {
         var tailProperties: Rml.object.PropertySet = .{};
         errdefer if (tailDeinit) tailProperties.deinit(rml);
 
+        var peekCache: ?Object = null;
+        defer if (peekCache) |x| x.deinit();
+
+        var lineMem: Rml.array.ArrayUnmanaged = .{};
+        defer lineMem.deinit(rml);
+
+
+
+        parsing.info("parseBlockTail start `{s}`", .{self.input.data.text()[self.buffer_pos.offset..]});
+
         while (true) {
             if (self.isEof() and blockKind != .doc) {
                 return error.UnexpectedEOF;
@@ -260,26 +295,85 @@ pub const Parser = struct {
                 tailProperties = try properties.clone(rml);
                 break;
             }
+            const startPos = self.buffer_pos;
 
-            const obj = try self.parseObject() orelse return self.failed();
-            try obj.getHeader().properties.copyFrom(rml, &properties);
+            const startObj = try self.peekWith(&peekCache) orelse
+                try self.failed(self.getOrigin(self.buffer_pos, null),
+                    "expected `{s}` or object", .{blockKind.toCloseStr()});
+            defer startObj.deinit();
 
-            try array.append(rml, obj);
+            parsing.info("gathering line", .{});
+            const line =
+                line: while (next: {
+                    parsing.info("getting next sourceExpr", .{});
+                    const nxt = try self.nextWith(&peekCache);
+                    parsing.info("next: {?}", .{nxt});
+                    break :next nxt;
+                }) |sourceExpr| {
+                    parsing.info("got sourceExpr {}", .{sourceExpr});
+
+                    const nextExpr: ?Rml.Object = try self.peekWith(&peekCache);
+                    defer if (nextExpr) |x| x.deinit();
+
+                    try lineMem.append(rml, sourceExpr);
+                    parsing.info("added to lineMem {}", .{sourceExpr});
+
+                    var nxt = nextExpr orelse {
+                        parsing.info("next is null; break", .{});
+                        break :line lineMem.items();
+                    };
+
+                    parsing.info("next: {}", .{nxt});
+
+                    const nxtRange = nxt.getHeader().origin.range.?;
+
+                    parsing.info("startPos: {}, nxtRange: {}", .{self.offsetPos(startPos), nxtRange});
+
+                    if (!isIndentationDomain(self.offsetPos(startPos), nxtRange)) {
+                        parsing.info("not domain", .{});
+                        break :line lineMem.items();
+                    } else parsing.info("domain", .{});
+
+                    parsing.info("continue!", .{});
+                } else {
+                    @panic("peek not null but next got null?");
+                };
+            defer {
+                parsing.info("clearing lineMem", .{});
+                lineMem.clear(rml);
+            }
+
+            const lineOrigin = self.getOrigin(startPos, self.buffer_pos);
+
+            parsing.info("line {}: {any}", .{lineOrigin, line});
+
+            if (line.len > 1) {
+                const obj = try Obj(Rml.Block).init(rml, lineOrigin, .{.doc});
+                defer obj.deinit();
+
+                for (line) |x| try obj.data.append(x.clone());
+
+                try obj.getHeader().properties.copyFrom(rml, &properties);
+
+                try array.append(rml, obj.typeErase());
+            } else {
+                try array.append(rml, line[0].clone());
+            }
 
             if (try self.scan()) |props| {
                 properties.deinit(rml);
                 properties = props;
-            } else {
+            } else { // require whitespace between objects
                 if (try self.parseBlockClosing(blockKind)) {
                     tailProperties = try properties.clone(rml);
                     break;
                 } else {
-                    return self.failed();
+                    try self.failed(self.getOrigin(self.buffer_pos, null), "expected space or `{s}`", .{blockKind.toCloseStr()});
                 }
             }
         }
 
-        const origin = self.getOrigin(start, self.pos);
+        const origin = self.getOrigin(start, self.buffer_pos);
 
         const block: Obj(Rml.Block) = try .wrap(rml, origin, .{
             .kind = blockKind,
@@ -396,7 +490,7 @@ pub const Parser = struct {
         errdefer parsing.debug("parseInt failed", .{});
 
         const rml = getRml(self);
-        const start = self.pos;
+        const start = self.buffer_pos;
 
         var int: Rml.Int = 0;
 
@@ -418,7 +512,7 @@ pub const Parser = struct {
             return null;
         }
 
-        const result: Obj(Rml.Int) = try .wrap(rml, self.getOrigin(start, self.pos), int * sign);
+        const result: Obj(Rml.Int) = try .wrap(rml, self.getOrigin(start, self.buffer_pos), int * sign);
 
         parsing.debug("parseInt result: {}", .{result});
 
@@ -430,7 +524,7 @@ pub const Parser = struct {
         errdefer parsing.debug("parseFloat failed", .{});
 
         const rml = getRml(self);
-        const start = self.pos;
+        const start = self.buffer_pos;
 
         var int: Rml.Float = 0;
         var frac: Rml.Float = 0;
@@ -483,7 +577,7 @@ pub const Parser = struct {
             return null;
         }
 
-        const result = try Rml.Obj(Float).wrap(rml, self.getOrigin(start, self.pos), (int + frac) * sign * std.math.pow(Rml.Float, 10.0, exp));
+        const result = try Rml.Obj(Float).wrap(rml, self.getOrigin(start, self.buffer_pos), (int + frac) * sign * std.math.pow(Rml.Float, 10.0, exp));
 
         parsing.debug("parseFloat result: {}", .{result});
 
@@ -495,7 +589,7 @@ pub const Parser = struct {
         errdefer parsing.debug("parseChar failed", .{});
 
         const rml = getRml(self);
-        const start = self.pos;
+        const start = self.buffer_pos;
 
         if (!try self.expectChar('\'')) {
             parsing.debug("parseChar stop: expected '\''", .{});
@@ -523,7 +617,7 @@ pub const Parser = struct {
             return null;
         }
 
-        const result: Obj(Char) = try .wrap(rml, self.getOrigin(start, self.pos), ch);
+        const result: Obj(Char) = try .wrap(rml, self.getOrigin(start, self.buffer_pos), ch);
 
         parsing.debug("parseChar result: {}", .{result});
 
@@ -535,7 +629,7 @@ pub const Parser = struct {
         errdefer parsing.debug("parseString failed", .{});
 
         const rml = getRml(self);
-        const start = self.pos;
+        const start = self.buffer_pos;
 
         if (!try self.expectChar('"')) {
             parsing.debug("parseString stop: expected '\"'", .{});
@@ -551,7 +645,7 @@ pub const Parser = struct {
 
                 parsing.debug("parseString result: {s}", .{textBuffer.text()});
 
-                return try Obj(String).wrap(rml, self.getOrigin(start, self.pos), .{ .unmanaged = textBuffer });
+                return try Obj(String).wrap(rml, self.getOrigin(start, self.buffer_pos), .{ .unmanaged = textBuffer });
             }
 
             const i =
@@ -569,7 +663,7 @@ pub const Parser = struct {
     pub fn parseSymbol(self: ptr(Parser)) Error! ?Obj(Symbol) {
         const rml = getRml(self);
 
-        const start = self.pos;
+        const start = self.buffer_pos;
 
         while (try self.peekChar()) |ch| {
             switch (ch) {
@@ -581,12 +675,12 @@ pub const Parser = struct {
             try self.advChar();
         }
 
-        if (start.offset == self.pos.offset) {
+        if (start.offset == self.buffer_pos.offset) {
             parsing.debug("parseSymbol reset: nothing recognized", .{});
             return null;
         }
 
-        const result: Obj(Symbol) = try .init(rml, self.getOrigin(start, self.pos), .{self.input.data.text()[start.offset..self.pos.offset]});
+        const result: Obj(Symbol) = try .init(rml, self.getOrigin(start, self.buffer_pos), .{self.input.data.text()[start.offset..self.buffer_pos.offset]});
 
         parsing.debug("parseSymbol result: {s}", .{result});
 
@@ -616,7 +710,7 @@ pub const Parser = struct {
     }
 
     pub fn expectAnySlice(self: ptr(Parser), slices: []const []const u8) Error! ?[]const u8 {
-        const start = self.pos;
+        const start = self.buffer_pos;
 
         slices: for (slices) |slice| {
             for (slice) |ch| {
@@ -647,7 +741,7 @@ pub const Parser = struct {
     }
 
     pub fn expectEscape(self: ptr(Parser)) Error! ?Char {
-        const start = self.pos;
+        const start = self.buffer_pos;
 
         if (!try self.expectChar('\\')) {
             return null;
@@ -712,36 +806,38 @@ pub const Parser = struct {
             switch (propertyState) {
                 .none => if (ch == ';') {
                     propertyState = .start;
-                    start = self.pos;
+                    start = self.buffer_pos;
                     try self.advChar();
                 } else if (TextUtils.isSpace(ch)) {
-                    try self.advChar();
+                    if (self.buffer_pos.indentation == 0 and self.buffer_pos.column == 0) {
+                        try self.consumeIndent();
+                    } else try self.advChar();
                 } else {
                     break;
                 },
                 .start => if (ch == '!') {
-                    propertyState = .{ .inside = .{ "documentation", self.pos.offset + 1 } };
+                    propertyState = .{ .inside = .{ "documentation", self.buffer_pos.offset + 1 } };
                     try self.advChar();
                 } else if (ch == '\n') {
                     propertyState = .none;
                     try self.advChar();
                 } else {
-                    propertyState = .{ .inside = .{ "comment", self.pos.offset } };
+                    propertyState = .{ .inside = .{ "comment", self.buffer_pos.offset } };
                     try self.advChar();
                 },
                 .inside => |state| {
                     if (ch == '\n') {
                         propertyState = .none;
 
-                        const origin = self.getOrigin(start, self.pos);
+                        const origin = self.getOrigin(start, self.buffer_pos);
 
                         const sym: Obj(Symbol) = try .init(rml, origin, .{state[0]});
                         defer sym.deinit();
 
-                        const string: Obj(String) = try .init(rml, origin, .{self.input.data.text()[state[1]..self.pos.offset]});
+                        const string: Obj(String) = try .init(rml, origin, .{self.input.data.text()[state[1]..self.buffer_pos.offset]});
                         defer string.deinit();
 
-                        try propertySet.set(rml, sym.typeErase(), string.typeErase());
+                        try propertySet.set(rml, sym.typeErase(), string.typeErase()); // FIXME: this is overwriting, should concat
                     }
 
                     try self.advChar();
@@ -749,36 +845,50 @@ pub const Parser = struct {
             }
         }
 
-        if (start.offset == self.pos.offset) return null;
+        if (start.offset == self.buffer_pos.offset) return null;
 
         return propertySet;
     }
 
     pub fn reset(self: ptr(Parser), pos: Pos) void {
-        self.pos = pos;
-        self.charPeekCache = null;
+        self.buffer_pos = pos;
+        self.char_peek_cache = null;
     }
 
-    pub fn failed(self: ptr(Parser)) Error {
-        if (self.isEof()) {
-            return error.UnexpectedEOF;
-        } else {
-            return error.UnexpectedInput;
-        }
+    pub fn failed(self: ptr(Parser), origin: Origin, comptime fmt: []const u8, args: anytype) Error! noreturn {
+        const err = if (self.isEof()) error.UnexpectedEOF else error.UnexpectedInput;
+
+        const diagnostic = getRml(self).diagnostic orelse return err;
+
+        var diag = Rml.Diagnostic {
+            .error_origin = origin,
+        };
+
+        // the error produced is only NoSpaceLeft, if the buffer is too small, so give the length of the buffer
+        diag.message_len = len: {
+            break :len (std.fmt.bufPrintZ(&diag.message_mem, fmt, args) catch {
+                log.warn("Diagnostic message too long, truncating", .{});
+                break :len Rml.Diagnostic.MAX_LENGTH;
+            }).len;
+        };
+
+        diagnostic.* = diag;
+
+        return err;
     }
 
     pub fn require(self: ptr(Parser), comptime T: type, callback: anytype, args: anytype) !T {
         return try @call(.auto, callback, .{self} ++ args) orelse {
-            return self.failed();
+            try self.failed(self.getOrigin(self.buffer_pos, self.buffer_pos), "failed to parse {s}", .{@typeName(T)});
         };
     }
 
     pub fn isBof(self: ptr(Parser)) bool {
-        return self.pos.offset == 0;
+        return self.buffer_pos.offset == 0;
     }
 
     pub fn isEof(self: ptr(Parser)) bool {
-        return self.pos.offset >= self.input.data.text().len;
+        return self.buffer_pos.offset >= self.input.data.text().len;
     }
 
     pub fn peekChar(self: ptr(Parser)) Error! ?Char {
@@ -786,40 +896,41 @@ pub const Parser = struct {
             return null;
         }
 
-        if (self.charPeekCache) |ch| {
+        if (self.char_peek_cache) |ch| {
             return ch;
         } else {
-            const len = try TextUtils.sequenceLengthByte(self.input.data.text()[self.pos.offset]);
-            const slice = self.input.data.text()[self.pos.offset .. self.pos.offset + len];
+            const len = try TextUtils.sequenceLengthByte(self.input.data.text()[self.buffer_pos.offset]);
+            const slice = self.input.data.text()[self.buffer_pos.offset .. self.buffer_pos.offset + len];
 
             const ch = try TextUtils.decode(slice);
-            self.charPeekCache = ch;
+            self.char_peek_cache = ch;
 
             return ch;
         }
     }
 
     pub fn nextChar(self: ptr(Parser)) Error! ?Char {
-        if (self.peekCache != null) {
-            parsing.err("Parser.nextChar: peekCache is not null", .{});
+        if (self.peek_cache != null) {
+            parsing.err("Parser.nextChar: peek_cache is not null", .{});
             return error.Unexpected;
         }
 
         if (try self.peekChar()) |ch| {
             switch (ch) {
                 '\n' => {
-                    self.pos.line += 1;
-                    self.pos.column = 0;
-                    self.pos.offset += 1;
+                    self.buffer_pos.line += 1;
+                    self.buffer_pos.column = 0;
+                    self.buffer_pos.offset += 1;
+                    self.buffer_pos.indentation = 0;
                 },
 
                 else => {
-                    self.pos.column += 1;
-                    self.pos.offset += try TextUtils.sequenceLength(ch);
+                    self.buffer_pos.column += 1;
+                    self.buffer_pos.offset += try TextUtils.sequenceLength(ch);
                 },
             }
 
-            self.charPeekCache = null;
+            self.char_peek_cache = null;
 
             return ch;
         } else {
@@ -830,4 +941,24 @@ pub const Parser = struct {
     pub fn advChar(self: ptr(Parser)) Error! void {
         _ = try self.nextChar();
     }
+
+    pub fn consumeIndent(self: ptr(Parser)) Error! void {
+        while (try self.peekChar()) |ch| {
+            if (TextUtils.isSpace(ch)) {
+                self.buffer_pos.indentation += 1;
+                try self.advChar();
+            } else {
+                break;
+            }
+        }
+    }
 };
+
+
+pub fn isIndentationDomain(start: Pos, range: Range) bool {
+    return ( range.start.?.line == start.line
+        and range.start.?.column >= start.column
+    ) or ( range.start.?.line > start.line
+        and range.start.?.indentation > start.indentation
+    );
+}
