@@ -90,9 +90,9 @@ pub fn main () !void {
     }) |blob| {
         defer blob.deinit();
 
-        log.debug("blob{}: ⧼{}⧽", .{blob.getHeader().origin, blob});
+        log.info("blob{}: {}", .{blob.getHeader().origin, blob});
 
-        if (rml.main_interpreter.data.runProgram(blob.getOrigin(), blob.data.items())) |result| {
+        if (rml.main_interpreter.data.eval(blob)) |result| {
             defer result.deinit();
 
             if (!Rml.isType(Rml.Nil, result)) {

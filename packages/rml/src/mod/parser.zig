@@ -264,18 +264,19 @@ pub const Parser = struct {
         return result;
     }
 
-    pub fn nextBlob(self: ptr(Parser)) Error! ?Obj(Rml.Array) {
+    pub fn nextBlob(self: ptr(Parser)) Error! ?Object {
         return self.nextBlobWith(&self.peek_cache);
     }
 
-    pub fn nextBlobWith(self: ptr(Parser), peekCache: *?Object) Error! ?Obj(Rml.Array) {
+    pub fn nextBlobWith(self: ptr(Parser), peekCache: *?Object) Error! ?Object {
         var blob: Rml.array.ArrayUnmanaged = .{};
-        errdefer blob.deinit(getRml(self));
+        defer blob.deinit(getRml(self));
 
         const first = try self.peekWith(peekCache) orelse {
             return null;
         };
         defer first.deinit();
+        const start = first.getOrigin().range.?.start.?;
 
         blob: while (next: {
             const nxt = try self.nextWith(peekCache);
@@ -288,17 +289,95 @@ pub const Parser = struct {
 
             var n = nxt orelse break :blob;
 
-            if (!isIndentationDomain(first.getOrigin().range.?.start.?, n.getOrigin().range.?.start.?)) {
+            if (!isIndentationDomain(start, n.getOrigin().range.?.start.?)) {
                 break :blob;
             }
         }
 
-        const last = blob.last().?;
-        defer last.deinit();
+        if (blob.length() == 1) {
+            return blob.get(0).?;
+        }
 
-        const blobOrigin = self.getOffsetOrigin(first.getOrigin().range.?.start.?, last.getOrigin().range.?.end.?);
+        return try self.blobify(.same_indent, start, blob.items());
+    }
 
-        return try Rml.Obj(Rml.Array).wrap(getRml(self), blobOrigin, .{ .unmanaged = blob });
+    pub fn blobify(self: ptr(Parser), heuristic: enum {same_indent, domain}, start: Pos, blob: []const Object) Error! Object {
+        const end = blob[blob.len - 1].getOrigin().range.?.end.?;
+        const blobOrigin = self.getOffsetOrigin(start, end);
+
+        parsing.debug("blobify: {any}", .{blob});
+
+        var array: Rml.array.ArrayUnmanaged = .{};
+        errdefer array.deinit(getRml(self));
+
+        var i: usize = 0;
+        for (blob) |item| {
+            const pos = item.getOrigin().range.?.start.?;
+
+            switch (heuristic) {
+                .same_indent => if (start.indentation != pos.indentation) break,
+                .domain => if (!isIndentationDomain(start, pos)) break,
+            }
+
+            try array.append(getRml(self), item.clone());
+            i += 1;
+        }
+
+        parsing.debug("scanned: {}", .{array});
+
+        if (i == blob.len) {
+            return (try Rml.Obj(Rml.Block).wrap(getRml(self), blobOrigin, .{ .kind = .doc, .array = array })).typeEraseLeak();
+        } else {
+            const first = blob[i].getOrigin().range.?.start.?;
+            const newBlob = try self.blobify(.domain, first, blob[i..]);
+            defer newBlob.deinit();
+
+            parsing.debug("new blob: {}", .{newBlob});
+
+            switch (heuristic) {
+                .domain => {
+                    const firstLine = try Rml.Obj(Rml.Block).wrap(getRml(self), blobOrigin, .{ .kind = .doc, .array = array });
+                    defer firstLine.deinit();
+
+                    const body = Rml.castObj(Rml.Block, newBlob) orelse @panic("blobify: newBlob is not a block but heuristic is domain");
+                    defer body.deinit();
+
+                    var allDocBlock = true;
+                    for (body.data.array.items()) |item| {
+                        if (Rml.castObj(Rml.Block, item)) |x| {
+                            defer x.deinit();
+
+                            if (x.data.kind != .doc) {
+                                allDocBlock = false;
+                                break;
+                            }
+                        } else {
+                            allDocBlock = false;
+                            break;
+                        }
+                    }
+
+                    if (allDocBlock) {
+                        try body.data.array.prepend(getRml(self), firstLine.typeErase());
+
+                        return body.typeErase();
+                    } else {
+                        var newArr: Rml.array.ArrayUnmanaged = .{};
+                        errdefer newArr.deinit(getRml(self));
+
+                        try newArr.append(getRml(self), firstLine.typeErase());
+                        try newArr.append(getRml(self), body.typeErase());
+
+                        return (try Rml.Obj(Rml.Block).wrap(getRml(self), blobOrigin, .{ .kind = .doc, .array = newArr })).typeEraseLeak();
+                    }
+                },
+                .same_indent => {
+                    parsing.debug("append", .{});
+                    try array.append(getRml(self), newBlob.clone());
+                    return (try Rml.Obj(Rml.Block).wrap(getRml(self), blobOrigin, .{ .kind = .doc, .array = array })).typeEraseLeak();
+                }
+            }
+        }
     }
 
     fn parseBlockTail(self: ptr(Parser), start: Pos, blockKind: Rml.block.BlockKind) Error! Obj(Rml.Block) {
@@ -334,22 +413,9 @@ pub const Parser = struct {
                 const blob = try self.nextBlobWith(&peekCache) orelse {
                     try self.failed(self.getOrigin(self.buffer_pos, null), "expected object", .{});
                 };
-                defer blob.deinit();
+                errdefer blob.deinit();
 
-                if (blob.data.length() > 1) {
-                    const obj: Obj(Rml.Block) = try .init(rml, blob.getOrigin(), .{.doc});
-                    defer obj.deinit();
-
-                    for (blob.data.items()) |x| try obj.data.append(x.clone());
-
-                    try obj.getHeader().properties.copyFrom(rml, &properties);
-
-                    try array.append(rml, obj.typeErase());
-                } else {
-                    const body = blob.data.items()[0].clone();
-                    body.getHeader().origin = blob.getOrigin();
-                    try array.append(rml, body);
-                }
+                try array.append(rml, blob);
             }
 
             if (try self.scan()) |props| {
@@ -1003,5 +1069,12 @@ pub fn isIndentationDomain(start: Pos, pos: Pos) bool {
         and pos.indentation > start.indentation
     );
     log.debug("isIndentationDomain: {}", .{ value });
+    return value;
+}
+
+pub fn isSameLine(start: Pos, pos: Pos) bool {
+    log.debug("isSameLine? {} {}", .{ start, pos });
+    const value = pos.line == start.line;
+    log.debug("isSameLine: {}", .{ value });
     return value;
 }

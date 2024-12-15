@@ -1,7 +1,6 @@
-local foo = fun(x) {
+local foo = fun(x)
     print-ln x
     + x 1
-}
 
 print-ln "woo " (foo 1)
 print-ln (not true)
@@ -13,5 +12,5 @@ import String
 print-ln (String/length "test")
 
 print-ln `(1 2 3)
-print-ln `(1 2 ,(foo 1))
+print-ln `(1 2 ,(foo 2))
 print-ln `(1 2 ,@'(3 4))

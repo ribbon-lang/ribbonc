@@ -139,6 +139,22 @@ pub fn TypedArrayUnmanaged (comptime T: type) type {
             else null;
         }
 
+        /// Insert item at index 0.
+        /// Moves list[0 .. list.len] to higher indices to make room.
+        /// This operation is O(N).
+        /// Invalidates element pointers.
+        pub fn prepend(self: *Self, rml: *Rml, val: Obj(T)) OOM! void {
+            try self.native_array.insert(rml.storage.object, 0, val);
+        }
+
+        /// Insert item at index i.
+        /// Moves list[i .. list.len] to higher indices to make room.
+        /// This operation is O(N).
+        /// Invalidates element pointers.
+        pub fn insert(self: *Self, rml: *Rml, index: usize, val: Obj(T)) OOM! void {
+            try self.native_array.insert(rml.storage.object, index, val);
+        }
+
         /// Extend the array by 1 element.
         /// Allocates more memory as necessary.
         /// Invalidates element pointers if additional memory is needed.
