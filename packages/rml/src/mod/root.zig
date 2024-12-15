@@ -36,7 +36,15 @@ pub const string = @import("string.zig");
 pub const symbol = @import("symbol.zig");
 pub const writer = @import("writer.zig");
 
-pub const Nil = extern struct {};
+pub const Nil = extern struct {
+    pub fn onFormat(_: ptr(Nil), w: Obj(Writer)) Error! void {
+        return w.data.print("nil", .{});
+    }
+
+    pub fn onCompare(_: ptr(Nil), other: Object) Ordering {
+        return Rml.compare(TypeId.of(Nil), other.getTypeId());
+    }
+};
 pub const Bool = bool;
 pub const Int = i64;
 pub const Float = f64;
