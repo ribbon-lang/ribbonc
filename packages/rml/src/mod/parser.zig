@@ -282,14 +282,15 @@ pub const Parser = struct {
             const nxt = try self.nextWith(peekCache);
             break :next nxt;
         }) |sourceExpr| {
-            try blob.append(getRml(self), sourceExpr);
+            {
+                errdefer sourceExpr.deinit();
+                try blob.append(getRml(self), sourceExpr);
+            }
 
-            const nxt: ?Rml.Object = try self.peekWith(peekCache);
-            defer if (nxt) |x| x.deinit();
+            const nxt: Rml.Object = try self.peekWith(peekCache) orelse break :blob;
+            defer nxt.deinit();
 
-            var n = nxt orelse break :blob;
-
-            if (!isIndentationDomain(start, n.getOrigin().range.?.start.?)) {
+            if (!isIndentationDomain(start, nxt.getOrigin().range.?.start.?)) {
                 break :blob;
             }
         }
@@ -329,6 +330,7 @@ pub const Parser = struct {
             return (try Rml.Obj(Rml.Block).wrap(getRml(self), blobOrigin, .{ .kind = .doc, .array = array })).typeEraseLeak();
         } else {
             const first = blob[i].getOrigin().range.?.start.?;
+
             const newBlob = try self.blobify(.domain, first, blob[i..]);
             defer newBlob.deinit();
 
@@ -459,7 +461,7 @@ pub const Parser = struct {
         errdefer block.deinit();
 
         if (tailProperties.length() > 0) {
-            const sym: Obj(Symbol) = try .init(rml, origin, .{"tail"});
+            const sym: Obj(Symbol) = try .new(rml, origin, .{"tail"});
             defer sym.deinit();
 
             const map: Obj(Map) = try .wrap(rml, origin, .{ .unmanaged = tailProperties });
@@ -783,7 +785,7 @@ pub const Parser = struct {
             return null;
         }
 
-        const result: Obj(Symbol) = try .init(rml, self.getOrigin(start, self.buffer_pos), .{self.input.data.text()[start.offset..self.buffer_pos.offset]});
+        const result: Obj(Symbol) = try .new(rml, self.getOrigin(start, self.buffer_pos), .{self.input.data.text()[start.offset..self.buffer_pos.offset]});
 
         parsing.debug("parseSymbol result: {s}", .{result});
 
@@ -937,10 +939,10 @@ pub const Parser = struct {
 
                         const origin = self.getOrigin(start, self.buffer_pos);
 
-                        const sym: Obj(Symbol) = try .init(rml, origin, .{state[0]});
+                        const sym: Obj(Symbol) = try .new(rml, origin, .{state[0]});
                         defer sym.deinit();
 
-                        const string: Obj(String) = try .init(rml, origin, .{self.input.data.text()[state[1]..self.buffer_pos.offset]});
+                        const string: Obj(String) = try .new(rml, origin, .{self.input.data.text()[state[1]..self.buffer_pos.offset]});
                         defer string.deinit();
 
                         try propertySet.set(rml, sym.typeErase(), string.typeErase()); // FIXME: this is overwriting, should concat

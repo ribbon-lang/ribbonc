@@ -100,6 +100,13 @@ pub const castObj = object.castObj;
 pub const upgradeCast = object.upgradeCast;
 pub const downgradeCast = object.downgradeCast;
 pub const coerceBool = object.coerceBool;
+pub const coerceArray = object.coerceArray;
+pub const new = object.new;
+pub const newWith = object.newWith;
+pub const wrap = object.wrap;
+pub const newObject = object.newObject;
+pub const newObjectWith = object.newObjectWith;
+pub const wrapObject = object.wrapObject;
 
 test {
     std.testing.refAllDeclsRecursive(@This());
@@ -202,26 +209,28 @@ pub fn init(allocator: std.mem.Allocator, cwd: ?std.fs.Dir, out: ?std.io.AnyWrit
 
     log.debug("initializing interpreter ...", .{});
 
-    self.global_env = try Obj(Env).init(self, self.storage.origin);
+    self.global_env = try Rml.new(Env, self, self.storage.origin);
     errdefer self.global_env.deinit();
 
-    self.namespace_env = try Obj(Env).init(self, self.storage.origin);
+    self.namespace_env = try Rml.new(Env, self, self.storage.origin);
     errdefer self.namespace_env.deinit();
 
-    bindgen.bindObjectNamespaces(self, self.namespace_env, BUILTIN_TYPES) catch |err| switch (err) {
-        error.OutOfMemory => return error.OutOfMemory,
-        else => @panic(@errorName(err)),
-    };
+    bindgen.bindObjectNamespaces(self, self.namespace_env, BUILTIN_TYPES)
+        catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            else => @panic(@errorName(err)),
+        };
 
-    bindgen.bindGlobals(self, self.global_env, BUILTIN) catch |err| switch (err) {
-        error.OutOfMemory => return error.OutOfMemory,
-        else => @panic(@errorName(err)),
-    };
+    bindgen.bindGlobals(self, self.global_env, BUILTIN)
+        catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            else => @panic(@errorName(err)),
+        };
 
     // TODO args
     _ = args;
 
-    if (Obj(Interpreter).init(self, self.storage.origin, .{})) |x| {
+    if (Rml.newWith(Interpreter, self, self.storage.origin, .{})) |x| {
         log.debug("... interpreter ready", .{});
         self.main_interpreter = x;
         return self;

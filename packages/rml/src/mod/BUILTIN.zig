@@ -44,13 +44,13 @@ pub const import = Rml.Procedure {
                     const slashStr = try std.fmt.allocPrint(getRml(interpreter).storage.object, "{}/{}", .{namespaceSym, key});
                     defer getRml(interpreter).storage.object.free(slashStr);
 
-                    break :slashSym try Obj(Rml.Symbol).init(getRml(interpreter), origin, .{slashStr});
+                    break :slashSym try Rml.newWith(Rml.Symbol, getRml(interpreter), origin, .{slashStr});
                 };
 
                 try localEnv.bind(slashSym, env.data.getLocal(key).?);
             }
 
-            return (try Obj(Nil).init(getRml(interpreter), origin)).typeEraseLeak();
+            return Rml.newObject(Nil, getRml(interpreter), origin);
         }
     }.fun,
 };
@@ -67,10 +67,10 @@ pub const local = Rml.Procedure {
             const sym = try interpreter.castObj(Rml.Symbol, args[0]);
             errdefer sym.deinit();
 
-            const nilObj = (try Obj(Nil).init(getRml(interpreter), origin)).typeEraseLeak();
+            const nilObj = try Rml.newObject(Nil, getRml(interpreter), origin);
             errdefer nilObj.deinit();
 
-            const equalSym = (try Obj(Rml.Symbol).init(getRml(interpreter), origin, .{"="})).typeEraseLeak();
+            const equalSym = try Rml.newObjectWith(Rml.Symbol, getRml(interpreter), origin, .{"="});
             defer equalSym.deinit();
 
             const obj =
@@ -158,7 +158,7 @@ pub fn @"print-ln"(interpreter: ptr(Interpreter), origin: Origin, args: []const 
     const stdout = std.io.getStdOut();
     const nativeWriter = stdout.writer();
 
-    const writer: Obj(Writer) = try .init(rml, origin, .{nativeWriter.any()});
+    const writer: Obj(Writer) = try .new(rml, origin, .{nativeWriter.any()});
     defer writer.deinit();
 
     try writer.data.print("{}: ", .{origin});
@@ -167,7 +167,7 @@ pub fn @"print-ln"(interpreter: ptr(Interpreter), origin: Origin, args: []const 
 
     try writer.data.writeAll("\n");
 
-    return (try Obj(Nil).init(rml, origin)).typeEraseLeak();
+    return Rml.newObject(Nil, rml, origin);
 }
 
 
@@ -179,12 +179,12 @@ pub fn print(interpreter: ptr(Interpreter), origin: Origin, args: []const Object
     const stdout = std.io.getStdOut();
     const nativeWriter = stdout.writer();
 
-    const writer: Obj(Writer) = try .init(rml, origin, .{nativeWriter.any()});
+    const writer: Obj(Writer) = try .new(rml, origin, .{nativeWriter.any()});
     defer writer.deinit();
 
     for (args) |arg| try arg.getHeader().onFormat(writer);
 
-    return (try Obj(Nil).init(rml, origin)).typeEraseLeak();
+    return Rml.newObject(Nil, rml, origin);
 }
 
 
@@ -410,13 +410,13 @@ pub fn not(interpreter: ptr(Interpreter), origin: Origin, args: []const Object) 
 pub const @"and" = Rml.Procedure {
     .native_macro = &struct{
         pub fn fun(interpreter: ptr(Interpreter), origin: Origin, args: []const Object) Result! Object {
-            if (args.len == 0) return (try Obj(Nil).init(getRml(interpreter), origin)).typeEraseLeak();
+            if (args.len == 0) return Rml.newObject(Rml.Nil, getRml(interpreter), origin);
 
             var a = try interpreter.eval(args[0]);
             errdefer a.deinit();
 
             if (!coerceBool(a)) {
-                return (try Obj(Nil).init(getRml(interpreter), origin)).typeEraseLeak();
+                return Rml.newObject(Rml.Nil, getRml(interpreter), origin);
             }
 
             for (args[1..]) |aN| {
@@ -447,7 +447,7 @@ pub const @"or" = Rml.Procedure {
                 a.deinit();
             }
 
-            return (try Obj(Nil).init(getRml(interpreter), origin)).typeEraseLeak();
+            return Rml.newObject(Rml.Nil, getRml(interpreter), origin);
         }
     }.fun,
 };

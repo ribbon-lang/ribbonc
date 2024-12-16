@@ -37,6 +37,7 @@ pub const EvalError = error {
     SymbolAlreadyBound,
     InvalidArgumentCount,
 };
+
 pub const Interpreter = struct {
     evaluation_env: Obj(Env),
 
@@ -45,7 +46,7 @@ pub const Interpreter = struct {
 
         evaluation.debug("initializing Obj(Interpreter){x}", .{@intFromPtr(self)});
 
-        self.evaluation_env = try Obj(Env).init(getRml(self), getHeader(self).origin);
+        self.evaluation_env = try Rml.new(Env, getRml(self), getHeader(self).origin);
         self.evaluation_env.data.parent = downgradeCast(rml.global_env);
     }
 
@@ -65,7 +66,7 @@ pub const Interpreter = struct {
     pub fn reset(self: ptr(Interpreter)) OOM! void {
         const rml = getRml(self);
         self.evaluation_env.deinit();
-        self.evaluation_env = try Obj(Env).init(rml, getHeader(self).origin);
+        self.evaluation_env = try Rml.new(Env, rml, getHeader(self).origin);
         self.evaluation_env.data.parent = downgradeCast(rml.global_env);
     }
 
@@ -123,7 +124,7 @@ pub const Interpreter = struct {
             const out = program[offset.*];
             offset.* += 1;
             break :expr out.clone();
-        } else (try Obj(Nil).init(getRml(self), getHeader(self).origin)).typeEraseLeak();
+        } else try Rml.newObject(Nil, getRml(self), getHeader(self).origin);
         defer expr.deinit();
 
         const value = value: {
@@ -183,7 +184,7 @@ pub const Interpreter = struct {
 
         const rml = getRml(self);
 
-        var last: Object = (try Obj(Rml.Nil).init(rml, origin)).typeEraseLeak();
+        var last: Object = try Rml.newObject(Nil, rml, origin);
         errdefer last.deinit();
 
         evaluation.debug("runProgram - begin loop", .{});

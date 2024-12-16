@@ -304,6 +304,33 @@ pub fn ref (comptime T: type) type {
     };
 }
 
+pub fn new(comptime T: type, rml: *Rml, origin: Origin) OOM! Obj(T) {
+    comptime if (@typeInfo(@TypeOf(Obj(T).new)).@"fn".params.len != 2) {
+        @compileError("new for " ++ @typeName(T) ++ " requires parameters, use newWith instead");
+    };
+    return Obj(T).new(rml, origin);
+}
+
+pub fn newObject(comptime T: type, rml: *Rml, origin: Origin) OOM! Object {
+    return (try new(T, rml, origin)).typeEraseLeak();
+}
+
+pub fn newWith(comptime T: type, rml: *Rml, origin: Origin, args: anytype) OOM! Obj(T) {
+    return Obj(T).new(rml, origin, args);
+}
+
+pub fn newObjectWith(comptime T: type, rml: *Rml, origin: Origin, args: anytype) OOM! Object {
+    return (try newWith(T, rml, origin, args)).typeEraseLeak();
+}
+
+pub fn wrap(rml: *Rml, origin: Origin, value: anytype) OOM! Obj(@TypeOf(value)) {
+    return Obj(@TypeOf(value)).wrap(rml, origin, value);
+}
+
+pub fn wrapObject (rml: *Rml, origin: Origin, value: anytype) OOM! Object {
+    return (try wrap(rml, origin, value)).typeEraseLeak();
+}
+
 pub const Object = Obj(ObjData);
 pub fn Obj(comptime T: type) type {
     std.debug.assert(@alignOf(T) <= OBJ_ALIGN);
@@ -313,7 +340,7 @@ pub fn Obj(comptime T: type) type {
 
         data: ptr(T),
 
-        pub const init = if (T == ObjData) null else if (std.meta.hasMethod(T, "onInit")) struct {
+        pub const new = if (T == ObjData) null else if (std.meta.hasMethod(T, "onInit")) struct {
             const OnInit: type = @TypeOf(T.onInit);
             const Args = TypeUtils.DropSelf(T, std.meta.ArgsTuple(OnInit));
 
@@ -380,7 +407,7 @@ pub fn Obj(comptime T: type) type {
         pub fn format(self: Self, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) Error! void {
             const w: Rml.writer.Native = if (@TypeOf(writer) == Rml.writer.Native) writer else writer.any();
 
-            const wObj: Obj(Writer) = try .init(self.getRml(), self.getRml().storage.origin, .{w});
+            const wObj: Obj(Writer) = try .new(self.getRml(), self.getRml().storage.origin, .{w});
             defer wObj.deinit();
 
             try self.getHeader().onFormat(wObj);

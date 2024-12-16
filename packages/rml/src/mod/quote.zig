@@ -89,22 +89,26 @@ pub const Quote = struct {
     pub fn run(self: ptr(Quote), interpreter: ptr(Interpreter)) Rml.Result! Object {
         switch (self.kind) {
             .basic => {
-                Rml.interpreter.evaluation.debug("evaluating basic quote", .{});
+                Rml.interpreter.evaluation.debug("evaluating basic quote {}", .{self});
                 return self.body.clone();
             },
             .quasi => {
-                Rml.interpreter.evaluation.debug("evaluating quasi quote", .{});
+                Rml.interpreter.evaluation.debug("evaluating quasi quote {}", .{self});
                 return runQuasi(interpreter, self.body, null);
             },
             .to_quote => {
-                Rml.interpreter.evaluation.debug("evaluating to_quote quote", .{});
+                Rml.interpreter.evaluation.debug("evaluating to_quote quote {}", .{self});
                 const val = try interpreter.eval(self.body);
-                return (try Obj(Quote).init(getRml(self), self.body.getOrigin(), .{.basic, val})).typeEraseLeak();
+                errdefer val.deinit();
+
+                return Rml.wrapObject(getRml(self), self.body.getOrigin(), Quote {.kind = .basic, .body = val});
             },
             .to_quasi => {
-                Rml.interpreter.evaluation.debug("evaluating to_quasi quote", .{});
+                Rml.interpreter.evaluation.debug("evaluating to_quasi quote {}", .{self});
                 const val = try interpreter.eval(self.body);
-                return (try Obj(Quote).init(getRml(self), self.body.getOrigin(), .{.quasi, val})).typeEraseLeak();
+                errdefer val.deinit();
+
+                return Rml.wrapObject(getRml(self), self.body.getOrigin(), Quote {.kind = .quasi, .body = val});
             },
             else => {
                 try interpreter.abort(Rml.getOrigin(self), error.TypeError, "unexpected {s}", .{@tagName(self.kind)});
@@ -115,8 +119,12 @@ pub const Quote = struct {
 
 
 pub fn runQuasi(interpreter: ptr(Interpreter), body: Object, out: ?*Rml.array.ArrayUnmanaged) Rml.Result! Object {
+    const rml = getRml(interpreter);
+
     if (Rml.castObj(Quote, body)) |quote| quote: {
         defer quote.deinit();
+
+        const origin = quote.getOrigin();
 
         switch (quote.data.kind) {
             .basic => break :quote,
@@ -125,51 +133,64 @@ pub fn runQuasi(interpreter: ptr(Interpreter), body: Object, out: ?*Rml.array.Ar
                 const ranBody = try runQuasi(interpreter, quote.data.body, null);
                 errdefer ranBody.deinit();
 
-                return (try Obj(Rml.Quote).wrap(getRml(interpreter), quote.data.body.getOrigin(), .{.kind = .basic, .body = ranBody})).typeEraseLeak();
+                return Rml.wrapObject(rml, origin, Rml.Quote {.kind = .basic, .body = ranBody});
             },
             .to_quasi => {
                 const ranBody = try runQuasi(interpreter, quote.data.body, null);
                 errdefer ranBody.deinit();
 
-                return (try Obj(Rml.Quote).wrap(getRml(interpreter), quote.data.body.getOrigin(), .{.kind = .quasi, .body = ranBody})).typeEraseLeak();
+                return Rml.wrapObject(rml, origin, Rml.Quote {.kind = .quasi, .body = ranBody});
             },
             .unquote => {
                 return interpreter.eval(quote.data.body);
             },
             .unquote_splice => {
-                const outArr = out orelse try interpreter.abort(body.getOrigin(), error.SyntaxError, "unquote-splice is not allowed here", .{});
+                const outArr = out
+                    orelse try interpreter.abort(body.getOrigin(), error.SyntaxError,
+                        "unquote-splice is not allowed here", .{});
 
                 const ranBody = try interpreter.eval(quote.data.body);
                 defer ranBody.deinit();
 
-                const arrBody = try Rml.object.coerceArray(ranBody) orelse try interpreter.abort(quote.data.body.getOrigin(), error.TypeError, "unquote-splice expects an array-like, got {s}: {}", .{Rml.TypeId.name(ranBody.getTypeId()), ranBody});
+                const arrBody = try Rml.coerceArray(ranBody)
+                    orelse try interpreter.abort(quote.data.body.getOrigin(), error.TypeError,
+                        "unquote-splice expects an array-like, got {s}: {}", .{Rml.TypeId.name(ranBody.getTypeId()), ranBody});
                 defer arrBody.deinit();
 
                 for (arrBody.data.items()) |item| {
-                    try outArr.append(getRml(interpreter), item.clone());
+                    const ref = item.clone();
+                    errdefer ref.deinit();
+
+                    // Rml.interpreter.evaluation.info("unquote-splice item: {} {}", .{ref, ref.getHeader().ref_count});
+
+                    try outArr.append(rml, ref);
                 }
 
-                return (try Obj(Rml.Nil).init(getRml(interpreter), quote.data.body.getOrigin())).typeEraseLeak();
+                return Rml.newObject(Rml.Nil, rml, origin);
             }
         }
     } else if (Rml.castObj(Rml.Block, body)) |block| {
         defer block.deinit();
 
         var subOut: Rml.array.ArrayUnmanaged = .{};
-        errdefer subOut.deinit(getRml(interpreter));
+        errdefer subOut.deinit(rml);
 
         for (block.data.array.items()) |item| {
             const len = subOut.length();
 
             const ranItem = try runQuasi(interpreter, item, &subOut);
-            defer ranItem.deinit();
+            errdefer ranItem.deinit();
 
             // don't append if its the nil from unquote-splice
-            if (len == subOut.length()) try subOut.append(getRml(interpreter), ranItem.clone());
+            if (len == subOut.length()) try subOut.append(rml, ranItem)
+            else {
+                std.debug.assert(Rml.isType(Rml.Nil, ranItem));
+                ranItem.deinit();
+            }
         }
 
-        return (try Obj(Rml.Block).wrap(getRml(interpreter), block.getOrigin(), .{.kind = block.data.kind, .array = subOut})).typeEraseLeak();
+        return (try Obj(Rml.Block).wrap(rml, block.getOrigin(), .{.kind = block.data.kind, .array = subOut})).typeEraseLeak();
     }
 
-    return body;
+    return body.clone();
 }

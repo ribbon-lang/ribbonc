@@ -54,7 +54,7 @@ pub fn main () !void {
     log.debug("evaluation_env: {}", .{rml.main_interpreter.data.evaluation_env});
 
     try rml.main_interpreter.data.evaluation_env.data.bind(
-        try Rml.Obj(Rml.Symbol).init(rml, rml.storage.origin, .{"print-int"}),
+        try Rml.Obj(Rml.Symbol).new(rml, rml.storage.origin, .{"print-int"}),
         (try Rml.bindgen.toObjectConst(rml, rml.storage.origin, &struct{
             pub fn func(int: Rml.Int) void {
                 log.info("print-int: {}", .{int});
@@ -66,7 +66,7 @@ pub fn main () !void {
     const srcText: []const u8 = try std.fs.cwd().readFileAlloc(rml.storage.object, "test.bb", std.math.maxInt(u16));
     defer rml.storage.object.free(srcText);
 
-    const parser: Rml.Obj(Rml.Parser) = try .init(rml, rml.storage.origin, .{"test.bb", try Rml.Obj(Rml.String).init(rml, rml.storage.origin, .{srcText})});
+    const parser: Rml.Obj(Rml.Parser) = try .new(rml, rml.storage.origin, .{"test.bb", try Rml.Obj(Rml.String).new(rml, rml.storage.origin, .{srcText})});
     defer {
         log.debug("Deinitializing parser", .{});
         parser.deinit();
@@ -90,7 +90,8 @@ pub fn main () !void {
     }) |blob| {
         defer blob.deinit();
 
-        log.info("blob{}: {}", .{blob.getHeader().origin, blob});
+        // changing this from info to debug (turning it off) caused the segfaults
+        log.debug("blob{}: {}", .{blob.getHeader().origin, blob});
 
         if (rml.main_interpreter.data.eval(blob)) |result| {
             defer result.deinit();

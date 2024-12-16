@@ -211,7 +211,7 @@ pub fn runPattern(
     objects: []const Object,
     offset: *usize,
 ) Rml.Result! ?Obj(Table) {
-    const env: Obj(Table) = try .init(getRml(interpreter), pattern.getOrigin());
+    const env: Obj(Table) = try .new(getRml(interpreter), pattern.getOrigin());
     defer env.deinit();
 
     switch (pattern.data.*) {
@@ -358,7 +358,7 @@ pub fn runPattern(
                 };
                 defer binders.deinit(getRml(interpreter));
 
-                const nil = (try Obj(Rml.Nil).init(getRml(interpreter), origin)).typeEraseLeak();
+                const nil = try Rml.newObject(Rml.Nil, getRml(interpreter), origin);
                 defer nil.deinit();
 
                 for (binders.keys()) |key| {
@@ -472,7 +472,7 @@ fn runSequence(
     objects: []const Object,
     offset: *usize,
 ) Rml.Result! ?Obj(Table) {
-    const env: Obj(Table) = try .init(getRml(interpreter), origin);
+    const env: Obj(Table) = try .new(getRml(interpreter), origin);
     defer env.deinit();
 
     for (patterns, 0..) |patternObj, p| {
@@ -483,7 +483,7 @@ fn runSequence(
                 const out = objects[offset.*];
                 offset.* += 1;
                 break :adv out.clone();
-            } else (try Obj(Rml.Nil).init(getRml(interpreter), origin)).typeEraseLeak();
+            } else try Rml.newObject(Rml.Nil, getRml(interpreter), origin);
         defer input.deinit();
 
         const pattern = Rml.castObj(Rml.Pattern, patternObj) orelse {

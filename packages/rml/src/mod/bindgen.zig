@@ -35,7 +35,7 @@ const isBuiltinType = Rml.isBuiltinType;
 
 pub fn bindGlobals(rml: *Rml, env: Obj(Env), comptime globals: type) (OOM || SymbolAlreadyBound)! void {
     inline for (comptime std.meta.declarations(globals)) |field| {
-        const symbol: Obj(Symbol) = try .init(rml, rml.storage.origin, .{field.name});
+        const symbol: Obj(Symbol) = try .new(rml, rml.storage.origin, .{field.name});
         errdefer symbol.deinit();
 
         const object = try toObjectConst(rml, rml.storage.origin, &@field(globals, field.name));
@@ -48,10 +48,10 @@ pub fn bindGlobals(rml: *Rml, env: Obj(Env), comptime globals: type) (OOM || Sym
 
 pub fn bindObjectNamespaces(rml: *Rml, env: Obj(Env), comptime namespaces: anytype) (OOM || SymbolAlreadyBound)! void {
     inline for (comptime std.meta.fields(@TypeOf(namespaces))) |field| {
-        const builtinEnv: Obj(Env) = try .init(rml, rml.storage.origin);
+        const builtinEnv: Obj(Env) = try .new(rml, rml.storage.origin);
         builtinEnv.data.parent = downgradeCast(env);
         defer std.debug.assert(builtinEnv.getHeader().ref_count == 1);
-        defer builtinEnv.deinit();
+        errdefer builtinEnv.deinit();
 
         const Ns = Namespace(@field(namespaces, field.name));
 
@@ -59,8 +59,10 @@ pub fn bindObjectNamespaces(rml: *Rml, env: Obj(Env), comptime namespaces: anyty
         defer Ns.deinitMethods(methods);
 
         try builtinEnv.data.bindNamespace(methods);
+        const sym = try Rml.newWith(Symbol, rml, rml.storage.origin, .{field.name});
+        errdefer sym.deinit();
 
-        try env.data.bind(try Obj(Symbol).init(rml, rml.storage.origin, .{field.name}), builtinEnv.typeErase());
+        try env.data.bind(sym, builtinEnv.typeEraseLeak());
     }
 }
 

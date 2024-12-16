@@ -76,7 +76,7 @@ pub const Env = struct {
         const rml = getRml(self);
         const origin = Origin.fromComptimeStr("builtin-" ++ @typeName(T));
         inline for (comptime std.meta.fields(T)) |field| {
-            const sym: Obj(Symbol) = try .init(rml, origin, .{field.name});
+            const sym: Obj(Symbol) = try .new(rml, origin, .{field.name});
 
             if (comptime std.mem.startsWith(u8, @typeName(field.type), "object.Obj")) {
                 self.bind(sym, @field(namespace, field.name).typeErase()) catch |err| {
