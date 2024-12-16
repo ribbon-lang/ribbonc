@@ -1,7 +1,14 @@
 local check = fun({* args}) print-ln args
 
 check 1 2 3 4 5
+check 1 2
+check 1
 check
+local check2 = fun({+ args}) print-ln args
+
+check2 1 2 3 4 5
+check2 1 2
+check2 1
 
 local foo = fun(x)
     print-ln x
