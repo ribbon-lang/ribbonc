@@ -632,3 +632,22 @@ pub fn coerceArray(obj: Object) OOM! ?Obj(Rml.Array) {
         return try x.data.toArray();
     } else return null;
 }
+
+
+pub fn isExactString(name: []const u8, obj: Object) bool {
+    if (castObj(Rml.String, obj)) |sym| {
+        defer sym.deinit();
+        return std.mem.eql(u8, sym.data.text(), name);
+    } else {
+        return false;
+    }
+}
+
+pub fn isExactSymbol(name: []const u8, obj: Object) bool {
+    if (castObj(Symbol, obj)) |sym| {
+        defer sym.deinit();
+        return std.mem.eql(u8, sym.data.text(), name);
+    } else {
+        return false;
+    }
+}

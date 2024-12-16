@@ -206,46 +206,7 @@ pub const Interpreter = struct {
         if (Rml.castObj(Rml.procedure.Procedure, callable)) |procedure| {
             defer procedure.deinit();
 
-            switch (procedure.data.*) {
-                .macro => { unreachable; },
-                .function => |func| {
-                    var eArgs = try Rml.wrap(getRml(self), callOrigin, Rml.Block { .kind = .doc, .array = try self.evalAll(args) });
-                    defer eArgs.deinit();
-
-                    var diag: ?Rml.Diagnostic = null;
-                    const table: ?Obj(Rml.map.Table) = try func.argument_pattern.data.run(self, &diag, eArgs.typeEraseLeak());
-                    if (table) |tbl| {
-                        defer tbl.deinit();
-
-                        const oldEnv = self.evaluation_env;
-                        defer {
-                            self.evaluation_env.deinit();
-                            self.evaluation_env = oldEnv;
-                        }
-
-                        self.evaluation_env = try Obj(Env).wrap(getRml(self), callOrigin, Env {
-                            .parent = downgradeCast(oldEnv),
-                            .table = try tbl.data.unmanaged.clone(getRml(self)),
-                        });
-
-                        return self.runProgram(procedure.getOrigin(), func.body.items());
-                    } else if (diag) |d| {
-                        try self.abort(callOrigin, error.PatternError,
-                            "argument pattern from {} failed to match; {} vs {}:\n\t{}", .{blame, func.argument_pattern, eArgs, d.formatter(error.PatternError)});
-                    } else {
-                        evaluation.err("requested pattern diagnostic is null", .{});
-                        try self.abort(callOrigin, error.PatternError,
-                            "argument pattern from {} failed to match; {} vs {}", .{blame, func.argument_pattern, eArgs});
-                    }
-                },
-                .native_macro => |func| return func(self, callOrigin, args),
-                .native_function => |func| {
-                    var eArgs = try self.evalAll(args);
-                    defer eArgs.deinit(getRml(self));
-
-                    return func(self, callOrigin, eArgs.items());
-                },
-            }
+            return procedure.data.call(self, callOrigin, blame, args);
         } else {
             try self.abort(callOrigin, error.TypeError, "expected a procedure, got {s}: {s}", .{Rml.TypeId.name(callable.getTypeId()), callable});
         }

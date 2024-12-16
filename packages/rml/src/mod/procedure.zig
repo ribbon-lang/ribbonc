@@ -23,13 +23,37 @@ pub const ProcedureKind = enum {
     native_function,
 };
 
-pub const ProcedureBody = struct {
-    argument_pattern: Obj(Pattern),
-    body: Rml.array.ArrayUnmanaged,
+pub const Case = union(enum) {
+    @"else": Rml.array.ArrayUnmanaged,
 
-    pub fn deinit(self: *ProcedureBody) void {
-        self.body.deinit(self.argument_pattern.getRml());
-        self.argument_pattern.deinit();
+    pattern: struct {
+        scrutinizer: Obj(Pattern),
+        body: Rml.array.ArrayUnmanaged,
+    },
+
+    pub fn body(self: ptr(Case)) *Rml.array.ArrayUnmanaged {
+        return switch (self.*) {
+            .@"else" => |*arr| arr,
+            .pattern => |*data| &data.body,
+        };
+    }
+
+    pub fn onDeinit(self: ptr(Case)) void {
+        switch (self.*) {
+            .@"else" => |*arr| arr.deinit(getRml(self)),
+            .pattern => |*data| {
+                data.scrutinizer.deinit();
+                data.body.deinit(getRml(self));
+            },
+        }
+    }
+};
+
+pub const ProcedureBody = struct {
+    cases: Rml.array.TypedArrayUnmanaged(Case),
+
+    pub fn deinit(self: *ProcedureBody, rml: *Rml) void {
+        self.cases.deinit(rml);
     }
 };
 
@@ -53,10 +77,67 @@ pub const Procedure = union(ProcedureKind) {
 
     pub fn onDeinit(self: ptr(Procedure)) void {
         switch (self.*) {
-            .macro => |*data| data.deinit(),
-            .function => |*data| data.deinit(),
+            .macro => |*data| data.deinit(getRml(self)),
+            .function => |*data| data.deinit(getRml(self)),
             .native_macro => {},
             .native_function => {},
+        }
+    }
+
+    pub fn call(self: ptr(Procedure), interpreter: ptr(Rml.Interpreter), callOrigin: Rml.Origin, blame: Object, args: []const Object) Rml.Result! Object {
+        switch (self.*) {
+            .macro => { unreachable; },
+            .function => |func| {
+                var eArgs = try Rml.wrap(getRml(self), callOrigin, Rml.Block { .kind = .doc, .array = try interpreter.evalAll(args) });
+                defer eArgs.deinit();
+
+                var errors: Rml.string.StringUnmanaged = .{};
+                defer errors.deinit(getRml(self));
+
+                const writer = errors.writer(getRml(self));
+
+                for (func.cases.items()) |case| switch (case.data.*) {
+                    .@"else" => |caseData| {
+                        return interpreter.runProgram(case.getOrigin(), caseData.items());
+                    },
+                    .pattern => |caseData| {
+                        var diag: ?Rml.Diagnostic = null;
+                        const table: ?Obj(Rml.map.Table) = try caseData.scrutinizer.data.run(interpreter, &diag, eArgs.typeEraseLeak());
+                        if (table) |tbl| {
+                            defer tbl.deinit();
+
+                            const oldEnv = interpreter.evaluation_env;
+                            defer {
+                                interpreter.evaluation_env.deinit();
+                                interpreter.evaluation_env = oldEnv;
+                            }
+
+                            interpreter.evaluation_env = try Obj(Rml.Env).wrap(getRml(self), callOrigin, Rml.Env {
+                                .parent = Rml.downgradeCast(oldEnv),
+                                .table = try tbl.data.unmanaged.clone(getRml(self)),
+                            });
+
+                            return interpreter.runProgram(case.getOrigin(), caseData.body.items());
+                        } else if (diag) |d| {
+                            writer.print("failed to match; {} vs {}:\n\t{}", .{ caseData.scrutinizer, eArgs, d.formatter(error.PatternError)})
+                                catch |err| return Rml.errorCast(err);
+                        } else {
+                            Rml.interpreter.evaluation.err("requested pattern diagnostic is null", .{});
+                            writer.print("failed to match; {} vs {}", .{ caseData.scrutinizer, eArgs})
+                                catch |err| return Rml.errorCast(err);
+                        }
+                    },
+                };
+
+                try interpreter.abort(callOrigin, Rml.Error.TypeError, "case set from {} failed to match; no matching case found for input", .{blame});
+            },
+            .native_macro => |func| return func(interpreter, callOrigin, args),
+            .native_function => |func| {
+                var eArgs = try interpreter.evalAll(args);
+                defer eArgs.deinit(getRml(self));
+
+                return func(interpreter, callOrigin, eArgs.items());
+            },
         }
     }
 };

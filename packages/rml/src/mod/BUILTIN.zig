@@ -111,45 +111,104 @@ pub const fun = Rml.Procedure {
         pub fn fun(interpreter: ptr(Interpreter), origin: Origin, args: []const Object) Result! Object {
             Rml.interpreter.evaluation.debug("fun {}: {any}", .{origin, args});
 
-            if (args.len < 1) try interpreter.abort(origin, error.InvalidArgumentCount, "expected at least 1 argument, found 0", .{});
+            if (args.len == 0) try interpreter.abort(origin, error.InvalidArgumentCount, "expected at least 1 argument, found 0", .{});
 
             const rml = getRml(interpreter);
 
-            var diag: ?Rml.Diagnostic = null;
-            const pattern = Rml.Pattern.parse(args[0], &diag) catch |err| if (err == error.SyntaxError) {
-                if (diag) |d| {
-                    try interpreter.abort(origin, error.PatternError, "cannot parse pattern `{}`: {}", .{args[0], d.formatter(error.SyntaxError)});
-                } else {
-                    Rml.log.err("requested pattern parse diagnostic is null", .{});
-                    try interpreter.abort(origin, error.PatternError, "cannot parse pattern `{}`", .{args[0]});
+            var cases: Rml.array.TypedArrayUnmanaged(Rml.procedure.Case) = .{};
+            errdefer cases.deinit(rml);
+
+            if (args.len == 1) {
+                Rml.interpreter.evaluation.debug("case fun", .{});
+                const caseSet: Obj(Rml.Block) = try interpreter.castObj(Rml.Block, args[0]);
+                defer caseSet.deinit();
+                Rml.interpreter.evaluation.debug("case set {}", .{caseSet});
+
+                var isCases = true;
+                for (caseSet.data.items()) |obj| {
+                    if (!Rml.isType(Rml.Block, obj)) {
+                        isCases = false;
+                        break;
+                    }
                 }
-            } else return err;
-            errdefer pattern.deinit();
 
-            Rml.interpreter.evaluation.debug("fun pattern: {}", .{pattern});
+                if (isCases) {
+                    for (caseSet.data.array.items()) |case| {
+                        Rml.interpreter.evaluation.debug("case {}", .{case});
+                        const caseBlock = try interpreter.castObj(Rml.Block, case);
+                        defer caseBlock.deinit();
 
-            if (pattern.data.* != .block) {
-                try interpreter.abort(origin, error.TypeError, "expected block pattern, found {}", .{pattern});
+                        const c = try parseCase(interpreter, origin, caseBlock.data.array.items());
+                        errdefer c.deinit();
+
+                        try cases.append(rml, c);
+                    }
+                } else {
+                    Rml.interpreter.evaluation.debug("fun single case: {any}", .{caseSet.data.array.items()});
+                    const c = try parseCase(interpreter, origin, caseSet.data.array.items());
+                    errdefer c.deinit();
+
+                    try cases.append(rml, c);
+                }
+            } else {
+                Rml.interpreter.evaluation.debug("fun single case: {any}", .{args});
+                const c = try parseCase(interpreter, origin, args);
+                errdefer c.deinit();
+
+                try cases.append(rml, c);
             }
 
-            if (pattern.data.block.data.kind != .doc) {
-                try interpreter.abort(origin, error.InvalidArgument, "expected doc block pattern, found {}", .{pattern});
-            }
-
-            var body: Rml.array.ArrayUnmanaged = .{};
-            errdefer body.deinit(rml);
-
-            for (args[1..]) |arg| {
-                try body.append(rml, arg.clone());
-            }
-
-            Rml.interpreter.evaluation.debug("fun body: {any}", .{body});
-
-
-            return (try Obj(Rml.Procedure).wrap(rml, origin, .{.function = .{.argument_pattern = pattern, .body = body}})).typeEraseLeak();
+            return (try Obj(Rml.Procedure).wrap(rml, origin, .{.function = .{.cases = cases}})).typeEraseLeak();
         }
     }.fun,
 };
+
+fn parseCase(interpreter: ptr(Interpreter), origin: Origin, args: []const Object) Result! Obj(Rml.procedure.Case) {
+    Rml.interpreter.evaluation.debug("parseCase {}:{any}", .{origin,args});
+    if (args.len < 2) try interpreter.abort(origin, error.InvalidArgumentCount, "expected at least 2 arguments, found {}", .{args.len});
+    var out = try Rml.wrap(getRml(interpreter), origin, if (Rml.object.isExactSymbol("else", args[0])) Rml.procedure.Case {
+        .@"else" = .{},
+    } else patternCase: {
+        var diag: ?Rml.Diagnostic = null;
+        const pattern = Rml.Pattern.parse(args[0], &diag) catch |err| if (err == error.SyntaxError) {
+            if (diag) |d| {
+                try interpreter.abort(origin, error.PatternError, "cannot parse pattern `{}`: {}", .{args[0], d.formatter(error.SyntaxError)});
+            } else {
+                Rml.log.err("requested pattern parse diagnostic is null", .{});
+                try interpreter.abort(origin, error.PatternError, "cannot parse pattern `{}`", .{args[0]});
+            }
+        } else return err;
+        errdefer pattern.deinit();
+
+        Rml.interpreter.evaluation.debug("case pattern: {}", .{pattern});
+
+        if (pattern.data.* != .block) {
+            try interpreter.abort(origin, error.TypeError, "expected block pattern, found {} ({s})", .{pattern, @tagName(pattern.data.*)});
+        }
+
+        if (pattern.data.block.data.kind != .doc) {
+            try interpreter.abort(origin, error.InvalidArgument, "expected doc block pattern, found {} ({s})", .{pattern, @tagName(pattern.data.block.data.kind)});
+        }
+
+        break :patternCase Rml.procedure.Case {
+            .pattern = .{
+                .scrutinizer = pattern,
+                .body = .{},
+            },
+        };
+    });
+    errdefer out.deinit();
+
+    const body = out.data.body();
+
+    for (args[1..]) |arg| {
+        try body.append(getRml(interpreter), arg.clone());
+    }
+
+    Rml.interpreter.evaluation.debug("case body: {any}", .{body});
+
+    return out;
+}
 
 /// Print any number of arguments followed by a new line
 pub fn @"print-ln"(interpreter: ptr(Interpreter), origin: Origin, args: []const Object) Result! Object {
