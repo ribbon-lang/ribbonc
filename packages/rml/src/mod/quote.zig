@@ -189,7 +189,7 @@ pub fn runQuasi(interpreter: ptr(Interpreter), body: Object, out: ?*Rml.array.Ar
             }
         }
 
-        return (try Obj(Rml.Block).wrap(rml, block.getOrigin(), .{.kind = block.data.kind, .array = subOut})).typeEraseLeak();
+        return (try Rml.wrap(rml, block.getOrigin(), Rml.Block {.kind = block.data.kind, .array = subOut})).typeEraseLeak();
     }
 
     return body.clone();

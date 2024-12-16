@@ -88,11 +88,13 @@ pub fn TypedArrayUnmanaged (comptime T: type) type {
             return Rml.compare(self.native_array.items, other.native_array.items);
         }
 
-        pub fn format(self: *const Self, comptime fmt: []const u8, opts: std.fmt.FormatOptions, writer: anytype) anyerror! void {
+        pub fn format(self: *const Self, comptime fmt: []const u8, opts: std.fmt.FormatOptions, writer: anytype) Error! void {
+            writer.print("ARRAY[{}]{{", .{self.native_array.items.len}) catch |err| return Rml.errorCast(err);
             for (self.native_array.items, 0..) |obj, i| {
                 try obj.format(fmt, opts, writer);
-                if (i < self.native_array.items.len - 1) try writer.writeAll(" ");
+                if (i < self.native_array.items.len - 1) writer.writeAll(" ") catch |err| return Rml.errorCast(err);
             }
+            writer.writeAll("}") catch |err| return Rml.errorCast(err);
         }
 
         pub fn deinit(self: *Self, rml: *Rml) void {

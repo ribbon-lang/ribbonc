@@ -113,12 +113,14 @@ pub fn TypedSetUnmanaged  (comptime K: type) type {
 
         pub fn format(self: *const Self, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) Error! void {
             const ks = self.keys();
+            writer.writeAll("SET{") catch |err| return Rml.errorCast(err);
             for (ks, 0..) |key, i| {
                 writer.print("{}", .{key}) catch |err| return Rml.errorCast(err);
                 if (i < ks.len - 1) {
                     writer.writeAll(" ") catch |err| return Rml.errorCast(err);
                 }
             }
+            writer.writeAll("}") catch |err| return Rml.errorCast(err);
         }
 
         pub fn deinit(self: *Self, rml: *Rml) void {
@@ -189,7 +191,7 @@ pub fn TypedSetUnmanaged  (comptime K: type) type {
 
         pub fn copyFrom(self: *Self, rml: *Rml, other: *const Self) OOM! void {
             for (other.keys()) |key| {
-                try self.set(rml, key);
+                try self.set(rml, key.clone());
             }
         }
     };

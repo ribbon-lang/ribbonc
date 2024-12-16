@@ -136,12 +136,14 @@ pub fn TypedMapUnmanaged (comptime K: type, comptime V: type) type {
 
         pub fn format(self: *const Self, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) Error! void {
             var it = self.iter();
+            writer.writeAll("MAP{") catch |err| return Rml.errorCast(err);
             while (it.next()) |entry| {
                 writer.print("({} {})", .{entry.key_ptr.*, entry.value_ptr.*}) catch |err| return Rml.errorCast(err);
                 if (it.index < it.len) {
                     writer.writeAll(" ") catch |err| return Rml.errorCast(err);
                 }
             }
+            writer.writeAll("}") catch |err| return Rml.errorCast(err);
         }
 
         pub fn deinit(self: *Self, rml: *Rml) void {

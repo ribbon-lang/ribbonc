@@ -209,7 +209,7 @@ pub const Interpreter = struct {
             switch (procedure.data.*) {
                 .macro => { unreachable; },
                 .function => |func| {
-                    var eArgs = try Obj(Rml.Block).wrap(getRml(self), callOrigin, .{ .kind = .doc, .array = try self.evalAll(args) });
+                    var eArgs = try Rml.wrap(getRml(self), callOrigin, Rml.Block { .kind = .doc, .array = try self.evalAll(args) });
                     defer eArgs.deinit();
 
                     var diag: ?Rml.Diagnostic = null;

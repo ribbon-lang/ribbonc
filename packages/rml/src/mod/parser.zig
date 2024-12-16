@@ -975,7 +975,7 @@ pub const Parser = struct {
         // the error produced is only NoSpaceLeft, if the buffer is too small, so give the length of the buffer
         diag.message_len = len: {
             break :len (std.fmt.bufPrintZ(&diag.message_mem, fmt, args) catch {
-                log.warn("Diagnostic message too long, truncating", .{});
+                parsing.warn("Diagnostic message too long, truncating", .{});
                 break :len Rml.Diagnostic.MAX_LENGTH;
             }).len;
         };
