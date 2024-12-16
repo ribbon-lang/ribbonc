@@ -108,20 +108,42 @@ pub const Pattern = union(enum) {
         }
     }
 
-    pub fn run(self: ptr(Pattern), interpreter: ptr(Rml.Interpreter), diag: ?*?Rml.Diagnostic, input: Object) Rml.Result! ?Obj(Table) {
+    pub fn run(self: ptr(Pattern), interpreter: ptr(Rml.Interpreter), diag: ?*?Rml.Diagnostic, origin: Rml.Origin, input: []const Object) Rml.Result! ?Obj(Table) {
         var offset: usize = 0;
 
         const obj = getObj(self);
         defer obj.deinit();
 
-        return runPattern(interpreter, diag, input.getOrigin(), obj, &.{input}, &offset);
+        const out = try (
+            if (self.* == .block) runSequence(interpreter, diag, origin, self.block.data.array.items(), input, &offset)
+            else runPattern(interpreter, diag, origin, obj, input, &offset)
+        ) orelse return null;
+
+        if (offset != input.len) {
+            out.deinit();
+
+            return patternAbort(diag, origin, "expected end of input, got `{}`", .{input[offset]});
+        }
+
+        return out;
     }
 
-    pub fn parse(input: Object, diag: ?*?Rml.Diagnostic) Rml.Result! Obj(Pattern) {
+    pub fn parse(diag: ?*?Rml.Diagnostic, input: []const Object) Rml.Result! ParseResult(Pattern) {
         var offset: usize = 0;
-        return parsePattern(diag, input, &.{}, &offset);
+        const pattern = try parsePattern(diag, input, &offset);
+        return .{
+            .value = pattern,
+            .offset = offset,
+        };
     }
 };
+
+pub fn ParseResult(comptime T: type) type {
+    return struct {
+        value: Obj(T),
+        offset: usize,
+    };
+}
 
 pub const Table = Rml.map.TypedMap(Symbol, Rml.ObjData);
 
@@ -666,10 +688,7 @@ fn parseSequence(diag: ?*?Rml.Diagnostic, rml: *Rml, objects: []const Object, of
     errdefer output.deinit(rml);
 
     while (offset.* < objects.len) {
-        const obj = objects[offset.*];
-        offset.* += 1;
-
-        const patt = try parsePattern(diag, obj, objects, offset);
+        const patt = try parsePattern(diag, objects, offset);
         defer patt.deinit();
 
         try output.append(rml, patt.typeErase());
@@ -678,7 +697,10 @@ fn parseSequence(diag: ?*?Rml.Diagnostic, rml: *Rml, objects: []const Object, of
     return output;
 }
 
-fn parsePattern(diag: ?*?Rml.Diagnostic, input: Object, objects: []const Object, offset: *usize) (OOM || Rml.SyntaxError)! Obj(Pattern) {
+fn parsePattern(diag: ?*?Rml.Diagnostic, objects: []const Object, offset: *usize) (OOM || Rml.SyntaxError)! Obj(Pattern) {
+    const input = objects[offset.*];
+    offset.* += 1;
+
     const rml = input.getRml();
 
     if (Rml.castObj(Pattern, input)) |patt| {

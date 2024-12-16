@@ -1,4 +1,4 @@
-local check = fun({* args}) print-ln args
+local check = fun{* args} print-ln args
 
 check 1 2 3 4 5
 check 1 2
@@ -6,15 +6,19 @@ check 1
 check
 
 local check2 = fun
-    ({+ args}) print-ln args
-    else print-ln "no args"
+    (1 2)
+        print-ln "let me see u one, two step"
+    {+ args}
+        print-ln args
+    else
+        print-ln "no args"
 
 check2 1 2 3 4 5
 check2 1 2
 check2 1
 check2
 
-local foo = fun(x)
+local foo = fun x
     print-ln x
     + x 1
 

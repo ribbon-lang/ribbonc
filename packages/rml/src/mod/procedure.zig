@@ -88,8 +88,8 @@ pub const Procedure = union(ProcedureKind) {
         switch (self.*) {
             .macro => { unreachable; },
             .function => |func| {
-                var eArgs = try Rml.wrap(getRml(self), callOrigin, Rml.Block { .kind = .doc, .array = try interpreter.evalAll(args) });
-                defer eArgs.deinit();
+                var eArgs = try interpreter.evalAll(args);
+                defer eArgs.deinit(getRml(self));
 
                 var errors: Rml.string.StringUnmanaged = .{};
                 defer errors.deinit(getRml(self));
@@ -102,9 +102,9 @@ pub const Procedure = union(ProcedureKind) {
                     },
                     .pattern => |caseData| {
                         var diag: ?Rml.Diagnostic = null;
-                        const table: ?Obj(Rml.map.Table) = try caseData.scrutinizer.data.run(interpreter, &diag, eArgs.typeEraseLeak());
-                        if (table) |tbl| {
-                            defer tbl.deinit();
+                        const result: ?Obj(Rml.map.Table) = try caseData.scrutinizer.data.run(interpreter, &diag, callOrigin, eArgs.items());
+                        if (result) |res| {
+                            defer res.deinit();
 
                             const oldEnv = interpreter.evaluation_env;
                             defer {
@@ -114,7 +114,7 @@ pub const Procedure = union(ProcedureKind) {
 
                             interpreter.evaluation_env = try Obj(Rml.Env).wrap(getRml(self), callOrigin, Rml.Env {
                                 .parent = Rml.downgradeCast(oldEnv),
-                                .table = try tbl.data.unmanaged.clone(getRml(self)),
+                                .table = try res.data.unmanaged.clone(getRml(self)),
                             });
 
                             return interpreter.runProgram(case.getOrigin(), caseData.body.items());
@@ -129,7 +129,7 @@ pub const Procedure = union(ProcedureKind) {
                     },
                 };
 
-                try interpreter.abort(callOrigin, Rml.Error.TypeError, "case set from {} failed to match; no matching case found for input", .{blame});
+                try interpreter.abort(callOrigin, error.PatternError, "{} failed; no matching case found for input", .{blame});
             },
             .native_macro => |func| return func(interpreter, callOrigin, args),
             .native_function => |func| {

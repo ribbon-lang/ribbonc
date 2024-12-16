@@ -138,21 +138,21 @@ pub const fun = Rml.Procedure {
                         const caseBlock = try interpreter.castObj(Rml.Block, case);
                         defer caseBlock.deinit();
 
-                        const c = try parseCase(interpreter, origin, caseBlock.data.array.items());
+                        const c = try parseCase(interpreter, origin, true, caseBlock.data.array.items());
                         errdefer c.deinit();
 
                         try cases.append(rml, c);
                     }
                 } else {
                     Rml.interpreter.evaluation.debug("fun single case: {any}", .{caseSet.data.array.items()});
-                    const c = try parseCase(interpreter, origin, caseSet.data.array.items());
+                    const c = try parseCase(interpreter, origin, true, caseSet.data.array.items());
                     errdefer c.deinit();
 
                     try cases.append(rml, c);
                 }
             } else {
                 Rml.interpreter.evaluation.debug("fun single case: {any}", .{args});
-                const c = try parseCase(interpreter, origin, args);
+                const c = try parseCase(interpreter, origin, true, args);
                 errdefer c.deinit();
 
                 try cases.append(rml, c);
@@ -163,36 +163,30 @@ pub const fun = Rml.Procedure {
     }.fun,
 };
 
-fn parseCase(interpreter: ptr(Interpreter), origin: Origin, args: []const Object) Result! Obj(Rml.procedure.Case) {
+fn parseCase(interpreter: ptr(Interpreter), origin: Origin, _: bool, args: []const Object) Result! Obj(Rml.procedure.Case) {
     Rml.interpreter.evaluation.debug("parseCase {}:{any}", .{origin,args});
     if (args.len < 2) try interpreter.abort(origin, error.InvalidArgumentCount, "expected at least 2 arguments, found {}", .{args.len});
+    var offset: usize = 1;
     var out = try Rml.wrap(getRml(interpreter), origin, if (Rml.object.isExactSymbol("else", args[0])) Rml.procedure.Case {
         .@"else" = .{},
     } else patternCase: {
         var diag: ?Rml.Diagnostic = null;
-        const pattern = Rml.Pattern.parse(args[0], &diag) catch |err| if (err == error.SyntaxError) {
+        const parseResult = Rml.Pattern.parse(&diag, args) catch |err| if (err == error.SyntaxError) {
             if (diag) |d| {
-                try interpreter.abort(origin, error.PatternError, "cannot parse pattern `{}`: {}", .{args[0], d.formatter(error.SyntaxError)});
+                try interpreter.abort(origin, error.PatternError, "cannot parse pattern starting with syntax object `{}`: {}", .{args[0], d.formatter(error.SyntaxError)});
             } else {
                 Rml.log.err("requested pattern parse diagnostic is null", .{});
                 try interpreter.abort(origin, error.PatternError, "cannot parse pattern `{}`", .{args[0]});
             }
         } else return err;
-        errdefer pattern.deinit();
+        errdefer parseResult.pattern.deinit();
 
-        Rml.interpreter.evaluation.debug("case pattern: {}", .{pattern});
-
-        if (pattern.data.* != .block) {
-            try interpreter.abort(origin, error.TypeError, "expected block pattern, found {} ({s})", .{pattern, @tagName(pattern.data.*)});
-        }
-
-        if (pattern.data.block.data.kind != .doc) {
-            try interpreter.abort(origin, error.InvalidArgument, "expected doc block pattern, found {} ({s})", .{pattern, @tagName(pattern.data.block.data.kind)});
-        }
+        Rml.interpreter.evaluation.debug("pattern parse result: {}", .{parseResult});
+        offset = parseResult.offset;
 
         break :patternCase Rml.procedure.Case {
             .pattern = .{
-                .scrutinizer = pattern,
+                .scrutinizer = parseResult.value,
                 .body = .{},
             },
         };
@@ -201,7 +195,7 @@ fn parseCase(interpreter: ptr(Interpreter), origin: Origin, args: []const Object
 
     const body = out.data.body();
 
-    for (args[1..]) |arg| {
+    for (args[offset..]) |arg| {
         try body.append(getRml(interpreter), arg.clone());
     }
 

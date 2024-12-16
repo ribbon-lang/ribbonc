@@ -90,7 +90,6 @@ pub fn main () !void {
     }) |blob| {
         defer blob.deinit();
 
-        // changing this from info to debug (turning it off) caused the segfaults
         log.debug("blob{}: {}", .{blob.getHeader().origin, blob});
 
         if (rml.main_interpreter.data.eval(blob)) |result| {
