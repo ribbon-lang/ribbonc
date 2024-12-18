@@ -21,6 +21,7 @@ const isType = Rml.isType;
 const coerceBool = Rml.coerceBool;
 
 
+/// import a namespace into the current environment
 pub const import = Rml.Procedure {
     .native_macro = &struct {
         pub fn fun(interpreter: ptr(Interpreter), origin: Origin, args: []const Object) Result! Object {
@@ -55,8 +56,57 @@ pub const import = Rml.Procedure {
     }.fun,
 };
 
+/// Create a global variable binding
+pub const global = Rml.Procedure {
+    .native_macro = &struct {
+        pub fn fun (interpreter: ptr(Interpreter), origin: Origin, args: []const Object) Result! Object {
+            Rml.interpreter.evaluation.debug("global {}: {any}", .{origin, args});
 
-/// Create a local binding
+            if (args.len < 1) try interpreter.abort(origin, error.InvalidArgumentCount, "expected at least 1 argument, found 0", .{});
+
+            const sym = try interpreter.castObj(Rml.Symbol, args[0]);
+            errdefer sym.deinit();
+
+            const nilObj = try Rml.newObject(Nil, getRml(interpreter), origin);
+            errdefer nilObj.deinit();
+
+            const equalSym = try Rml.newObjectWith(Rml.Symbol, getRml(interpreter), origin, .{"="});
+            defer equalSym.deinit();
+
+            const obj =
+                if (args.len == 1) nilObj.clone()
+                else obj: {
+                    var offset: usize = 1;
+                    if (Rml.equal(args[offset], equalSym)) offset += 1;
+                    const body = args[offset..];
+                    break :obj if (body.len == 1) single: {
+                        const bod = body[0];
+                        if (Rml.castObj(Rml.Block, bod)) |b| {
+                            defer b.deinit();
+
+                            break :single try interpreter.runProgram(origin, b.data.kind == .paren, b.data.array.items());
+                        } else {
+                            break :single try interpreter.eval(bod);
+                        }
+                    } else try interpreter.runProgram(origin, false, body);
+                };
+            errdefer obj.deinit();
+
+            getRml(interpreter).global_env.data.bind(sym, obj) catch |err| {
+                if (err == error.SymbolAlreadyBound) {
+                    try interpreter.abort(origin, error.SymbolAlreadyBound, "symbol `{}` is already bound", .{sym});
+                } else {
+                    return err;
+                }
+            };
+
+            return nilObj;
+        }
+    }.fun,
+};
+
+
+/// Create a local variable binding
 pub const local = Rml.Procedure {
     .native_macro = &struct {
         pub fn fun(interpreter: ptr(Interpreter), origin: Origin, args: []const Object) Result! Object {

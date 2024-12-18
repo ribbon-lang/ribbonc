@@ -48,3 +48,6 @@ print-ln (incr 2)
 
 local mac = macro (x) `(print-ln ,x)
 mac 1
+
+global one-hundred = 100
+print-ln one-hundred
