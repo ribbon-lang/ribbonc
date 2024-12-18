@@ -84,11 +84,11 @@ pub const local = Rml.Procedure {
                         if (Rml.castObj(Rml.Block, bod)) |b| {
                             defer b.deinit();
 
-                            break :single try interpreter.runProgram(origin, b.data.array.items());
+                            break :single try interpreter.runProgram(origin, b.data.kind == .paren, b.data.array.items());
                         } else {
                             break :single try interpreter.eval(bod);
                         }
-                    } else try interpreter.runProgram(origin, body);
+                    } else try interpreter.runProgram(origin, false, body);
                 };
             errdefer obj.deinit();
 

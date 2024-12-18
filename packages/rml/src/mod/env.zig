@@ -105,7 +105,8 @@ pub const Env = struct {
     pub fn overwriteFromTable(self: ptr(Env), table: *const Rml.map.TableUnmanaged) OOM! void {
         var it = table.iter();
         while (it.next()) |entry| {
-            try self.bindOrSet(entry.key_ptr.clone(), entry.value_ptr.clone());
+            const cell = try Rml.wrap(getRml(self), entry.key_ptr.getOrigin(), Rml.Cell {.value = entry.value_ptr.clone() });
+            try self.bindOrSetCell(entry.key_ptr.clone(), cell);
         }
     }
 

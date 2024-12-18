@@ -153,7 +153,7 @@ pub const Procedure = union(ProcedureKind) {
 
                 for (func.cases.items()) |case| switch (case.data.*) {
                     .@"else" => |caseData| {
-                        return interpreter.runProgram(case.getOrigin(), caseData.items());
+                        return interpreter.runProgram(case.getOrigin(), false, caseData.items());
                     },
                     .pattern => |caseData| {
                         var diag: ?Rml.Diagnostic = null;
@@ -168,7 +168,7 @@ pub const Procedure = union(ProcedureKind) {
                             }
 
                             interpreter.evaluation_env = env: {
-                                const env: Obj(Rml.Env) = try interpreter.evaluation_env.data.dupe(callOrigin);
+                                const env: Obj(Rml.Env) = try func.env.data.dupe(callOrigin);
                                 errdefer env.deinit();
 
                                 try env.data.overwriteFromTable(&res.data.unmanaged);
@@ -176,7 +176,7 @@ pub const Procedure = union(ProcedureKind) {
                                 break :env env;
                             };
 
-                            return interpreter.runProgram(case.getOrigin(), caseData.body.items());
+                            return interpreter.runProgram(case.getOrigin(), false, caseData.body.items());
                         } else if (diag) |d| {
                             writer.print("failed to match; {} vs {}:\n\t{}", .{ caseData.scrutinizer, eArgs, d.formatter(error.PatternError)})
                                 catch |err| return Rml.errorCast(err);
@@ -188,7 +188,7 @@ pub const Procedure = union(ProcedureKind) {
                     },
                 };
 
-                try interpreter.abort(callOrigin, error.PatternError, "{} failed; no matching case found for input", .{blame});
+                try interpreter.abort(callOrigin, error.PatternError, "{} failed; no matching case found for input {any}", .{blame, eArgs});
             },
             .native_macro => |func| return func(interpreter, callOrigin, args),
             .native_function => |func| {
