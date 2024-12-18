@@ -21,6 +21,7 @@ pub const hashWith = MiscUtils.hashWith;
 pub const array = @import("array.zig");
 pub const bindgen = @import("bindgen.zig");
 pub const block = @import("block.zig");
+pub const cell = @import("cell.zig");
 pub const env = @import("env.zig");
 pub const interpreter = @import("interpreter.zig");
 pub const map = @import("map.zig");
@@ -64,6 +65,7 @@ pub const Error = IOError || OOM || EvalError || SyntaxError || Unexpected;
 pub const Writer = writer.Writer;
 pub const Array = array.Array;
 pub const Block = block.Block;
+pub const Cell = cell.Cell;
 pub const Env = env.Env;
 pub const Interpreter = interpreter.Interpreter;
 pub const Parser = parser.Parser;
@@ -175,6 +177,7 @@ pub const DATA_TYPES = .{
     .Parser = Parser,
     .Pattern = Pattern,
     .Writer = Writer,
+    .Cell = Cell,
 };
 
 pub const OBJECT_TYPES = TypeUtils.structConcat(.{SOURCE_TYPES, COLLECTION_TYPES});

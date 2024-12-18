@@ -49,8 +49,7 @@ pub fn bindGlobals(rml: *Rml, env: Obj(Env), comptime globals: type) (OOM || Sym
 pub fn bindObjectNamespaces(rml: *Rml, env: Obj(Env), comptime namespaces: anytype) (OOM || SymbolAlreadyBound)! void {
     inline for (comptime std.meta.fields(@TypeOf(namespaces))) |field| {
         const builtinEnv: Obj(Env) = try .new(rml, rml.storage.origin);
-        builtinEnv.data.parent = downgradeCast(env);
-        defer std.debug.assert(builtinEnv.getHeader().ref_count == 1);
+        // defer std.debug.assert(builtinEnv.getHeader().ref_count == 1);
         errdefer builtinEnv.deinit();
 
         const Ns = Namespace(@field(namespaces, field.name));

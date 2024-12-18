@@ -28,11 +28,8 @@ pub const SymbolAlreadyBound = error {SymbolAlreadyBound};
 
 pub const Domain = Rml.set.TypedSetUnmanaged(Symbol);
 
-pub const MyId = enum(usize) {_};
-
 pub const Env = struct {
-    parent: Weak = Weak.Null,
-    table: Rml.map.TableUnmanaged = .{},
+    table: Rml.map.TypedMapUnmanaged(Rml.Symbol, Rml.Cell) = .{},
 
     pub fn onCompare(a: ptr(Env), other: Object) Ordering {
         var ord = Rml.compare(getTypeId(a), other.getTypeId());
@@ -42,21 +39,6 @@ pub const Env = struct {
             defer b.deinit();
 
             ord = Rml.compare(a.table, b.data.table);
-
-            if (ord == .Equal) {
-                ord = parent: {
-                    const ap = upgradeCast(Env, a.parent);
-                    defer if (ap) |x| x.deinit();
-
-                    const bp = upgradeCast(Env, b.data.parent);
-                    defer if (bp) |x| x.deinit();
-
-                    break :parent if (ap == null and bp == null) .Equal
-                    else if (ap == null) .Less
-                    else if (bp == null) .Greater
-                    else Rml.compare(ap.?, bp.?);
-                };
-            }
         }
 
         return ord;
@@ -68,7 +50,6 @@ pub const Env = struct {
 
     pub fn onDeinit(self: ptr(Env)) void {
         self.table.deinit(getRml(self));
-        self.parent.deinit();
     }
 
     pub fn bindNamespace(self: ptr(Env), namespace: anytype) OOM! void {
@@ -96,107 +77,115 @@ pub const Env = struct {
     }
 
 
-    pub fn copyFrom(self: ptr(Env), env: Obj(Env)) (OOM || SymbolAlreadyBound)! void {
-        var it = env.data.table.iter();
+    pub fn dupe(self: ptr(Env), origin: ?Origin) OOM! Obj(Env) {
+        const x: Obj(Env) = try .new(getRml(self), origin orelse Rml.getOrigin(self));
+        errdefer x.deinit();
+
+        x.data.copyFromEnv(self) catch return error.OutOfMemory;
+
+        return x;
+    }
+
+
+    pub fn copyFromEnv(self: ptr(Env), other: ptr(Env)) (OOM || SymbolAlreadyBound)! void {
+        var it = other.table.iter();
+        while (it.next()) |entry| {
+            if (self.table.contains(entry.key_ptr.*)) return error.SymbolAlreadyBound;
+            try self.table.set(getRml(self), entry.key_ptr.clone(), entry.value_ptr.clone());
+        }
+    }
+
+    pub fn copyFromTable(self: ptr(Env), table: *const Rml.map.TableUnmanaged) (OOM || SymbolAlreadyBound)! void {
+        var it = table.iter();
         while (it.next()) |entry| {
             try self.bind(entry.key_ptr.clone(), entry.value_ptr.clone());
         }
     }
 
+    pub fn overwriteFromTable(self: ptr(Env), table: *const Rml.map.TableUnmanaged) OOM! void {
+        var it = table.iter();
+        while (it.next()) |entry| {
+            try self.bindOrSet(entry.key_ptr.clone(), entry.value_ptr.clone());
+        }
+    }
+
+    /// Set a cell associated with a key
+    pub fn bindOrSetCell(self: ptr(Env), key: Obj(Symbol), cell: Obj(Rml.Cell)) OOM! void {
+        return self.setCell(key, cell)
+         catch self.bindCell(key, cell)
+         catch error.OutOfMemory;
+    }
+
+    pub fn bindCell(self: ptr(Env), key: Obj(Symbol), cell: Obj(Rml.Cell)) (OOM || SymbolAlreadyBound)! void {
+        if (self.contains(key)) return error.SymbolAlreadyBound;
+
+        try self.table.set(getRml(self), key, cell);
+    }
+
+    pub fn setCell(self: ptr(Env), key: Obj(Symbol), cell: Obj(Rml.Cell)) UnboundSymbol! void {
+        return if (self.table.native_map.getEntry(key)) |entry| {
+            entry.value_ptr.deinit();
+            entry.value_ptr.* = cell;
+        } else error.UnboundSymbol;
+    }
+
+    /// Set a value associated with a key
+    pub fn bindOrSet(self: ptr(Env), key: Obj(Symbol), val: Object) OOM! void {
+        return self.set(key, val)
+         catch self.bind(key, val)
+         catch error.OutOfMemory;
+    }
 
     /// Set a value associated with a new key
     ///
     /// Returns an error if a value with the same name was already declared in this scope.
     /// Returns an error if Rml is out of memory.
     pub fn bind(self: ptr(Env), key: Obj(Symbol), val: Object) (OOM || SymbolAlreadyBound)! void {
-        if (self.containsLocal(key)) return error.SymbolAlreadyBound;
+        if (self.contains(key)) return error.SymbolAlreadyBound;
 
-        try self.table.set(getRml(self), key, val);
+        const cell = try Rml.wrap(getRml(self), key.getOrigin(), Rml.Cell {.value = val});
+        errdefer cell.deinit();
+
+        try self.table.set(getRml(self), key, cell);
     }
 
     /// Set the value associated with a symbol
     ///
-    /// Gives an error if a binding does not exist in this or an ancestor env
+    /// Gives an error if a binding does not exist in this env
     pub fn set(self: ptr(Env), key: Obj(Symbol), val: Object) UnboundSymbol! void {
         return if (self.table.native_map.getEntry(key)) |entry| {
             entry.value_ptr.deinit();
-            entry.value_ptr.* = val;
-        } else if (upgradeCast(Env, self.parent)) |parent| parent.data.set(key, val)
-        else error.UnboundSymbol;
-    }
-
-    /// Set the value associated with a symbol
-    ///
-    /// Gives an error if a binding does not exist in this frame of the env
-    pub fn setLocal(self: ptr(Env), key: Obj(Symbol), val: Object) UnboundSymbol! void {
-        return if (self.table.native_map.getEntry(key)) |entry| {
-            entry.value_ptr.deinit();
-            entry.value_ptr.* = val;
+            entry.value_ptr.data.set(val);
         } else error.UnboundSymbol;
     }
 
-    /// Set the value associated with a symbol in the ancestors of this env
-    ///
-    /// Gives an error if a binding does not exist in the ancestors of this env
-    pub fn setInParent(self: ptr(Env), key: Obj(Symbol), val: Object) UnboundSymbol! void {
-        const p = upgradeCast(Env, self.parent) orelse return error.UnboundSymbol;
-        defer p.deinit();
-        return p.data.set(key, val);
+    /// Find the cell bound to a symbol in the env
+    pub fn getCell(self: ptr(Env), key: Obj(Symbol)) ?Obj(Rml.Cell) {
+        return self.table.get(key);
     }
 
     /// Find the value bound to a symbol in the env
     pub fn get(self: ptr(Env), key: Obj(Symbol)) ?Object {
-        return self.getLocal(key) orelse self.getInParent(key);
-    }
+        if (self.table.get(key)) |cell| {
+            defer cell.deinit();
+            return cell.data.get();
+        }
 
-    /// Find the value bound to a symbol in the local frame of the env
-    pub fn getLocal(self: ptr(Env), key: Obj(Symbol)) ?Object {
-        return if (self.table.get(key)) |val| val else null;
-    }
-
-    /// Returns the value bound to a symbol in the ancestors of this env
-    pub fn getInParent(self: ptr(Env), key: Obj(Symbol)) ?Object {
-        const p = upgradeCast(Env, self.parent) orelse return null;
-        defer p.deinit();
-        return p.data.get(key);
+        return null;
     }
 
     /// Returns the number of bindings in the env
     pub fn length(self: ptr(Env)) usize {
-        return self.localLength() + self.parentLength();
-    }
-
-    /// Returns the number of bindings in the local frame of the env
-    pub fn localLength(self: ptr(Env)) usize {
         return self.table.length();
-    }
-
-    /// Returns the number of bindings in the ancestors of this env
-    pub fn parentLength(self: ptr(Env)) usize {
-        const p = upgradeCast(Env, self.parent) orelse return 0;
-        defer p.deinit();
-        return p.data.length();
     }
 
     /// Check whether a key is bound in the env
     pub fn contains(self: ptr(Env), key: Obj(Symbol)) bool {
-        return self.containsLocal(key) or self.containsInParent(key);
-    }
-
-    /// Check whether a key is bound in the local frame of the env
-    pub fn containsLocal(self: ptr(Env), key: Obj(Symbol)) bool {
         return self.table.contains(key);
     }
 
-    /// Check whether a key is bound in the ancestors of this env
-    pub fn containsInParent(self: ptr(Env), key: Obj(Symbol)) bool {
-        const p = upgradeCast(Env, self.parent) orelse return false;
-        defer p.deinit();
-        return p.data.contains(key);
-    }
-
     /// Get a slice of the local keys of this Env
-    pub fn localKeys(self: ptr(Env)) []Obj(Symbol) {
+    pub fn keys(self: ptr(Env)) []Obj(Symbol) {
         return self.table.keys();
     }
 };

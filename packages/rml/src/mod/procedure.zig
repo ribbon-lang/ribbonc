@@ -31,13 +31,6 @@ pub const Case = union(enum) {
         body: Rml.array.ArrayUnmanaged,
     },
 
-    pub fn body(self: ptr(Case)) *Rml.array.ArrayUnmanaged {
-        return switch (self.*) {
-            .@"else" => |*arr| arr,
-            .pattern => |*data| &data.body,
-        };
-    }
-
     pub fn onDeinit(self: ptr(Case)) void {
         switch (self.*) {
             .@"else" => |*arr| arr.deinit(getRml(self)),
@@ -47,12 +40,74 @@ pub const Case = union(enum) {
             },
         }
     }
+
+    pub fn body(self: ptr(Case)) *Rml.array.ArrayUnmanaged {
+        return switch (self.*) {
+            .@"else" => |*arr| arr,
+            .pattern => |*data| &data.body,
+        };
+    }
+
+    pub fn parse(interpreter: ptr(Rml.Interpreter), origin: Rml.Origin, args: []const Object) Rml.Result! Obj(Case) {
+        Rml.interpreter.evaluation.debug("parseCase {}:{any}", .{origin,args});
+
+        if (args.len < 2) try interpreter.abort(origin, error.InvalidArgumentCount,
+            "expected at least 2 arguments, found {}", .{args.len});
+
+        var offset: usize = 1;
+
+        const case = if (Rml.object.isExactSymbol("else", args[0])) Rml.procedure.Case {
+            .@"else" = .{},
+        } else patternCase: {
+            var diag: ?Rml.Diagnostic = null;
+            const parseResult = Rml.Pattern.parse(&diag, args)
+                catch |err| {
+                    if (err == error.SyntaxError) {
+                        if (diag) |d| {
+                            try interpreter.abort(origin, error.PatternError,
+                                "cannot parse pattern starting with syntax object `{}`: {}", .{args[0], d.formatter(error.SyntaxError)});
+                        } else {
+                            Rml.log.err("requested pattern parse diagnostic is null", .{});
+                            try interpreter.abort(origin, error.PatternError,
+                                "cannot parse pattern `{}`", .{args[0]});
+                        }
+                    }
+
+                    return err;
+                };
+
+            Rml.interpreter.evaluation.debug("pattern parse result: {}", .{parseResult});
+            offset = parseResult.offset;
+
+            break :patternCase Rml.procedure.Case {
+                .pattern = .{
+                    .scrutinizer = parseResult.value,
+                    .body = .{},
+                },
+            };
+        };
+
+        const out = try Rml.wrap(getRml(interpreter), origin, case);
+        errdefer out.deinit();
+
+        const content = out.data.body();
+
+        for (args[offset..]) |arg| {
+            try content.append(getRml(interpreter), arg.clone());
+        }
+
+        Rml.interpreter.evaluation.debug("case body: {any}", .{content});
+
+        return out;
+    }
 };
 
 pub const ProcedureBody = struct {
+    env: Obj(Rml.Env),
     cases: Rml.array.TypedArrayUnmanaged(Case),
 
     pub fn deinit(self: *ProcedureBody, rml: *Rml) void {
+        self.env.deinit();
         self.cases.deinit(rml);
     }
 };
@@ -112,10 +167,14 @@ pub const Procedure = union(ProcedureKind) {
                                 interpreter.evaluation_env = oldEnv;
                             }
 
-                            interpreter.evaluation_env = try Obj(Rml.Env).wrap(getRml(self), callOrigin, Rml.Env {
-                                .parent = Rml.downgradeCast(oldEnv),
-                                .table = try res.data.unmanaged.clone(getRml(self)),
-                            });
+                            interpreter.evaluation_env = env: {
+                                const env: Obj(Rml.Env) = try interpreter.evaluation_env.data.dupe(callOrigin);
+                                errdefer env.deinit();
+
+                                try env.data.overwriteFromTable(&res.data.unmanaged);
+
+                                break :env env;
+                            };
 
                             return interpreter.runProgram(case.getOrigin(), caseData.body.items());
                         } else if (diag) |d| {

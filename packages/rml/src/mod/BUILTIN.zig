@@ -30,7 +30,7 @@ pub const import = Rml.Procedure {
             defer namespaceSym.deinit();
 
             const namespace: Object = getRml(interpreter).namespace_env.data.get(namespaceSym) orelse {
-                try interpreter.abort(origin, error.UnboundSymbol, "namespace {} not found; available namespaces are: {any}", .{namespaceSym, getRml(interpreter).namespace_env.data.localKeys()});
+                try interpreter.abort(origin, error.UnboundSymbol, "namespace {} not found; available namespaces are: {any}", .{namespaceSym, getRml(interpreter).namespace_env.data.keys()});
             };
             defer namespace.deinit();
 
@@ -39,7 +39,7 @@ pub const import = Rml.Procedure {
 
             const localEnv: ptr(Rml.Env) = interpreter.evaluation_env.data;
 
-            for (env.data.localKeys()) |key| {
+            for (env.data.keys()) |key| {
                 const slashSym = slashSym: {
                     const slashStr = try std.fmt.allocPrint(getRml(interpreter).storage.object, "{}/{}", .{namespaceSym, key});
                     defer getRml(interpreter).storage.object.free(slashStr);
@@ -47,7 +47,7 @@ pub const import = Rml.Procedure {
                     break :slashSym try Rml.newWith(Rml.Symbol, getRml(interpreter), origin, .{slashStr});
                 };
 
-                try localEnv.bind(slashSym, env.data.getLocal(key).?);
+                try localEnv.bindOrSetCell(slashSym, env.data.getCell(key).?);
             }
 
             return Rml.newObject(Nil, getRml(interpreter), origin);
@@ -138,71 +138,40 @@ pub const fun = Rml.Procedure {
                         const caseBlock = try interpreter.castObj(Rml.Block, case);
                         defer caseBlock.deinit();
 
-                        const c = try parseCase(interpreter, origin, true, caseBlock.data.array.items());
+                        const c = try Rml.procedure.Case.parse(interpreter, origin, caseBlock.data.array.items());
                         errdefer c.deinit();
 
                         try cases.append(rml, c);
                     }
                 } else {
                     Rml.interpreter.evaluation.debug("fun single case: {any}", .{caseSet.data.array.items()});
-                    const c = try parseCase(interpreter, origin, true, caseSet.data.array.items());
+                    const c = try Rml.procedure.Case.parse(interpreter, origin, caseSet.data.array.items());
                     errdefer c.deinit();
 
                     try cases.append(rml, c);
                 }
             } else {
                 Rml.interpreter.evaluation.debug("fun single case: {any}", .{args});
-                const c = try parseCase(interpreter, origin, true, args);
+                const c = try Rml.procedure.Case.parse(interpreter, origin, args);
                 errdefer c.deinit();
 
                 try cases.append(rml, c);
             }
 
-            return (try Obj(Rml.Procedure).wrap(rml, origin, .{.function = .{.cases = cases}})).typeEraseLeak();
+            const env = try interpreter.evaluation_env.data.dupe(origin);
+            errdefer env.deinit();
+
+            const out = try Rml.wrapObject(rml, origin, Rml.Procedure {
+                .function = .{
+                    .env = env,
+                    .cases = cases,
+                },
+            });
+
+            return out;
         }
     }.fun,
 };
-
-fn parseCase(interpreter: ptr(Interpreter), origin: Origin, _: bool, args: []const Object) Result! Obj(Rml.procedure.Case) {
-    Rml.interpreter.evaluation.debug("parseCase {}:{any}", .{origin,args});
-    if (args.len < 2) try interpreter.abort(origin, error.InvalidArgumentCount, "expected at least 2 arguments, found {}", .{args.len});
-    var offset: usize = 1;
-    var out = try Rml.wrap(getRml(interpreter), origin, if (Rml.object.isExactSymbol("else", args[0])) Rml.procedure.Case {
-        .@"else" = .{},
-    } else patternCase: {
-        var diag: ?Rml.Diagnostic = null;
-        const parseResult = Rml.Pattern.parse(&diag, args) catch |err| if (err == error.SyntaxError) {
-            if (diag) |d| {
-                try interpreter.abort(origin, error.PatternError, "cannot parse pattern starting with syntax object `{}`: {}", .{args[0], d.formatter(error.SyntaxError)});
-            } else {
-                Rml.log.err("requested pattern parse diagnostic is null", .{});
-                try interpreter.abort(origin, error.PatternError, "cannot parse pattern `{}`", .{args[0]});
-            }
-        } else return err;
-        errdefer parseResult.pattern.deinit();
-
-        Rml.interpreter.evaluation.debug("pattern parse result: {}", .{parseResult});
-        offset = parseResult.offset;
-
-        break :patternCase Rml.procedure.Case {
-            .pattern = .{
-                .scrutinizer = parseResult.value,
-                .body = .{},
-            },
-        };
-    });
-    errdefer out.deinit();
-
-    const body = out.data.body();
-
-    for (args[offset..]) |arg| {
-        try body.append(getRml(interpreter), arg.clone());
-    }
-
-    Rml.interpreter.evaluation.debug("case body: {any}", .{body});
-
-    return out;
-}
 
 /// Print any number of arguments followed by a new line
 pub fn @"print-ln"(interpreter: ptr(Interpreter), origin: Origin, args: []const Object) Result! Object {

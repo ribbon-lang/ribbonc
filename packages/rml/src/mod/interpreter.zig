@@ -42,12 +42,9 @@ pub const Interpreter = struct {
     evaluation_env: Obj(Env),
 
     pub fn onInit(self: ptr(Interpreter)) OOM! void {
-        const rml = getRml(self);
-
         evaluation.debug("initializing Obj(Interpreter){x}", .{@intFromPtr(self)});
 
         self.evaluation_env = try Rml.new(Env, getRml(self), getHeader(self).origin);
-        self.evaluation_env.data.parent = downgradeCast(rml.global_env);
     }
 
     pub fn onCompare(a: ptr(Interpreter), other: Object) Ordering {
@@ -67,7 +64,6 @@ pub const Interpreter = struct {
         const rml = getRml(self);
         self.evaluation_env.deinit();
         self.evaluation_env = try Rml.new(Env, rml, getHeader(self).origin);
-        self.evaluation_env.data.parent = downgradeCast(rml.global_env);
     }
 
     pub fn castObj(self: ptr(Interpreter), comptime T: type, object: Object) Error! Obj(T) {
@@ -176,7 +172,8 @@ pub const Interpreter = struct {
     }
 
     pub fn lookup(self: ptr(Interpreter), symbol: Obj(Symbol)) ?Object {
-        return self.evaluation_env.data.get(symbol);
+        return self.evaluation_env.data.get(symbol)
+        orelse getRml(self).global_env.data.get(symbol);
     }
 
     pub fn runProgram(self: ptr(Interpreter), origin: Origin, program: []const Object) Result! Object {
