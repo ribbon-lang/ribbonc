@@ -141,7 +141,60 @@ pub const Procedure = union(ProcedureKind) {
 
     pub fn call(self: ptr(Procedure), interpreter: ptr(Rml.Interpreter), callOrigin: Rml.Origin, blame: Object, args: []const Object) Rml.Result! Object {
         switch (self.*) {
-            .macro => { unreachable; },
+            .macro => |macro| {
+                var errors: Rml.string.StringUnmanaged = .{};
+                defer errors.deinit(getRml(self));
+
+                const writer = errors.writer(getRml(self));
+
+                var result: ?Object = null;
+                defer if (result) |res| res.deinit();
+
+                for (macro.cases.items()) |case| switch (case.data.*) {
+                    .@"else" => |caseData| {
+                        result = try interpreter.runProgram(case.getOrigin(), false, caseData.items());
+                        break;
+                    },
+                    .pattern => |caseData| {
+                        var diag: ?Rml.Diagnostic = null;
+                        const table: ?Obj(Rml.map.Table) = try caseData.scrutinizer.data.run(interpreter, &diag, callOrigin, args);
+                        if (table) |tbl| {
+                            defer tbl.deinit();
+
+                            const oldEnv = interpreter.evaluation_env;
+                            defer {
+                                interpreter.evaluation_env.deinit();
+                                interpreter.evaluation_env = oldEnv;
+                            }
+
+                            interpreter.evaluation_env = env: {
+                                const env: Obj(Rml.Env) = try macro.env.data.dupe(callOrigin);
+                                errdefer env.deinit();
+
+                                try env.data.overwriteFromTable(&tbl.data.unmanaged);
+
+                                break :env env;
+                            };
+
+                            result = try interpreter.runProgram(case.getOrigin(), false, caseData.body.items());
+                            break;
+                        } else if (diag) |d| {
+                            writer.print("failed to match; {} vs {any}:\n\t{}", .{ caseData.scrutinizer, args, d.formatter(error.PatternError)})
+                                catch |err| return Rml.errorCast(err);
+                        } else {
+                            Rml.interpreter.evaluation.err("requested pattern diagnostic is null", .{});
+                            writer.print("failed to match; {} vs {any}", .{ caseData.scrutinizer, args})
+                                catch |err| return Rml.errorCast(err);
+                        }
+                    },
+                };
+
+                if (result) |res| {
+                    return try interpreter.eval(res);
+                } else {
+                    try interpreter.abort(callOrigin, error.PatternError, "{} failed; no matching case found for input {any}", .{blame, args});
+                }
+            },
             .function => |func| {
                 var eArgs = try interpreter.evalAll(args);
                 defer eArgs.deinit(getRml(self));

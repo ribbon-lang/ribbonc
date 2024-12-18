@@ -161,8 +161,6 @@ pub fn runQuasi(interpreter: ptr(Interpreter), body: Object, out: ?*Rml.array.Ar
                     const ref = item.clone();
                     errdefer ref.deinit();
 
-                    // Rml.interpreter.evaluation.info("unquote-splice item: {} {}", .{ref, ref.getHeader().ref_count});
-
                     try outArr.append(rml, ref);
                 }
 

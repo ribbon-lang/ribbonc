@@ -173,6 +173,74 @@ pub const fun = Rml.Procedure {
     }.fun,
 };
 
+/// Create a macro closure
+pub const macro = Rml.Procedure {
+    .native_macro = &struct {
+        pub fn fun(interpreter: ptr(Interpreter), origin: Origin, args: []const Object) Result! Object {
+            Rml.interpreter.evaluation.debug("macro {}: {any}", .{origin, args});
+
+            if (args.len == 0) try interpreter.abort(origin, error.InvalidArgumentCount, "expected at least 1 argument, found 0", .{});
+
+            const rml = getRml(interpreter);
+
+            var cases: Rml.array.TypedArrayUnmanaged(Rml.procedure.Case) = .{};
+            errdefer cases.deinit(rml);
+
+            if (args.len == 1) {
+                Rml.interpreter.evaluation.debug("case macro", .{});
+                const caseSet: Obj(Rml.Block) = try interpreter.castObj(Rml.Block, args[0]);
+                defer caseSet.deinit();
+                Rml.interpreter.evaluation.debug("case set {}", .{caseSet});
+
+                var isCases = true;
+                for (caseSet.data.items()) |obj| {
+                    if (!Rml.isType(Rml.Block, obj)) {
+                        isCases = false;
+                        break;
+                    }
+                }
+
+                if (isCases) {
+                    for (caseSet.data.array.items()) |case| {
+                        Rml.interpreter.evaluation.debug("case {}", .{case});
+                        const caseBlock = try interpreter.castObj(Rml.Block, case);
+                        defer caseBlock.deinit();
+
+                        const c = try Rml.procedure.Case.parse(interpreter, origin, caseBlock.data.array.items());
+                        errdefer c.deinit();
+
+                        try cases.append(rml, c);
+                    }
+                } else {
+                    Rml.interpreter.evaluation.debug("macro single case: {any}", .{caseSet.data.array.items()});
+                    const c = try Rml.procedure.Case.parse(interpreter, origin, caseSet.data.array.items());
+                    errdefer c.deinit();
+
+                    try cases.append(rml, c);
+                }
+            } else {
+                Rml.interpreter.evaluation.debug("macro single case: {any}", .{args});
+                const c = try Rml.procedure.Case.parse(interpreter, origin, args);
+                errdefer c.deinit();
+
+                try cases.append(rml, c);
+            }
+
+            const env = try interpreter.evaluation_env.data.dupe(origin);
+            errdefer env.deinit();
+
+            const out = try Rml.wrapObject(rml, origin, Rml.Procedure {
+                .macro = .{
+                    .env = env,
+                    .cases = cases,
+                },
+            });
+
+            return out;
+        }
+    }.fun,
+};
+
 /// Print any number of arguments followed by a new line
 pub fn @"print-ln"(interpreter: ptr(Interpreter), origin: Origin, args: []const Object) Result! Object {
     const rml = getRml(interpreter);
